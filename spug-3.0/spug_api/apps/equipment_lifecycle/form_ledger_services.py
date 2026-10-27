@@ -46,6 +46,9 @@ from apps.equipment_lifecycle.form_template_manage import (
 )
 from apps.equipment_lifecycle.ledger_services import (
     EXECUTOR_FIELD_REMOVED_ERROR,
+    LedgerValidationError,
+    _validate_expected_version,
+    create_ledger_row_with_no_retry,
     generate_ledger_no,
 )
 from apps.equipment_lifecycle.models import (
@@ -117,7 +120,7 @@ def create_ledger(user, body):
         return None, EXECUTOR_FIELD_REMOVED_ERROR
     try:
         ledger = _create_ledger_row(user, template, version, client_token)
-    except FormLedgerError as e:
+    except (FormLedgerError, LedgerValidationError) as e:
         return None, str(e)
     return ledger, None
 
@@ -133,26 +136,32 @@ def _create_ledger_row(user, template, version, client_token):
         _fail('模板「%s」当前在用版本为 v%s，您提交的 v%s 已不是当前版本，'
               '不能用于新台账；如需采用旧版内容，请基于旧版内容发布新版本'
               % (locked.name, current_no, version.version_no))
-    ledger = OperationLedger(
-        tenant_id=user.tenant_id,
-        ledger_no=generate_ledger_no(
-            user.tenant_id, template.ledger_type, timezone.now().date()),
-        ledger_type=template.ledger_type,
-        status=LEDGER_STATUS_DRAFT,
-        entry_channel=ENTRY_CHANNEL_WEB,
-        created_from=LEDGER_FROM_FORM,
-        source_form_template=template,
-        client_token=client_token,
-        created_by=user,
-    )
-    ledger.save()
-    OperationLedgerFormRecord.objects.create(
-        tenant_id=user.tenant_id,
-        ledger=ledger,
-        version=version,
-        values=_canonical({}),
-    )
-    return ledger
+    def _build_row(locked=False):
+        # 编号生成 + 台账/填写记录落库包保存点重试（并发同号按唯一约束
+        # 冲突重算序号，见 ledger_services.create_ledger_row_with_no_retry）
+        ledger = OperationLedger(
+            tenant_id=user.tenant_id,
+            ledger_no=generate_ledger_no(
+                user.tenant_id, template.ledger_type, timezone.now().date(),
+                locked=locked),
+            ledger_type=template.ledger_type,
+            status=LEDGER_STATUS_DRAFT,
+            entry_channel=ENTRY_CHANNEL_WEB,
+            created_from=LEDGER_FROM_FORM,
+            source_form_template=template,
+            client_token=client_token,
+            created_by=user,
+        )
+        ledger.save()
+        OperationLedgerFormRecord.objects.create(
+            tenant_id=user.tenant_id,
+            ledger=ledger,
+            version=version,
+            values=_canonical({}),
+        )
+        return ledger
+
+    return create_ledger_row_with_no_retry(_build_row)
 
 
 def _require_record(ledger):
@@ -520,11 +529,23 @@ def missing_required_labels(form, values):
 # 台账动作
 # ======================================================================
 
-def update_values(user, ledger, values):
-    """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正流程）。"""
-    record = _require_record(ledger)
+@transaction.atomic
+def update_values(user, pk, values, expected_version=None):
+    """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正流程）。
+
+    行锁内重取台账并复查状态（关闭与完成填写/作废并发时"校验后、写入前"
+    的 TOCTOU 窗口）；expected_version 携带时做乐观并发校验（与手工路线
+    同语义），成功保存后 version+1。返回锁内最新台账对象供视图回显。
+    """
+    ledger = get_form_ledger(pk, user, for_update=True)
+    if not ledger:
+        _fail('台账不存在')
     if ledger.status not in EDITABLE_STATUSES:
         _fail('当前状态不允许修改填写值')
+    error = _validate_expected_version(ledger, expected_version)
+    if error:
+        _fail(error)
+    record = _require_record(ledger)
     form = record.version.get_form()
     try:
         normalized = validate_form_values(form, values)
@@ -533,7 +554,9 @@ def update_values(user, ledger, values):
     record.values = _canonical(normalized)
     record.updated_at = timezone.now()
     record.save(update_fields=['values', 'updated_at'])
-    return record
+    ledger.version += 1
+    ledger.save(update_fields=['version'])
+    return ledger
 
 
 @transaction.atomic

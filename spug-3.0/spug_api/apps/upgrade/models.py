@@ -13,7 +13,6 @@ from django.db import models
 from django.utils import timezone
 from libs.tenant_base_model import TenantModelMixin, TenantModelManager, make_tenant_id
 from apps.account.models import User
-from apps.equipment_lifecycle.models import LifecycleSystem
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ class UpgradeRecord(models.Model, TenantModelMixin):
                   '全局锁内分配，存量历史数据由迁移 0023 按创建日期回填）')
     title = models.CharField(max_length=200, default='', verbose_name='标题')
     system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='upgrade_records',
+        'equipment_lifecycle.LifecycleSystem', models.PROTECT, related_name='upgrade_records',
         null=True, blank=True,
         help_text='升级系统（正式系统 ID；历史未匹配记录允许为空）')
     system_code = models.CharField(

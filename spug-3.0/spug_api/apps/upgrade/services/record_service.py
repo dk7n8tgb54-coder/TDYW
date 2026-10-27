@@ -16,7 +16,6 @@ from django.utils import timezone
 
 from libs.tenant_utils import apply_tenant_filter
 from libs.idempotency import check_recent_duplicate
-from apps.equipment_lifecycle.models import LifecycleSystem
 from ..validators import RecordValidator
 from ..serializers import UpgradeRecordSerializer
 from ..constants import UPGRADE_PHASES, RESULT_MILESTONES, STANDARD_FLOW_ORDER
@@ -99,6 +98,10 @@ def generate_upgrade_no():
 
 def get_active_system_for_user(pk, user):
     """取本租户可用（未停用）系统：新建/换绑升级记录只允许选择可用系统。"""
+    # 函数内导入：RELEASE_PENDING_APPS 门控摘除 equipment_lifecycle 时，
+    # upgrade 仍须可安装，模块级导入会导致启动崩溃。
+    from apps.equipment_lifecycle.models import LifecycleSystem
+
     if not pk:
         return None
     return apply_tenant_filter(LifecycleSystem.objects.all(), user).filter(
@@ -411,6 +414,7 @@ class RecordService:
             dict: {systems, statuses, upgrade_types, phases, milestones, standard_flow}
         """
         from ..models import UpgradeRecord
+        from apps.equipment_lifecycle.models import LifecycleSystem
 
         queryset = apply_tenant_filter(UpgradeRecord.objects.filter(is_deleted=False), user)
 

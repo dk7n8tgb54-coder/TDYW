@@ -1,0 +1,10 @@
+role_id	role_name	perms_version_before	perms_version_after	removed_groups
+1	部领导	6	7	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+2	通信科	8	9	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+3	导航科	8	9	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+4	电话科	8	9	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+5	自动化科	7	8	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+6	综合科	8	9	device,fault,duty,runlog,equipment_lifecycle.device,equipment_lifecycle.relation,data_analysis.device,data_analysis.fault
+7	参与部值班	2	3	device,fault,duty,runlog
+8	安全员	6	7	device,fault,duty,runlog,data_analysis.device,data_analysis.fault
+9	党建	6	7	device,fault,duty,runlog

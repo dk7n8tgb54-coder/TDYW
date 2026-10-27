@@ -62,7 +62,7 @@ export default observer(function InterferenceAnalysis() {
           <StatCard title="频谱测量数" value={summary.measurement_count || 0} loading={loading} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
-          <StatCard title="待分类数" value={summary.pending_count || 0} loading={loading} />
+          <StatCard title="未知场景记录数" value={summary.unknown_count || 0} loading={loading} />
         </Col>
       </Row>
 

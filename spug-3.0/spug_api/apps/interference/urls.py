@@ -2,6 +2,11 @@
 
 from django.urls import re_path
 
+from apps.interference.category_views import CategoryDetailView, CategoryListView
+from apps.interference.investigation_actions import (
+    InvestigationCancelView,
+    InvestigationFinishView,
+)
 from apps.interference.views import (
     AttachmentDeleteView,
     AttachmentDownloadView,
@@ -23,6 +28,10 @@ from apps.interference.views import (
 
 
 urlpatterns = [
+    re_path(r'^categories/$', CategoryListView.as_view(), name='interference-categories'),
+    re_path(r'^categories/(?P<pk>\d+)/$',
+            CategoryDetailView.as_view(), name='interference-category-detail'),
+
     re_path(r'^events/export/$', EventExportView.as_view(), name='interference-event-export'),
     re_path(r'^events/import/$', EventImportView.as_view(), name='interference-event-import'),
     re_path(r'^events/$', EventListView.as_view(), name='interference-events'),
@@ -34,6 +43,10 @@ urlpatterns = [
             name='interference-investigations'),
     re_path(r'^investigations/(?P<pk>\d+)/events/$', InvestigationEventsView.as_view(),
             name='interference-investigation-events'),
+    re_path(r'^investigations/(?P<pk>\d+)/finish/$', InvestigationFinishView.as_view(),
+            name='interference-investigation-finish'),
+    re_path(r'^investigations/(?P<pk>\d+)/cancel/$', InvestigationCancelView.as_view(),
+            name='interference-investigation-cancel'),
     re_path(r'^investigations/(?P<pk>\d+)/measurements/$',
             InvestigationMeasurementsView.as_view(),
             name='interference-investigation-measurements'),

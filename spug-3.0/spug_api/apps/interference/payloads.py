@@ -1,7 +1,8 @@
 """干扰事件请求负载的字段清洗、解析与校验辅助函数。
 
 仅供本模块 views.py 使用：负责把请求体数据清洗为可入库的字段值，
-不承载任何数据库写入或外部副作用。
+不承载任何数据库写入或外部副作用。分类取值通过选项表
+（category_services.normalize_event_options）解析与校验。
 """
 
 from datetime import datetime
@@ -10,13 +11,10 @@ from decimal import Decimal, InvalidOperation
 from django.conf import settings
 from django.utils import timezone
 
-from apps.interference.models import (
-    AFFECTED_SYSTEM_CODE_CHOICES,
-    CLASSIFICATION_STATUS_CHOICES,
-    INTERFERENCE_KIND_CODE_CHOICES,
-    SCENE_CODE_CHOICES,
-    SOURCE_TYPE_CODE_CHOICES,
-)
+from apps.interference.category_services import normalize_event_options
+
+# 已下线字段：出现即显式拒绝，避免旧客户端静默写入
+RETIRED_EVENT_FIELDS = ('classification_status',)
 
 
 def parse_datetime(value, field='datetime'):
@@ -63,19 +61,16 @@ def parse_decimal(value, field, positive=False):
     return result
 
 
-def choice_error(value, choices, field):
-    if value not in dict(choices):
-        return f'{field}值无效'
-    return None
-
-
 def event_public_values(data, existing):
     """收集公共字段、应用默认值并解析校验，返回 ``(values, error)``。"""
     if not isinstance(data, dict):
         return None, '请求体必须是 JSON 对象'
+    for retired in RETIRED_EVENT_FIELDS:
+        if retired in data:
+            return None, f'已下线字段 {retired} 不再接受'
     values = {}
     public_fields = (
-        'datetime', 'scene_code', 'classification_status',
+        'datetime', 'scene_code',
         'interference_kind_code', 'affected_system_code', 'source_type_code',
         'flight_number', 'aircraft_no', 'aircraft_type', 'phenomenon',
         'initial_assessment', 'remark',
@@ -85,15 +80,14 @@ def event_public_values(data, existing):
             values[field] = '' if data[field] is None and field not in ('datetime',) else data[field]
     if existing is not None:
         values.setdefault('scene_code', existing.scene_code)
-        values.setdefault('classification_status', existing.classification_status)
         values.setdefault('interference_kind_code', existing.interference_kind_code)
         values.setdefault('affected_system_code', existing.affected_system_code)
         values.setdefault('source_type_code', existing.source_type_code)
     else:
         values.setdefault('scene_code', 'unknown')
-        values.setdefault('classification_status', 'pending')
         values.setdefault('interference_kind_code', 'unknown')
-        values.setdefault('affected_system_code', 'other')
+        # 受影响系统不再默认「其他」，采用明确的「未知/待查」语义
+        values.setdefault('affected_system_code', 'unknown')
         values.setdefault('source_type_code', 'unknown')
     if 'datetime' in values:
         try:
@@ -102,16 +96,9 @@ def event_public_values(data, existing):
             return None, str(exc)
     elif existing is None:
         return None, '请输入发生时间'
-    for field, choices, label in (
-        ('scene_code', SCENE_CODE_CHOICES, '发生场景'),
-        ('classification_status', CLASSIFICATION_STATUS_CHOICES, '分类状态'),
-        ('interference_kind_code', INTERFERENCE_KIND_CODE_CHOICES, '具体干扰类型'),
-        ('affected_system_code', AFFECTED_SYSTEM_CODE_CHOICES, '受影响系统'),
-        ('source_type_code', SOURCE_TYPE_CODE_CHOICES, '疑似干扰源'),
-    ):
-        error = choice_error(values.get(field), choices, label)
-        if error:
-            return None, error
+    error = normalize_event_options(values, existing)
+    if error:
+        return None, error
     return values, None
 
 
@@ -156,19 +143,6 @@ def validate_scene_detail_mix(scene, ground, air):
     return None
 
 
-def validate_confirmed_inputs(classification_status, scene, ground, air, existing):
-    """已确认事件对明细入参的必填要求（仅创建时强制）。"""
-    if classification_status != 'confirmed':
-        return None
-    if scene == 'ground' and ground is None and existing is None:
-        return '已确认的地面事件必须填写地面明细'
-    if scene == 'air' and air is None and existing is None:
-        return '已确认的空中事件必须填写空中明细'
-    if scene == 'cross' and ground is None and air is None and existing is None:
-        return '已确认的地面+空中事件至少需要一类明细'
-    return None
-
-
 def event_payload(data, existing=None):
     """清洗公共字段和明细，返回 ``(values, ground, air, error)``。"""
     values, error = event_public_values(data, existing)
@@ -179,10 +153,6 @@ def event_payload(data, existing=None):
     if error:
         return None, None, None, error
     error = validate_scene_detail_mix(values['scene_code'], ground, air)
-    if error:
-        return None, None, None, error
-    error = validate_confirmed_inputs(
-        values['classification_status'], values['scene_code'], ground, air, existing)
     if error:
         return None, None, None, error
     return values, ground, air, None

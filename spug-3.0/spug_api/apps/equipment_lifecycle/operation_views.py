@@ -583,8 +583,9 @@ class RecordDetailView(View):
             Argument('occurred_at', type=str, required=True, help='发生时间'),
             Argument('title', type=str, required=True, help='标题'),
             Argument('description', type=str, required=True, help='情况描述'),
-            Argument('category', type=str, required=False, default=None,
-                     help='异常类别；未提交时保留原值'),
+            # 无 help：显式空串=清空为未选择（与 fault_object_name 等同款语义；
+            # 带 help 的 Argument 会对显式空串抛 ParseError），未提交保留原值
+            Argument('category', type=str, required=False, default=None),
             # 无 help：显式空串=清空为未选择（与 fault_object_name 等同款语义；
             # 带 help 的 Argument 会对显式空串抛 ParseError），未提交保留原值
             Argument('fault_level', type=str, required=False, default=None),
@@ -870,7 +871,7 @@ class RecordTodoView(View):
         if record_type and record_type not in RECORD_TYPE_TEXT_MAP:
             return json_response(error='记录类型筛选值不合法')
         query = apply_tenant_filter(
-            SystemOperationRecord.objects.all(), request.user
+            SystemOperationRecord.objects.select_related('created_by'), request.user
         ).filter(status__in=TODO_OPEN_STATUSES)
         # 分组计数在整个待办范围上统计（不随 record_type 筛选变化），
         # 前端始终能展示"跟进中异常事件 X 条 / 处置中故障 Y 条"

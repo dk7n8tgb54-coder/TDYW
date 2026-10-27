@@ -310,10 +310,16 @@ class LedgerDeletionTests(LifecycleTestBase):
 class PeriodGenerationSlotTests(LifecycleTestBase):
     """生成槽位：删除草稿可重生成；作废不自动重建、补建明确重建。"""
 
-    def _generate(self, today=(2026, 10, 14)):
+    def _generate(self, today=(2026, 10, 14), template_ids=None):
+        # POST 确认生成要求显式选择维护周期与模板（服务层 required=True）。
+        if template_ids is None:
+            self.fail('_generate() 需要显式 template_ids')
         with fake_today(*today):
             resp = post_json(self.client, GENERATE_URL,
-                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                              'maintenance_cycles': ['weekly', 'monthly'],
+                              'template_ids': template_ids,
+                              'template_kinds': ['excel'] * len(template_ids)})
         self.assertFalse(resp.json().get('error'), resp.json())
         return resp.json()['data']
 
@@ -327,12 +333,12 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
     def test_deleted_draft_allows_regenerate(self):
         """本期草稿删除后允许重新生成（唯一约束不再被已删行占用）。"""
         template = self.publish_template(system=self.system_a, generation_period='weekly')
-        first = self._generate()
+        first = self._generate(template_ids=[template['id']])
         self.assertEqual(len(first['created']), 1)
         ledger_id = first['created'][0]['id']
         resp = self.client.delete('%s/%s/' % (LEDGERS_URL, ledger_id))
         self.assertFalse(resp.json().get('error'), resp.json())
-        second = self._generate()
+        second = self._generate(template_ids=[template['id']])
         self.assertEqual(len(second['created']), 1)
         self.assertNotEqual(second['created'][0]['id'], ledger_id)
         # 槽位内仍只有一张有效台账
@@ -342,7 +348,7 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
     def test_voided_slot_marked_manual_needed_and_rebuild(self):
         """作废不自动重建：预览标记需人工处理（rebuildable），补建后并存。"""
         template = self.publish_template(system=self.system_a, generation_period='weekly')
-        first = self._generate()
+        first = self._generate(template_ids=[template['id']])
         ledger_id = first['created'][0]['id']
         # 作废（作废后 slot_active 置 NULL，不再占用唯一约束）
         resp = post_json(self.client, '%s/%s/void/' % (LEDGERS_URL, ledger_id),
@@ -350,7 +356,7 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
         self.assertFalse(resp.json().get('error'), resp.json())
         self.assertIsNone(OperationLedger.objects.get(pk=ledger_id).slot_active)
         # 自动生成：不再创建（failed 中标记需人工处理），预览提供补建入口
-        result = self._generate()
+        result = self._generate(template_ids=[template['id']])
         self.assertEqual(len(result['created']), 0)
         self.assertTrue(any(f['status'] == 'manual_needed' for f in result['failed']))
         preview = self._preview()
@@ -370,7 +376,7 @@ class PeriodGenerationSlotTests(LifecycleTestBase):
         self.assertTrue(OperationLedger.objects.filter(
             pk=row['id'], status=LEDGER_STATUS_DRAFT).exists())
         # 再次自动生成：新草稿已存在 → 跳过
-        again = self._generate()
+        again = self._generate(template_ids=[template['id']])
         self.assertEqual(len(again['created']), 0)
         self.assertTrue(any(s['template_id'] == template['id'] for s in again['skipped']))
         # 本期已有有效台账时补建被拒绝

@@ -247,7 +247,7 @@ const DetailViewMode = observer(function DetailViewMode({store, sheet}) {
       ) : (
         <Spin spinning={store.loading}>
           {sheet ? (
-            <FillWorkspace store={store} readOnly={!store.correctingEditable}/>
+            <FillWorkspace store={store} readOnly={!store.fillEditable}/>
           ) : (
             <div>版本快照缺失</div>
           )}

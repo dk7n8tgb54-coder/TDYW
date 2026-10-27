@@ -28,15 +28,21 @@ class InterferenceAnalysisTest(TestCase):
     def setUp(self):
         self.user = make_user('analysis_interference', ['data_analysis.interference.view'])
 
-    def test_events_count_once_and_distributions_use_codes(self):
+    def test_events_count_once_and_distributions_use_display_names(self):
         InterferenceEvent.objects.create(
             tenant_id=self.user.tenant_id, datetime=datetime.datetime(2026, 8, 1, 10),
-            scene_code='cross', classification_status='confirmed',
+            scene_code='cross',
             interference_kind_code='intermittent', affected_system_code='communication',
-            source_type_code='vehicle_power', phenomenon='P', created_by=self.user,
+            source_type_code='ground_equipment', phenomenon='P', created_by=self.user,
         )
         result = get_interference_analysis(
             self.user, datetime.date(2026, 8, 1), datetime.date(2026, 8, 31))
         self.assertEqual(result['summary']['record_count'], 1)
         self.assertEqual(result['summary']['cross_count'], 1)
-        self.assertEqual(result['distributions']['by_scene'][0]['name'], 'cross')
+        self.assertNotIn('pending_count', result['summary'])
+        self.assertNotIn('confirmed_count', result['summary'])
+        # 分布项输出显示名称而非原始编码（场景固定名称 + 选项表名称）
+        names = {item['name'] for item in result['distributions']['by_scene']}
+        self.assertEqual(names, {'地面+空中'})
+        kind_names = {item['name'] for item in result['distributions']['by_interference_kind']}
+        self.assertEqual(kind_names, {'间歇中断'})

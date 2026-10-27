@@ -1,0 +1,273 @@
+以下为 before-fix 原始输出存档（自 .log 复制）
+INFO [DocumentConfig] Document app ready
+INFO [DocumentConfig] Registered 2 Celery Beat tasks
+Using existing test database for alias 'default' ('test_spug_qa_invlife')...
+[Celery] Document tasks imported successfully
+[Celery] RadioLicense tasks imported successfully
+[Celery] Home tasks imported successfully
+Found 13 test(s).
+Operations to perform:
+  Synchronize unmigrated apps: channels, data_analysis, libs, messages, staticfiles
+  Apply all migrations: account, alert, auth, contenttypes, contract_agreement, coop_task, department_duty_log, django_celery_beat, django_celery_results, document, duty, equipment_lifecycle, evidence, home, interference, logs, radio_license, regulation, release, reminder, runlog, sessions, setting, signature, upgrade
+Synchronizing apps without migrations:
+  Creating tables...
+    Running deferred SQL...
+Running migrations:
+  No migrations to apply.
+System check identified some issues:
+
+WARNINGS:
+document.DocumentSystemFolder.folder: (fields.W342) Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.
+	HINT: ForeignKey(unique=True) is usually better served by a OneToOneField.
+
+System check identified 1 issue (0 silenced).
+test_event_list_shows_association_info (apps.interference.tests.test_investigation_lifecycle.EventListAssociationTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/events/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.interference.add', 'interference.interference.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/13/finish/
+WARNING Not Found: /interference/investigations/13/finish/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.interference.view']
+INFO [AUTH] 权限检查结果: True
+FAIL
+test_cancel_only_from_investigating (apps.interference.tests.test_investigation_lifecycle.InvestigationCancelTest) ... ERROR
+test_cancel_requires_reason (apps.interference.tests.test_investigation_lifecycle.InvestigationCancelTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/14/cancel/
+WARNING Not Found: /interference/investigations/14/cancel/
+FAIL
+test_create_investigation_from_selected_events (apps.interference.tests.test_investigation_lifecycle.InvestigationCreateTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/events/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.interference.add', 'interference.interference.edit']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+FAIL
+test_create_rejects_client_status (apps.interference.tests.test_investigation_lifecycle.InvestigationCreateTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+FAIL
+test_cross_tenant_actions_rejected (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/17/finish/
+WARNING Not Found: /interference/investigations/17/finish/
+FAIL
+test_finish_cancel_need_edit_permission (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/18/finish/
+WARNING Not Found: /interference/investigations/18/finish/
+FAIL
+test_finish_duplicate_submit_rejected (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/19/finish/
+WARNING Not Found: /interference/investigations/19/finish/
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/19/finish/
+WARNING Not Found: /interference/investigations/19/finish/
+FAIL
+test_finish_only_from_investigating (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... ERROR
+test_finish_requires_result_and_conclusion (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/20/finish/
+WARNING Not Found: /interference/investigations/20/finish/
+FAIL
+test_finish_sets_given_end_at (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/21/finish/
+WARNING Not Found: /interference/investigations/21/finish/
+ERROR
+test_create_event_stands_alone (apps.interference.tests.test_investigation_lifecycle.InvestigationStandaloneTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/events/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.interference.add', 'interference.interference.edit']
+INFO [AUTH] 权限检查结果: True
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.interference.view']
+INFO [AUTH] 权限检查结果: True
+FAIL
+test_update_rejects_status_and_action_fields (apps.interference.tests.test_investigation_lifecycle.InvestigationUpdateGuardTest) ... WARNING [CSRF] State-changing request without Origin/Referer: method=POST, path=/interference/investigations/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.add', 'interference.interference.add']
+INFO [AUTH] 权限检查结果: True
+WARNING [CSRF] State-changing request without Origin/Referer: method=PUT, path=/interference/investigations/22/
+INFO [AUTH] 用户: inv_life_owner, 需要权限: ['interference.investigation.edit']
+INFO [AUTH] 权限检查结果: True
+FAIL
+
+======================================================================
+ERROR: test_cancel_only_from_investigating (apps.interference.tests.test_investigation_lifecycle.InvestigationCancelTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 280, in test_cancel_only_from_investigating
+    ended_id = InterferenceInvestigation.objects.create(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/query.py", line 658, in create
+    obj = self.model(**kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/base.py", line 567, in __init__
+    raise TypeError(
+TypeError: InterferenceInvestigation() got unexpected keyword arguments: 'result'
+
+======================================================================
+ERROR: test_finish_only_from_investigating (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 186, in test_finish_only_from_investigating
+    ended_id = InterferenceInvestigation.objects.create(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/query.py", line 658, in create
+    obj = self.model(**kwargs)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/models/base.py", line 567, in __init__
+    raise TypeError(
+TypeError: InterferenceInvestigation() got unexpected keyword arguments: 'result'
+
+======================================================================
+ERROR: test_finish_sets_given_end_at (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 179, in test_finish_sets_given_end_at
+    self.assertEqual(data['status'], 'ended')
+KeyError: 'status'
+
+======================================================================
+FAIL: test_event_list_shows_association_info (apps.interference.tests.test_investigation_lifecycle.EventListAssociationTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 334, in test_event_list_shows_association_info
+    self.assertNotIn('investigation_status', row)
+AssertionError: 'investigation_status' unexpectedly found in {'id': 4, 'datetime': '2026-10-24 09:28:00', 'scene_code': 'ground', 'scene_text': '地面', 'interference_kind_code': 'unknown', 'interference_kind_text': '未知/待查', 'affected_system_code': 'unknown', 'affected_system_text': '未知/待查', 'source_type_code': 'unknown', 'source_type_text': '未知/待查', 'flight_number': 'CA1004', 'aircraft_no': '', 'aircraft_type': '', 'phenomenon': '通信杂音', 'initial_assessment': '', 'remark': '', 'created_by': 16, 'created_at': '2026-10-26 21:28:52', 'updated_by': None, 'updated_at': None, 'investigation_ids': [12, 13], 'investigation_status': 'draft'}
+
+======================================================================
+FAIL: test_cancel_requires_reason (apps.interference.tests.test_investigation_lifecycle.InvestigationCancelTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 265, in test_cancel_requires_reason
+    self.assertTrue(err(response), payload)
+AssertionError: '' is not true : {}
+
+======================================================================
+FAIL: test_create_investigation_from_selected_events (apps.interference.tests.test_investigation_lifecycle.InvestigationCreateTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 114, in test_create_investigation_from_selected_events
+    self.assertEqual(data['status'], 'investigating')
+AssertionError: 'draft' != 'investigating'
+- draft
++ investigating
+
+
+======================================================================
+FAIL: test_create_rejects_client_status (apps.interference.tests.test_investigation_lifecycle.InvestigationCreateTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 127, in test_create_rejects_client_status
+    self.assertTrue(err(response))
+AssertionError: '' is not true
+
+======================================================================
+FAIL: test_cross_tenant_actions_rejected (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 247, in test_cross_tenant_actions_rejected
+    self.assertTrue(err(response))
+AssertionError: '' is not true
+
+======================================================================
+FAIL: test_finish_cancel_need_edit_permission (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 229, in test_finish_cancel_need_edit_permission
+    self.assertEqual(err(response), '权限拒绝')
+AssertionError: '' != '权限拒绝'
++ 权限拒绝
+
+======================================================================
+FAIL: test_finish_duplicate_submit_rejected (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 215, in test_finish_duplicate_submit_rejected
+    self.assertTrue(err(second))
+AssertionError: '' is not true
+
+======================================================================
+FAIL: test_finish_requires_result_and_conclusion (apps.interference.tests.test_investigation_lifecycle.InvestigationFinishTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 150, in test_finish_requires_result_and_conclusion
+    self.assertTrue(err(response), payload)
+AssertionError: '' is not true : {'conclusion': '只有结论'}
+
+======================================================================
+FAIL: test_create_event_stands_alone (apps.interference.tests.test_investigation_lifecycle.InvestigationStandaloneTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 105, in test_create_event_stands_alone
+    self.assertEqual(row.get('investigations'), [])
+AssertionError: None != []
+
+======================================================================
+FAIL: test_update_rejects_status_and_action_fields (apps.interference.tests.test_investigation_lifecycle.InvestigationUpdateGuardTest)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_lifecycle.py", line 309, in test_update_rejects_status_and_action_fields
+    self.assertIn(keyword, error, payload)
+AssertionError: '结束调查' not found in '调查状态值无效' : {'status': 'ended'}
+
+----------------------------------------------------------------------
+Ran 13 tests in 0.760s
+
+FAILED (failures=10, errors=3)
+Preserving test database for alias 'default' ('test_spug_qa_invlife')...
+=== [修复前] apps.interference.tests.test_investigation_status_migration ===
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+pymysql.err.OperationalError: (1054, "Unknown column 'result' in 'field list'")
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/data/spug/spug_api/apps/interference/tests/test_investigation_status_migration.py", line 114, in test_status_migration_mapping_and_check
+    cursor.execute(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 67, in execute
+    return self._execute_with_wrappers(
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 80, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 84, in _execute
+    with self.db.wrap_database_errors:
+  File "/usr/local/lib/python3.10/dist-packages/django/db/utils.py", line 91, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/utils.py", line 87, in _execute
+    return self.cursor.execute(sql)
+  File "/usr/local/lib/python3.10/dist-packages/django/db/backends/mysql/base.py", line 75, in execute
+    return self.cursor.execute(query, args)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 153, in execute
+    result = self._query(query)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/cursors.py", line 322, in _query
+    conn.query(q)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 575, in query
+    self._affected_rows = self._read_query_result(unbuffered=unbuffered)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 826, in _read_query_result
+    result.read()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 1203, in read
+    first_packet = self.connection._read_packet()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/connections.py", line 782, in _read_packet
+    packet.raise_for_error()
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/protocol.py", line 219, in raise_for_error
+    err.raise_mysql_exception(self._data)
+  File "/usr/local/lib/python3.10/dist-packages/pymysql/err.py", line 150, in raise_mysql_exception
+    raise errorclass(errno, errval)
+django.db.utils.OperationalError: (1054, "Unknown column 'result' in 'field list'")
+
+----------------------------------------------------------------------
+Ran 1 test in 2.207s
+
+FAILED (errors=1)
+Preserving test database for alias 'default' ('test_spug_qa_invlife')...

@@ -114,8 +114,8 @@ class Finding2TenantDeletionDataResidualTest(TestCase):
         # 1. 创建业务数据（干扰事件），tenant_id = 'recyclable_tenant'
         interference = InterferenceEvent.objects.create(
             datetime='2024-01-15 10:00:00',
-            scene_code='unknown', classification_status='pending',
-            interference_kind_code='other', affected_system_code='other',
+            scene_code='unknown',
+            interference_kind_code='intermittent', affected_system_code='other',
             source_type_code='unknown', phenomenon='测试事项',
             tenant_id='recyclable_tenant',
             created_by=self.user,

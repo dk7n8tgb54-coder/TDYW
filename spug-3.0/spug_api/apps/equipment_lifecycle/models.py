@@ -580,10 +580,8 @@ class OperationLedgerCorrection(TenantModelMixin, models.Model):
         }
 
 
-# 设计器维护台账模板/版本（2026-09-29 路线下线，2026-10-14 模型与历史表退役）：
-# DeleteModel 见迁移 0017；历史迁移 0001 序列化引用的
-# apps.equipment_lifecycle.layout_models.LongTextField 保留在 layout_models.py
-# （不修改已执行迁移，全新环境从头重放迁移必须可解析）。
+# 设计器维护台账模板/版本（2026-09-29 路线下线，2026-10-14 模型与历史表退役，
+# 2026-10-24 迁移基线重建后历史迁移 0001-0029 已删，layout_models 同步删除）。
 from apps.equipment_lifecycle.excel_models import (  # noqa: E402
     OperationLedgerExcelRecord,
     OperationLedgerExcelTemplate,

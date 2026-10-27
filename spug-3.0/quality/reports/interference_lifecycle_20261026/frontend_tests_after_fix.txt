@@ -1,0 +1,130 @@
+
+> spug_web@3.0.0 test
+> react-app-rewired test --watchAll=false --testPathPattern pages/interference
+
+PASS src/pages/interference/__tests__/payload.test.js (5.016s)
+PASS src/pages/interference/__tests__/eventForm.test.js (6.041s)
+PASS src/pages/interference/__tests__/categories.test.js (11.613s)
+  ● Console
+
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' does not match pattern ${pattern}" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' does not match pattern ${pattern}" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in CategoryModal (at categories.js:156)
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: An update to ActionButton inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://fb.me/react-wrap-tests-with-act
+          in ActionButton (created by ConfirmDialog)
+          in div (created by ConfirmDialog)
+          in div (created by ConfirmDialog)
+          in div (created by Panel)
+          in div (created by Panel)
+          in Unknown
+          in Unknown (created by Panel)
+          in div (created by Panel)
+          in Panel (created by CSSMotion)
+          in DomWrapper (created by CSSMotion)
+          in CSSMotion (created by Content)
+          in Content (created by Dialog)
+          in div (created by Dialog)
+          in div (created by Dialog)
+          in Dialog (created by PortalWrapper)
+          in ForwardRef (created by PortalWrapper)
+          in PortalWrapper (created by Dialog)
+          in Dialog (created by Modal)
+          in NoFormStyle (created by Modal)
+          in Modal (created by ConfirmDialog)
+          in ProviderChildren (created by Context.Consumer)
+          in LocaleReceiver (created by ConfigProvider)
+          in ConfigProvider (created by ConfirmDialog)
+          in ConfirmDialog
+
+PASS src/pages/interference/__tests__/detailFetchLoop.test.js (12.358s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at investigations.js:67)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in EventForm (at events.js:139)
+
+PASS src/pages/interference/__tests__/investigationLifecycle.test.js (12.93s)
+  ● Console
+
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+
+PASS src/pages/interference/__tests__/eventsList.test.js (19.229s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at events.js:143)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+
+PASS src/pages/interference/__tests__/permissionMatrix.test.js (24.297s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at investigations.js:67)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+
+
+Test Suites: 7 passed, 7 total
+Tests:       75 passed, 75 total
+Snapshots:   0 total
+Time:        25.967s
+Ran all test suites matching /pages\\interference/i.

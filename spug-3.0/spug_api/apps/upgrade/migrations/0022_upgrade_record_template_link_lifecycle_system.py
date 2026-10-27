@@ -11,8 +11,24 @@
   匹配不上保留纯文本快照、外键置空；
 - 删除「升级系统」字典表 UpgradeSystem（候选系统改由系统档案提供）。
 """
+import os
+
 from django.db import migrations, models
 import django.db.models.deletion
+
+
+def _equipment_lifecycle_gated():
+    """equipment_lifecycle 是否在 RELEASE_PENDING_APPS 门控清单中（与
+    spug/settings.py 同一口径）。门控时 EL 迁移包整体不加载，本迁移对
+    ('equipment_lifecycle', '0001_initial') 的依赖会成为悬空节点，令
+    迁移图构建失败（NodeNotFoundError）；门控场景即"保留数据、隐藏
+    模块"，本迁移早已应用、该依赖仅约束首次应用顺序，故门控下跳过。
+    与 settings.SILENCED_SYSTEM_CHECKS 的条件静默配套。"""
+    return 'equipment_lifecycle' in {
+        a.strip()
+        for a in os.environ.get('RELEASE_PENDING_APPS', '').split(',')
+        if a.strip()
+    }
 
 
 def backfill_system_link(apps, schema_editor):
@@ -54,8 +70,9 @@ class Migration(migrations.Migration):
         ('upgrade', '0021_alter_upgraderecord_unique_together_and_more'),
         # 2026-10 el 迁移合并：0001-0054 已折叠为单个 0001_initial，
         # 本迁移的历史数据回填（LifecycleSystem 名称匹配）依赖其表结构
-        ('equipment_lifecycle', '0001_initial'),
     ]
+    if not _equipment_lifecycle_gated():
+        dependencies.append(('equipment_lifecycle', '0001_initial'))
 
     operations = [
         # 1. 升级记录：文本列 → 名称快照列

@@ -263,8 +263,9 @@ class RecordRecoverView(View):
                      help='恢复确认人姓名（手动输入必填，多人以顿号分隔）'),
             Argument('recovery_close_note', type=str, required=True,
                      help='结案说明（不能为空或纯空格）'),
-            Argument('reason_analysis', type=str, required=False, default=None,
-                     help='最终原因分析（未提交时保留原值）'),
+            # 无 help：显式空串=清空为空（与编辑端点 fault_level 同款语义），
+            # 未提交保留原值；带 help 的 Argument 会对显式空串抛 ParseError
+            Argument('reason_analysis', type=str, required=False, default=None),
             Argument('reason_unknown', type=bool, required=False, default=None,
                      help='原因未明：确实无法确定原因时为 True，未提交时保留原值'),
         ).parse(body)

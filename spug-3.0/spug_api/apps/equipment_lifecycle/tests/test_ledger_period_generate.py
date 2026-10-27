@@ -125,13 +125,32 @@ class PeriodGenerateTestBase(TestCase):
         self.assertFalse(body.get('error'), body)
         return body['data']
 
-    def generate(self, ledger_type=LEDGER_TYPE_WEEK_MONTH, client=None, today=None):
+    def generate(self, ledger_type=LEDGER_TYPE_WEEK_MONTH, client=None, today=None,
+                 maintenance_cycles=None, template_ids=None, template_kinds=None):
         client = client or self.client
+        # POST 确认生成要求显式选择维护周期与模板（服务层 required=True）；
+        # 维护周期缺省按该类型的完整 allowed 集合、模板缺省取 setUp 发布的
+        # self.template，保持原"全量生成"语义不变。
+        if maintenance_cycles is None:
+            maintenance_cycles = (['seasonal'] if ledger_type == LEDGER_TYPE_SEASONAL
+                                  else ['weekly', 'monthly'])
+        if template_ids is None:
+            template = getattr(self, 'template', None)
+            self.assertIsNotNone(
+                template,
+                'generate() 需要显式 template_ids 或在 setUp 中发布 self.template')
+            template_ids = [template['id'] if isinstance(template, dict) else template.id]
+        if template_kinds is None:
+            template_kinds = ['excel'] * len(template_ids)
+        payload = {'ledger_type': ledger_type,
+                   'maintenance_cycles': maintenance_cycles,
+                   'template_ids': template_ids,
+                   'template_kinds': template_kinds}
         if today:
             with fake_today(*today):
-                resp = post_json(client, GENERATE_URL, {'ledger_type': ledger_type})
+                resp = post_json(client, GENERATE_URL, payload)
         else:
-            resp = post_json(client, GENERATE_URL, {'ledger_type': ledger_type})
+            resp = post_json(client, GENERATE_URL, payload)
         body = resp.json()
         self.assertFalse(body.get('error'), body)
         return body['data']
@@ -225,8 +244,8 @@ class MonthlyAndSeasonalTests(PeriodGenerateTestBase):
     """每月模板与季维护模板：期次口径、两个列表隔离。"""
 
     def test_monthly_template_generates_month_key(self):
-        self.publish_template(system=self.system_a, generation_period='monthly')
-        data = self.generate(today=(2026, 10, 14))
+        template = self.publish_template(system=self.system_a, generation_period='monthly')
+        data = self.generate(today=(2026, 10, 14), template_ids=[template['id']])
         self.assertEqual(len(data['created']), 1)
         self.assertEqual(data['created'][0]['maintenance_period'], '2026-10')
         self.assertEqual(data['created'][0]['period_text'], '2026年10月')
@@ -234,22 +253,26 @@ class MonthlyAndSeasonalTests(PeriodGenerateTestBase):
         self.assertTrue(ledger.ledger_no.startswith('EL-WM-20261001-'))
 
     def test_seasonal_templates_follow_aviation_seasons(self):
-        self.publish_template(
+        template = self.publish_template(
             name='季维护Excel台账', ledger_type=LEDGER_TYPE_SEASONAL,
             system=self.system_a, generation_period='seasonal')
-        summer = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 8, 15))
+        summer = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 8, 15),
+                               template_ids=[template['id']])
         self.assertEqual(summer['created'][0]['maintenance_period'], '2026-夏秋')
         self.assertEqual(summer['created'][0]['period_text'], '2026年夏秋季')
         # 冬春季（新航季）另生成一张
-        winter = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 11, 15))
+        winter = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 11, 15),
+                               template_ids=[template['id']])
         self.assertEqual(winter['created'][0]['maintenance_period'], '2026-冬春')
         self.assertEqual(winter['created'][0]['period_text'], '2026年冬春季')
         # 航季边界：10月最后一个周日（2026-10-25）当日已属冬春季，不重复生成
-        boundary = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 10, 25))
+        boundary = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 10, 25),
+                                 template_ids=[template['id']])
         self.assertEqual(boundary['created'], [])
         self.assertEqual(len(boundary['skipped']), 1)
         # 冬春季沿用现有边界：次年3月末周日（2027-03-28）前仍属 2026-冬春
-        late_winter = self.generate(LEDGER_TYPE_SEASONAL, today=(2027, 3, 27))
+        late_winter = self.generate(LEDGER_TYPE_SEASONAL, today=(2027, 3, 27),
+                                    template_ids=[template['id']])
         self.assertEqual(late_winter['created'], [])
         self.assertEqual(OperationLedger.objects.count(), 2)
         self.assertEqual(OperationLedger.objects.filter(
@@ -271,11 +294,13 @@ class MonthlyAndSeasonalTests(PeriodGenerateTestBase):
             [e['template_id'] for e in wm_preview['entries']], [wm['id']])
         self.assertEqual(
             [e['template_id'] for e in se_preview['entries']], [se['id']])
-        wm_data = self.generate(LEDGER_TYPE_WEEK_MONTH, today=(2026, 10, 14))
+        wm_data = self.generate(LEDGER_TYPE_WEEK_MONTH, today=(2026, 10, 14),
+                                template_ids=[wm['id']])
         self.assertEqual(len(wm_data['created']), 1)
         # 季维护列表未受影响：无台账生成，预览仍可新建
         self.assertEqual(OperationLedger.objects.count(), 1)
-        se_data = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 10, 14))
+        se_data = self.generate(LEDGER_TYPE_SEASONAL, today=(2026, 10, 14),
+                                template_ids=[se['id']])
         self.assertEqual(len(se_data['created']), 1)
         self.assertEqual(OperationLedger.objects.count(), 2)
         self.assertTrue(OperationLedger.objects.filter(
@@ -284,11 +309,12 @@ class MonthlyAndSeasonalTests(PeriodGenerateTestBase):
             ledger_type=LEDGER_TYPE_SEASONAL).exists())
 
     def test_weekly_and_monthly_templates_coexist_in_week_month_list(self):
-        self.publish_template(
+        weekly = self.publish_template(
             name='周模板', system=self.system_a, generation_period='weekly')
-        self.publish_template(
+        monthly = self.publish_template(
             name='月模板', system=self.system_b, generation_period='monthly')
-        data = self.generate(today=(2026, 10, 14))
+        data = self.generate(today=(2026, 10, 14),
+                             template_ids=[weekly['id'], monthly['id']])
         periods = sorted(row['maintenance_period'] for row in data['created'])
         self.assertEqual(periods, ['2026-10', '2026-10-12'])
         self.assertEqual(OperationLedger.objects.count(), 2)
@@ -379,7 +405,8 @@ class DedupAndConflictTests(PeriodGenerateTestBase):
         preview = self.preview(today=(2026, 10, 14))
         self.assertEqual(preview['summary'],
                          {'create': 2, 'exists': 0, 'no_version': 0, 'manual_needed': 0})
-        result = self.generate(today=(2026, 10, 14))
+        result = self.generate(today=(2026, 10, 14),
+                               template_ids=[self.template['id'], other['id']])
         self.assertEqual(len(result['created']), preview['summary']['create'])
         self.assertEqual(
             {row['template_id'] for row in result['created']},
@@ -396,9 +423,10 @@ class DedupAndConflictTests(PeriodGenerateTestBase):
         self.assertTrue(resp.json().get('error'), resp.json())
 
     def test_period_groups_contain_generated_ledgers_with_week_text(self):
-        self.publish_template(
+        weekly = self.publish_template(
             name='周模板', system=self.system_b, generation_period='weekly')
-        self.generate(today=(2026, 10, 14))
+        self.generate(today=(2026, 10, 14),
+                      template_ids=[self.template['id'], weekly['id']])
         with fake_today(2026, 10, 14):
             groups = self.client.get(
                 GROUPS_URL,
@@ -454,7 +482,8 @@ class ConcurrentGenerateTests(TransactionTestCase):
                     pass
                 try:
                     data, error = ledger_period_services.period_generate(
-                        self.user, LEDGER_TYPE_WEEK_MONTH)
+                        self.user, LEDGER_TYPE_WEEK_MONTH, ['monthly'],
+                        [self.template.id], ['excel'])
                     results[key] = (error, data)
                 finally:
                     from django.db import connections
@@ -483,13 +512,17 @@ class PermissionAndTenantTests(PeriodGenerateTestBase):
     """权限与租户隔离。"""
 
     def test_preview_requires_view_generate_requires_add(self):
-        self.publish_template(system=self.system_a, generation_period='monthly')
+        template = self.publish_template(system=self.system_a, generation_period='monthly')
         viewer = make_user('pg_viewer', perms=['equipment_lifecycle.ledger.view'])
         viewer_client = make_client(viewer)
         data = self.preview(client=viewer_client)
         self.assertEqual(data['summary']['create'], 1)
+        # 参数完全合法但无 add 权限：确认拒绝来自鉴权而非参数校验
         resp = post_json(viewer_client, GENERATE_URL,
-                         {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                         {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                          'maintenance_cycles': ['weekly', 'monthly'],
+                          'template_ids': [template['id']],
+                          'template_kinds': ['excel']})
         self.assertEqual(resp.json()['error'], '权限拒绝')
         self.assertEqual(OperationLedger.objects.count(), 0)
 
@@ -506,7 +539,8 @@ class PermissionAndTenantTests(PeriodGenerateTestBase):
         data_b = self.preview(client=self.other_client, today=(2026, 10, 14))
         self.assertEqual(
             [e['template_id'] for e in data_b['entries']], [other_template['id']])
-        result_b = self.generate(client=self.other_client, today=(2026, 10, 14))
+        result_b = self.generate(client=self.other_client, today=(2026, 10, 14),
+                                 template_ids=[other_template['id']])
         self.assertEqual(len(result_b['created']), 1)
         self.assertEqual(OperationLedger.objects.filter(
             tenant_id='default').count(), 0)
@@ -623,7 +657,7 @@ class TemplateGenerationConfigTests(PeriodGenerateTestBase):
         self.assertIn('待配置', entry['reason'])
         self.assertEqual(entry['generation_period_text'], '待配置')
         self.assertEqual(entry['maintenance_period'], '')
-        result = self.generate(today=(2026, 10, 14))
+        result = self.generate(today=(2026, 10, 14), template_ids=[template['id']])
         self.assertEqual(result['created'], [])
         self.assertIn('待配置', result['failed'][0]['reason'])
 
@@ -634,7 +668,7 @@ class TemplateGenerationConfigTests(PeriodGenerateTestBase):
         entry = self.entry_by_template(data, template['id'])
         self.assertEqual(entry['status'], 'no_version')
         self.assertIn('缺少可用版本', entry['reason'])
-        result = self.generate(today=(2026, 10, 14))
+        result = self.generate(today=(2026, 10, 14), template_ids=[template['id']])
         self.assertEqual(result['created'], [])
         self.assertEqual(len(result['failed']), 1)
 
@@ -653,8 +687,14 @@ class TemplateGenerationConfigTests(PeriodGenerateTestBase):
         self.assertFalse(resp.json().get('error'), resp.json())
         data = self.preview(today=(2026, 10, 14))
         self.assertEqual(data['entries'], [])
-        result = self.generate(today=(2026, 10, 14))
-        self.assertEqual(result['created'], [])
+        # 显式选择已物理删除的模板被整体拒绝（fail-closed），不产生任何台账
+        result_resp = post_json(self.client, GENERATE_URL, {
+            'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+            'maintenance_cycles': ['weekly', 'monthly'],
+            'template_ids': [template['id']],
+            'template_kinds': ['excel']})
+        self.assertIn('不存在', result_resp.json()['error'])
+        self.assertEqual(OperationLedger.objects.count(), 0)
 
     def test_deactivated_template_excluded_from_generation(self):
         """停用（is_active=False，非物理删除）模板同样退出自动生成范围。"""
@@ -663,7 +703,7 @@ class TemplateGenerationConfigTests(PeriodGenerateTestBase):
         self.assertFalse(resp.json().get('error'), resp.json())
         data = self.preview(today=(2026, 10, 14))
         self.assertEqual(data['entries'], [])
-        result = self.generate(today=(2026, 10, 14))
+        result = self.generate(today=(2026, 10, 14), template_ids=[template['id']])
         self.assertEqual(result['created'], [])
 
     def test_rebuild_rejects_deactivated_template(self):

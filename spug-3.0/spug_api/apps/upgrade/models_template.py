@@ -16,7 +16,6 @@
 from django.db import models
 from libs import ModelMixin
 from apps.account.models import User
-from apps.equipment_lifecycle.models import LifecycleSystem
 
 
 class UpgradeTemplate(models.Model, ModelMixin):
@@ -24,8 +23,10 @@ class UpgradeTemplate(models.Model, ModelMixin):
     tenant_id = models.CharField(max_length=50, default='', db_index=True, help_text='租户标识')
     name = models.CharField(max_length=100, verbose_name='方案名称')
     description = models.TextField(default='', blank=True, verbose_name='方案描述')
+    # 字符串引用：RELEASE_PENDING_APPS 门控摘除 equipment_lifecycle 时本模块
+    # 仍须可加载（与 UpgradeRecord.system 同口径），关系在访问时惰性解析。
     system = models.ForeignKey(
-        LifecycleSystem, models.PROTECT, related_name='upgrade_templates',
+        'equipment_lifecycle.LifecycleSystem', models.PROTECT, related_name='upgrade_templates',
         null=True, blank=True,
         help_text='升级系统（正式系统 ID；历史未匹配方案允许为空）')
     system_name = models.CharField(

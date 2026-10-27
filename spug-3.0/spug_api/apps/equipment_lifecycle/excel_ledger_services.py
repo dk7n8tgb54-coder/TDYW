@@ -44,6 +44,9 @@ from apps.equipment_lifecycle.excel_template_services import (
 from apps.equipment_lifecycle.ledger_services import (
     EXECUTOR_FIELD_REMOVED_ERROR,
     LEDGER_STATUS_COMPLETED,
+    LedgerValidationError,
+    _validate_expected_version,
+    create_ledger_row_with_no_retry,
     generate_ledger_no,
 )
 from apps.equipment_lifecycle.models import (
@@ -106,7 +109,7 @@ def create_ledger(user, body):
         return None, EXECUTOR_FIELD_REMOVED_ERROR
     try:
         ledger = _create_ledger_row(user, template, version, client_token)
-    except ExcelLedgerError as e:
+    except (ExcelLedgerError, LedgerValidationError) as e:
         return None, str(e)
     return ledger, None
 
@@ -129,26 +132,33 @@ def _create_ledger_row(user, template, version, client_token):
               '不能用于新台账；如需采用旧版内容，请基于旧版内容发布新版本'
               % (locked.name, current_no, version.version_no))
     bindings = version.get_bindings()
-    ledger = OperationLedger(
-        tenant_id=user.tenant_id,
-        ledger_no=generate_ledger_no(
-            user.tenant_id, template.ledger_type, timezone.now().date()),
-        ledger_type=template.ledger_type,
-        status=LEDGER_STATUS_DRAFT,
-        entry_channel=ENTRY_CHANNEL_WEB,
-        created_from=LEDGER_FROM_EXCEL,
-        client_token=client_token,
-        created_by=user,
-    )
-    ledger.save()
     prefill = excel_template_manage.default_prefill(bindings)
-    OperationLedgerExcelRecord.objects.create(
-        tenant_id=user.tenant_id,
-        ledger=ledger,
-        version=version,
-        values=_canonical(prefill),
-    )
-    return ledger
+
+    def _build_row(locked=False):
+        # 编号生成 + 台账/填写记录落库包保存点重试（并发同号按唯一约束
+        # 冲突重算序号，见 ledger_services.create_ledger_row_with_no_retry）
+        ledger = OperationLedger(
+            tenant_id=user.tenant_id,
+            ledger_no=generate_ledger_no(
+                user.tenant_id, template.ledger_type, timezone.now().date(),
+                locked=locked),
+            ledger_type=template.ledger_type,
+            status=LEDGER_STATUS_DRAFT,
+            entry_channel=ENTRY_CHANNEL_WEB,
+            created_from=LEDGER_FROM_EXCEL,
+            client_token=client_token,
+            created_by=user,
+        )
+        ledger.save()
+        OperationLedgerExcelRecord.objects.create(
+            tenant_id=user.tenant_id,
+            ledger=ledger,
+            version=version,
+            values=_canonical(prefill),
+        )
+        return ledger
+
+    return create_ledger_row_with_no_retry(_build_row)
 
 
 def _require_record(ledger):
@@ -158,11 +168,23 @@ def _require_record(ledger):
     return record
 
 
-def update_values(user, ledger, values):
-    """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正接口）。"""
-    record = _require_record(ledger)
+@transaction.atomic
+def update_values(user, pk, values, expected_version=None):
+    """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正接口）。
+
+    行锁内重取台账并复查状态（关闭与完成填写/作废并发时"校验后、写入前"
+    的 TOCTOU 窗口）；expected_version 携带时做乐观并发校验（与手工路线
+    同语义），成功保存后 version+1。返回锁内最新台账对象供视图回显。
+    """
+    ledger = get_ledger(pk, user, for_update=True)
+    if not ledger:
+        _fail('台账不存在')
     if ledger.status not in EDITABLE_STATUSES:
         _fail('当前状态不允许修改填写值')
+    error = _validate_expected_version(ledger, expected_version)
+    if error:
+        _fail(error)
+    record = _require_record(ledger)
     bindings = record.version.get_bindings()
     try:
         normalized = validate_values(bindings, values)
@@ -171,7 +193,9 @@ def update_values(user, ledger, values):
     record.values = _canonical(normalized)
     record.updated_at = timezone.now()
     record.save(update_fields=['values', 'updated_at'])
-    return record
+    ledger.version += 1
+    ledger.save(update_fields=['version'])
+    return ledger
 
 
 @transaction.atomic
@@ -219,23 +243,36 @@ def _correct_value_changes(bindings, old_values, new_values):
 
 
 @transaction.atomic
-def correct_completed_ledger(user, ledger, body):
+def correct_completed_ledger(user, pk, body):
     """已完成 Excel 台账更正：必须填写原因，记录修改人/时间/前后值。
 
-    - 仅已完成状态可更正；填写值整体校验后替换；
+    - 行锁内重取台账并复查状态（并发完成/作废/更正在锁内串行）；
+    - 填写记录锁内重读（不用 select_related 缓存对象），diff 基线取锁内
+      最新值——两次并发更正都基于最新落库值比较，旧页面快照不再全量覆盖；
+    - expected_version 携带时做乐观并发校验，成功更正后 version+1；
     - 变更前后值逐项写入 OperationLedgerCorrection（item 为空，填写值级更正），
       无实际变化时拒绝（"没有需要更正的内容"），不产生空更正记录。
     返回 (ledger, correction, changes, None) 或 (None, None, None, error)。
     """
+    ledger = get_ledger(pk, user, for_update=True)
+    if not ledger:
+        return None, None, None, '台账不存在'
     if ledger.status != LEDGER_STATUS_COMPLETED:
         return None, None, None, '只有已完成台账可以进行更正'
     reason = str(body.get('reason') or '').strip()
     if not reason:
         return None, None, None, '更正必须填写原因'
-    record = _require_record(ledger)
+    error = _validate_expected_version(ledger, body.get('expected_version'))
+    if error:
+        return None, None, None, error
+    record = OperationLedgerExcelRecord.objects.select_for_update() \
+        .filter(ledger=ledger).first()
+    if record is None:
+        return None, None, None, '台账缺少 Excel 填写记录'
     bindings = record.version.get_bindings()
     changes = []
-    new_values = record.get_values()
+    old_values = record.get_values()
+    new_values = old_values
     if 'values' in body:
         submitted = body.get('values')
         if not isinstance(submitted, dict):
@@ -244,13 +281,18 @@ def correct_completed_ledger(user, ledger, body):
             new_values = validate_values(bindings, submitted)
         except ExcelLayoutError as e:
             return None, None, None, str(e)
-        changes.extend(_correct_value_changes(
-            bindings, record.get_values(), new_values))
+        changes.extend(_correct_value_changes(bindings, old_values, new_values))
     if not changes:
         return None, None, None, '没有需要更正的内容'
     record.values = _canonical(new_values)
     record.updated_at = timezone.now()
     record.save(update_fields=['values', 'updated_at'])
+    # 回挂锁内最新填写记录到台账的 select_related 缓存：锁内另查的 record
+    # 与缓存对象不是同一实例，不回挂则视图用 ledger_detail(ledger) 生成的
+    # 成功响应仍从缓存取值，页面会拿到更正前的旧填写值
+    ledger.excel_record = record
+    ledger.version += 1
+    ledger.save(update_fields=['version'])
     correction = OperationLedgerCorrection.objects.create(
         ledger=ledger, item=None, reason=reason,
         changes=json.dumps(changes, ensure_ascii=False, default=str), corrected_by=user)

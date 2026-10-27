@@ -97,6 +97,17 @@ _base_installed_apps = [
 
 INSTALLED_APPS = [a for a in _base_installed_apps if a.split('.')[-1] not in RELEASE_PENDING_APPS]
 
+# 门控摘除 equipment_lifecycle 时，upgrade 的跨模块外键（字符串引用，
+# 访问时惰性解析）会触发 fields.E300/E307 系统检查错误，令 entrypoint
+# 的 migrate 在检查阶段失败。门控场景即"保留数据、隐藏模块"（库中
+# EL 表与历史迁移记录均在），仅在 EL 被门控时静默这两类检查；其余
+# 检查与常规部署（门控清单为空）不受影响。与 upgrade/migrations/0022
+# 的条件依赖配套。
+SILENCED_SYSTEM_CHECKS = (
+    ['fields.E300', 'fields.E307']
+    if 'equipment_lifecycle' in RELEASE_PENDING_APPS else []
+)
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',

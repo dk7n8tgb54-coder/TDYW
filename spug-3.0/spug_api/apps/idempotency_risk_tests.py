@@ -29,8 +29,7 @@ class InterferenceIdempotencyTest(TestCase):
         """修复验证：连续两次 POST 相同数据，第二次应被拒绝"""
         payload = {
             'datetime': '2026-07-29 14:00:00', 'scene_code': 'unknown',
-            'classification_status': 'pending',
-            'interference_kind_code': 'other',
+            'interference_kind_code': 'intermittent',
             'affected_system_code': 'other', 'source_type_code': 'unknown',
             'phenomenon': '信号衰减',
         }

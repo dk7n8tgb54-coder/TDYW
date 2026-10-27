@@ -255,10 +255,13 @@ class PeriodGroupsEnhancementTests(OverviewTestBase):
     def test_row_period_display_for_generated_and_legacy(self):
         # 生成路线：明确期次（用独立系统，避免 setUp 手工壳占位拦截生成）
         gen_system = make_system(self.user, system_code='SYS-G', name='生成系统')
-        self.publish_template(system=gen_system, generation_period='weekly')
+        template = self.publish_template(system=gen_system, generation_period='weekly')
         with fake_today(2026, 10, 14):
             resp = post_json(self.client, GENERATE_URL,
-                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                              'maintenance_cycles': ['weekly', 'monthly'],
+                              'template_ids': [template['id']],
+                              'template_kinds': ['excel']})
         self.assertFalse(resp.json().get('error'), resp.json())
         data = self.groups({'ledger_type': LEDGER_TYPE_WEEK_MONTH})['data']
         week = [g for g in data if g['maintenance_period'] == '2026-10-12'][0]
@@ -314,7 +317,10 @@ class WeekMonthOverviewTests(OverviewTestBase):
         # 生成后：待生成归零、待填写出现
         with fake_today(2026, 10, 14):
             resp = post_json(self.client, GENERATE_URL,
-                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                             {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                              'maintenance_cycles': ['weekly', 'monthly'],
+                              'template_ids': [weekly['id'], monthly['id']],
+                              'template_kinds': ['excel', 'excel']})
         self.assertFalse(resp.json().get('error'), resp.json())
         data = self.overview(today=(2026, 10, 14))
         week = self.block(data, 'week')
@@ -331,10 +337,13 @@ class WeekMonthOverviewTests(OverviewTestBase):
 
     def test_status_counts_use_real_ledgers(self):
         # 本期月组：生成的应填台账（draft）+ 历史台账（无期次标记按执行日期归档）
-        self.publish_template(system=self.system_a, generation_period='monthly')
+        template = self.publish_template(system=self.system_a, generation_period='monthly')
         with fake_today(2026, 10, 14):
             post_json(self.client, GENERATE_URL,
-                      {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                      {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                       'maintenance_cycles': ['weekly', 'monthly'],
+                       'template_ids': [template['id']],
+                       'template_kinds': ['excel']})
         self.make_ledger('EL-WM-20261005-0010', status='draft',
                          maintenance_period='2026-10', system=self.system_b)
         self.make_ledger('EL-WM-20261006-0011', status='completed',
@@ -387,11 +396,15 @@ class SeasonalOverviewTests(OverviewTestBase):
         self.assertEqual(self.block(wm, 'month')['expected'], 1)
 
     def test_season_counts_after_generate(self):
-        self.publish_template(ledger_type=LEDGER_TYPE_SEASONAL,
-                              system=self.system_a, generation_period='seasonal')
+        template = self.publish_template(ledger_type=LEDGER_TYPE_SEASONAL,
+                                         system=self.system_a,
+                                         generation_period='seasonal')
         with fake_today(2026, 8, 15):
             resp = post_json(self.client, GENERATE_URL,
-                             {'ledger_type': LEDGER_TYPE_SEASONAL})
+                             {'ledger_type': LEDGER_TYPE_SEASONAL,
+                              'maintenance_cycles': ['seasonal'],
+                              'template_ids': [template['id']],
+                              'template_kinds': ['excel']})
         self.assertFalse(resp.json().get('error'), resp.json())
         data = self.overview(LEDGER_TYPE_SEASONAL, today=(2026, 8, 15))
         season = self.block(data, 'season')
@@ -415,8 +428,9 @@ class OverviewPermissionAndTenantTests(OverviewTestBase):
 
     def test_tenant_isolation(self):
         self.publish_template(system=self.system_a, generation_period='weekly')
-        self.publish_template(name='B租户模板', system=self.other_system,
-                              generation_period='monthly', client=self.other_client)
+        other_template = self.publish_template(
+            name='B租户模板', system=self.other_system,
+            generation_period='monthly', client=self.other_client)
         data_a = self.overview(today=(2026, 10, 14))
         self.assertEqual(self.block(data_a, 'week')['expected'], 1)
         self.assertEqual(self.block(data_a, 'month')['expected'], 0)
@@ -426,7 +440,10 @@ class OverviewPermissionAndTenantTests(OverviewTestBase):
         # B 租户生成不影响 A 租户概览
         with fake_today(2026, 10, 14):
             post_json(self.other_client, GENERATE_URL,
-                      {'ledger_type': LEDGER_TYPE_WEEK_MONTH})
+                      {'ledger_type': LEDGER_TYPE_WEEK_MONTH,
+                       'maintenance_cycles': ['weekly', 'monthly'],
+                       'template_ids': [other_template['id']],
+                       'template_kinds': ['excel']})
         data_a = self.overview(today=(2026, 10, 14))
         self.assertEqual(self.block(data_a, 'month')['drafting'], 0)
 

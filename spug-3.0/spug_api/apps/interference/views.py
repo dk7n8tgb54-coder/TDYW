@@ -18,18 +18,18 @@ from apps.evidence.attachment_service import (
     PREVIEWABLE_EXTENSIONS,
 )
 from apps.evidence.models import EvidenceAttachment
+from apps.interference import category_services
+from apps.interference.investigation_actions import reject_lifecycle_fields
 from apps.interference.models import (
     AirInterferenceDetail,
-    AFFECTED_SYSTEM_CODE_CHOICES,
-    CLASSIFICATION_STATUS_CHOICES,
     GroundInterferenceDetail,
-    INTERFERENCE_KIND_CODE_CHOICES,
     INVESTIGATION_STATUS_CHOICES,
+    INVESTIGATION_STATUS_TEXT,
     InvestigationEvent,
     InterferenceEvent,
     InterferenceInvestigation,
     SCENE_CODE_CHOICES,
-    SOURCE_TYPE_CODE_CHOICES,
+    SCENE_CODE_TEXT,
     SpectrumMeasurement,
 )
 from apps.interference.payloads import (
@@ -154,7 +154,7 @@ def _filtered_event_queryset(request, user):
     """
     qs = _event_queryset(user)
     for query_key in (
-        'scene_code', 'classification_status', 'interference_kind_code',
+        'scene_code', 'interference_kind_code',
         'affected_system_code', 'source_type_code',
     ):
         value = request.GET.get(query_key)
@@ -298,20 +298,8 @@ def _sync_event_details(event, ground_data, air_data, data, user, creating=False
             is_deleted=True, deleted_at=timezone.now())
 
 
-def _validate_confirmed_state(event, ground_exists, air_exists):
-    """已确认事件对已存在明细的要求。"""
-    if event.classification_status != 'confirmed':
-        return None
-    if event.scene_code == 'ground' and not ground_exists:
-        return '已确认的地面事件必须存在地面明细'
-    if event.scene_code == 'air' and not air_exists:
-        return '已确认的空中事件必须存在空中明细'
-    if event.scene_code == 'cross' and not ground_exists and not air_exists:
-        return '已确认的地面+空中事件至少需要一类明细'
-    return None
-
-
 def _validate_detail_state(event):
+    """地面/空中明细必须与发生场景一致（分类状态下线后仍保留的完整性约束）。"""
     ground_exists = GroundInterferenceDetail.objects.filter(
         event_id=event.id, is_deleted=False).exists()
     air_exists = AirInterferenceDetail.objects.filter(
@@ -322,7 +310,7 @@ def _validate_detail_state(event):
         return '空中事件不能存在地面明细'
     if event.scene_code == 'unknown' and (ground_exists or air_exists):
         return '未知场景事件不能存在专属明细'
-    return _validate_confirmed_state(event, ground_exists, air_exists)
+    return None
 
 
 class EventListView(View):
@@ -334,15 +322,22 @@ class EventListView(View):
         page, page_size = paginate(request, default_page_size=100)
         total = qs.count()
         records = qs[(page - 1) * page_size:page * page_size]
+        category_maps = category_services.load_category_text_maps()
         items = []
         for event in records:
-            item = event.to_view(include_details=False)
+            item = event.to_view(include_details=False, category_maps=category_maps)
             links = InvestigationEvent.objects.filter(
                 event_id=event.id, is_deleted=False,
                 investigation__is_deleted=False).select_related('investigation')
             item['investigation_ids'] = [x.investigation_id for x in links]
-            item['investigation_status'] = next(
-                (x.investigation.status for x in links), None)
+            item['investigations'] = [
+                {
+                    'id': x.investigation_id,
+                    'name': x.investigation.name,
+                    'status': x.investigation.status,
+                    'status_text': INVESTIGATION_STATUS_TEXT.get(
+                        x.investigation.status, x.investigation.status),
+                } for x in links]
             items.append(item)
         return json_response({
             'records': items,
@@ -351,10 +346,7 @@ class EventListView(View):
             'page_size': page_size,
             'options': {
                 'scene_code': [{'value': x, 'label': y} for x, y in SCENE_CODE_CHOICES],
-                'classification_status': [
-                    {'value': x, 'label': y} for x, y in CLASSIFICATION_STATUS_CHOICES],
-                'interference_kind_code': [
-                    {'value': x, 'label': y} for x, y in INTERFERENCE_KIND_CODE_CHOICES],
+                **category_services.load_active_grouped_options(),
             },
         })
 
@@ -382,46 +374,63 @@ class EventListView(View):
             return json_response(error=error)
         try:
             with transaction.atomic():
+                # 写库前锁住所引用的选项行并复核，防止与选项删除并发竞态
+                error = category_services.lock_event_options(values, existing)
+                if error:
+                    raise ValueError(error)
                 if existing:
-                    before = existing.to_view(include_details=False)
-                    for key, value in values.items():
-                        setattr(existing, key, value)
-                    existing.updated_by = request.user
-                    existing.updated_at = timezone.now()
-                    existing.save()
-                    _sync_event_details(existing, ground, air, data, request.user)
-                    error = _validate_detail_state(existing)
-                    if error:
-                        raise ValueError(error)
-                    record_audit_event(
-                        request, 'update', 'interference_event', str(existing.id),
-                        existing.phenomenon[:100], {'id': existing.id},
-                        before_value=before,
-                        after_value=existing.to_view(include_details=False),
-                    )
-                    result = existing
+                    result = _apply_event_update(
+                        request, existing, values, ground, air, data)
                 else:
-                    if check_recent_duplicate(InterferenceEvent, {
-                        'tenant_id': getattr(request.user, 'tenant_id', 'admin'),
-                        'datetime': values.get('datetime'),
-                        'scene_code': values.get('scene_code'),
-                        'flight_number': values.get('flight_number', ''),
-                    }):
-                        return json_response(error='检测到重复提交，请勿重复操作')
-                    values['created_by'] = request.user
-                    values['tenant_id'] = getattr(request.user, 'tenant_id', 'admin')
-                    result = InterferenceEvent.objects.create(**values)
-                    _sync_event_details(result, ground, air, data, request.user, creating=True)
-                    error = _validate_detail_state(result)
-                    if error:
-                        raise ValueError(error)
-                    record_audit_event(
-                        request, 'create', 'interference_event', str(result.id),
-                        result.phenomenon[:100], {'id': result.id},
-                    )
+                    result = _apply_event_create(
+                        request, values, ground, air, data)
         except (ValueError, IntegrityError) as exc:
             return json_response(error=str(exc) or '保存失败')
         return json_response(result.to_view())
+
+
+def _apply_event_update(request, existing, values, ground, air, data):
+    """编辑既有事件并记录变更前后审计（调用方处于事务内）。"""
+    before = existing.to_view(include_details=False)
+    for key, value in values.items():
+        setattr(existing, key, value)
+    existing.updated_by = request.user
+    existing.updated_at = timezone.now()
+    existing.save()
+    _sync_event_details(existing, ground, air, data, request.user)
+    error = _validate_detail_state(existing)
+    if error:
+        raise ValueError(error)
+    record_audit_event(
+        request, 'update', 'interference_event', str(existing.id),
+        existing.phenomenon[:100], {'id': existing.id},
+        before_value=before,
+        after_value=existing.to_view(include_details=False),
+    )
+    return existing
+
+
+def _apply_event_create(request, values, ground, air, data):
+    """创建事件（调用方处于事务内）；重复提交以异常中断事务。"""
+    if check_recent_duplicate(InterferenceEvent, {
+        'tenant_id': getattr(request.user, 'tenant_id', 'admin'),
+        'datetime': values.get('datetime'),
+        'scene_code': values.get('scene_code'),
+        'flight_number': values.get('flight_number', ''),
+    }):
+        raise ValueError('检测到重复提交，请勿重复操作')
+    values['created_by'] = request.user
+    values['tenant_id'] = getattr(request.user, 'tenant_id', 'admin')
+    result = InterferenceEvent.objects.create(**values)
+    _sync_event_details(result, ground, air, data, request.user, creating=True)
+    error = _validate_detail_state(result)
+    if error:
+        raise ValueError(error)
+    record_audit_event(
+        request, 'create', 'interference_event', str(result.id),
+        result.phenomenon[:100], {'id': result.id},
+    )
+    return result
 
 
 class EventDetailView(View):
@@ -508,7 +517,7 @@ class InvestigationListView(View):
         total = qs.count()
         records = qs[(page - 1) * page_size:page * page_size]
         return json_response({
-            'records': [x.to_view() for x in records],
+            'records': InterferenceInvestigation.serialize_list(records),
             'total': total,
             'page': page,
             'page_size': page_size,
@@ -524,11 +533,11 @@ class InvestigationListView(View):
         data = _body(request)
         if data is None:
             return json_response(error='请求体必须是 JSON 对象')
+        error = reject_lifecycle_fields(data)
+        if error:
+            return json_response(error=error)
         if not data.get('name'):
             return json_response(error='请输入调查名称')
-        status = data.get('status', 'draft')
-        if status not in dict(INVESTIGATION_STATUS_CHOICES):
-            return json_response(error='调查状态值无效')
         try:
             start_at = parse_optional_datetime(data.get('start_at'), '开始时间')
             end_at = parse_optional_datetime(data.get('end_at'), '结束时间')
@@ -542,7 +551,9 @@ class InvestigationListView(View):
         except (TypeError, ValueError):
             return json_response(error='event_ids 必须是整数数组')
         with transaction.atomic():
-            fields = _investigation_create_fields(data, start_at, end_at, status)
+            # 新建即调查中，不设草稿；状态只随结束/取消动作变化
+            fields = _investigation_create_fields(
+                data, start_at, end_at, 'investigating')
             investigation = InterferenceInvestigation.objects.create(
                 tenant_id=getattr(request.user, 'tenant_id', 'admin'),
                 created_by=request.user, **fields,
@@ -617,6 +628,9 @@ class InvestigationDetailView(View):
         data = _body(request)
         if data is None:
             return json_response(error='请求体必须是 JSON 对象')
+        error = reject_lifecycle_fields(data)
+        if error:
+            return json_response(error=error)
         with transaction.atomic():
             investigation = _investigation_queryset(request.user).select_for_update().filter(
                 pk=pk).first()
@@ -624,14 +638,12 @@ class InvestigationDetailView(View):
                 return json_response(error='调查不存在或无权限编辑')
             before = investigation.to_view()
             fields = (
-                'name', 'scope', 'owner', 'trigger_reason', 'status',
+                'name', 'scope', 'owner', 'trigger_reason',
                 'conclusion', 'follow_up_advice', 'remark',
             )
             for field in fields:
                 if field in data:
                     setattr(investigation, field, data[field] or '')
-            if investigation.status not in dict(INVESTIGATION_STATUS_CHOICES):
-                return json_response(error='调查状态值无效')
             try:
                 if 'start_at' in data:
                     investigation.start_at = parse_optional_datetime(
@@ -722,6 +734,9 @@ class InvestigationEventsView(View):
             error = _link_events(
                 request, investigation, event_ids, data.get('relevance_note', ''))
             if error:
+                # 部分关联可能已在本事务内创建：报错必须整体回滚，
+                # 与 InvestigationListView.post 的 set_rollback 口径一致。
+                transaction.set_rollback(True)
                 return json_response(error=error)
             record_audit_event(
                 request, 'update', 'interference_investigation', str(pk),
@@ -1063,16 +1078,27 @@ class EventExportView(View):
         output = io.StringIO()
         writer = csv.writer(output)
         fields = (
-            'id', 'datetime', 'scene_code', 'classification_status',
+            'id', 'datetime', 'scene_code',
             'interference_kind_code', 'affected_system_code', 'source_type_code',
             'flight_number', 'aircraft_no', 'aircraft_type', 'phenomenon',
             'initial_assessment', 'remark',
         )
         writer.writerow(fields)
+        category_maps = category_services.load_category_text_maps()
         count = 0
         for event in qs.iterator():
-            record = event.to_view(include_details=False)
-            writer.writerow([record.get(key, '') for key in fields])
+            record = event.to_view(include_details=False, category_maps=category_maps)
+            row = []
+            for key in fields:
+                value = record.get(key, '')
+                # 分类列输出显示名称而非原始编码；导入端按编码或名称双向解析
+                if key in category_services.EVENT_CATEGORY_FIELD_GROUPS:
+                    value = category_maps[
+                        category_services.EVENT_CATEGORY_FIELD_GROUPS[key]].get(value, value)
+                elif key == 'scene_code':
+                    value = SCENE_CODE_TEXT.get(value, value)
+                row.append(value)
+            writer.writerow(row)
             count += 1
         record_audit_event(request, 'export', 'interference_event', detail={
             'count': count,
@@ -1107,6 +1133,9 @@ class EventImportView(View):
                 continue
             try:
                 with transaction.atomic():
+                    error = category_services.lock_event_options(values)
+                    if error:
+                        raise ValueError(error)
                     event = InterferenceEvent.objects.create(
                         **values,
                         created_by=request.user,

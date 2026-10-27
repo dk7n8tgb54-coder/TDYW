@@ -34,7 +34,7 @@ class R4InterferenceSoftDeleteFixedTest(TestCase):
         admin_user = make_user('admin_interference_f4', is_supper=True)
         record = InterferenceEvent.objects.create(
             datetime='2026-08-01 10:00:00', scene_code='unknown',
-            classification_status='pending', interference_kind_code='other',
+            interference_kind_code='intermittent',
             affected_system_code='other', source_type_code='unknown',
             phenomenon='测试',
             created_by=admin_user, tenant_id='admin',
@@ -59,7 +59,7 @@ class R6InterferenceAuditFixedTest(TestCase):
         self.client_admin = make_client(self.admin_user)
         self.record = InterferenceEvent.objects.create(
             datetime='2026-08-01 11:00:00', scene_code='unknown',
-            classification_status='pending', interference_kind_code='other',
+            interference_kind_code='intermittent',
             affected_system_code='other', source_type_code='unknown',
             phenomenon='测试',
             created_by=self.admin_user, tenant_id='admin',

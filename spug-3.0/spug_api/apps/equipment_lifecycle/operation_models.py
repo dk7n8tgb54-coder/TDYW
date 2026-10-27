@@ -423,7 +423,7 @@ class SystemOperationRecord(TenantModelMixin, models.Model):
 
 
 class SystemOperationProgress(TenantModelMixin, models.Model):
-    """统一处理进展：追加式时间线（合并原故障处置记录与运行记录处理进展）。
+    """处理进展（按记录类型呈现为补充/跟进/处置记录）：追加式时间线。
 
     - 三种记录类型共用本表：一般记录允许补充进展（不改变状态），
       异常事件首条进展即进入跟进中、已完成追加进展即重新跟进，
@@ -458,8 +458,8 @@ class SystemOperationProgress(TenantModelMixin, models.Model):
 
     class Meta:
         db_table = 'tdyw_el_operation_progress'
-        verbose_name = '统一处理进展'
-        verbose_name_plural = '统一处理进展'
+        verbose_name = '处理进展'
+        verbose_name_plural = '处理进展'
         ordering = ('handled_at', 'id')
         indexes = [
             models.Index(fields=['tenant_id', 'record', 'handled_at', 'id']),

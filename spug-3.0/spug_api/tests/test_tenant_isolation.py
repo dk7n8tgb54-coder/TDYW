@@ -44,8 +44,8 @@ class TenantFilterTest(TestCase):
         return InterferenceEvent.objects.create(
             tenant_id=tenant_id,
             datetime='2024-01-15 10:00:00',
-            scene_code='unknown', classification_status='pending',
-            interference_kind_code='other', affected_system_code='other',
+            scene_code='unknown',
+            interference_kind_code='intermittent', affected_system_code='other',
             source_type_code='unknown', phenomenon=phenomenon,
             created_by=user
         )

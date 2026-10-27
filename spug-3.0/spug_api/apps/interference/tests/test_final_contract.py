@@ -34,10 +34,9 @@ class InterferenceFinalModelTest(TestCase):
             tenant_id=self.user.tenant_id,
             datetime=datetime(2026, 8, 1, 10, 0),
             scene_code='cross',
-            classification_status='confirmed',
             interference_kind_code='intermittent',
             affected_system_code='communication',
-            source_type_code='vehicle_power',
+            source_type_code='ground_equipment',
             flight_number='CA1234', aircraft_no='B-2026', aircraft_type='A320',
             phenomenon='杂音', created_by=self.user,
         )

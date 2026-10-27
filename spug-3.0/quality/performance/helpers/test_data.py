@@ -67,7 +67,6 @@ class TestDataGenerator:
         "interference": {
             "datetime": "2026-08-01 10:00:00",
             "scene_code": "ground",
-            "classification_status": "pending",
             "interference_kind_code": "other",
             "affected_system_code": "communication",
             "source_type_code": "unknown",

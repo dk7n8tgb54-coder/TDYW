@@ -1,0 +1,273 @@
+以下为 before-fix 原始输出存档（自 .log 复制）
+
+> spug_web@3.0.0 test
+> react-app-rewired test --watchAll=false --testPathPattern pages/interference
+
+PASS src/pages/interference/__tests__/payload.test.js (6.342s)
+PASS src/pages/interference/__tests__/eventForm.test.js (7.809s)
+PASS src/pages/interference/__tests__/categories.test.js (13.91s)
+  ● Console
+
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' does not match pattern ${pattern}" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' does not match pattern ${pattern}" ]
+    console.warn node_modules/async-validator/dist-node/index.js:122
+      async-validator: [ "'${name}' is required" ]
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in CategoryModal (at categories.js:156)
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: An update to ActionButton inside a test was not wrapped in act(...).
+      
+      When testing, code that causes React state updates should be wrapped into act(...):
+      
+      act(() => {
+        /* fire events that update state */
+      });
+      /* assert on the output */
+      
+      This ensures that you're testing the behavior the user would see in the browser. Learn more at https://fb.me/react-wrap-tests-with-act
+          in ActionButton (created by ConfirmDialog)
+          in div (created by ConfirmDialog)
+          in div (created by ConfirmDialog)
+          in div (created by Panel)
+          in div (created by Panel)
+          in Unknown
+          in Unknown (created by Panel)
+          in div (created by Panel)
+          in Panel (created by CSSMotion)
+          in DomWrapper (created by CSSMotion)
+          in CSSMotion (created by Content)
+          in Content (created by Dialog)
+          in div (created by Dialog)
+          in div (created by Dialog)
+          in Dialog (created by PortalWrapper)
+          in ForwardRef (created by PortalWrapper)
+          in PortalWrapper (created by Dialog)
+          in Dialog (created by Modal)
+          in NoFormStyle (created by Modal)
+          in Modal (created by ConfirmDialog)
+          in ProviderChildren (created by Context.Consumer)
+          in LocaleReceiver (created by ConfigProvider)
+          in ConfigProvider (created by ConfirmDialog)
+          in ConfirmDialog
+
+FAIL src/pages/interference/__tests__/investigationLifecycle.test.js (14.303s)
+  ● 列表状态列三态文本渲染，不再出现内联状态下拉
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "调查中"
+    Received string:    "         调查甲investigating1----查看编辑调查乙ended0----查看编辑调查丙已取消0----查看编辑"
+
+    [0m [90m 200 |[39m   [36mawait[39m renderNode([33m<[39m[33mInvestigationsPage[39m[33m/[39m[33m>[39m)[33m;[39m
+     [90m 201 |[39m   [36mconst[39m tbody [33m=[39m document[33m.[39mquerySelector([32m'.ant-table-tbody'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 202 |[39m   expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查中'[39m)[33m;[39m
+     [90m     |[39m                             [31m[1m^[22m[39m
+     [90m 203 |[39m   expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'已结束'[39m)[33m;[39m
+     [90m 204 |[39m   expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'已取消'[39m)[33m;[39m
+     [90m 205 |[39m   [90m// 修复前：edit 权限时状态列渲染内联 Select 直接 PATCH {status}[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:202:29)
+
+  ● 编辑权限：investigating 行出现结束/取消调查按钮，结束弹窗必填校验且成功后重拉列表
+
+    expect(received).toBeTruthy()
+
+    Received: undefined
+
+    [0m [90m 218 |[39m   [36mconst[39m finishBtn [33m=[39m findButton(row[33m,[39m [32m'结束调查'[39m)[33m;[39m
+     [90m 219 |[39m   [36mconst[39m cancelBtn [33m=[39m findButton(row[33m,[39m [32m'取消调查'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 220 |[39m   expect(finishBtn)[33m.[39mtoBeTruthy()[33m;[39m
+     [90m     |[39m                     [31m[1m^[22m[39m
+     [90m 221 |[39m   expect(cancelBtn)[33m.[39mtoBeTruthy()[33m;[39m
+     [90m 222 |[39m
+     [90m 223 |[39m   click(finishBtn)[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:220:21)
+
+  ● ended/cancelled 行不显示结束/取消调查按钮
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "已结束"
+    Received string:    "调查乙ended0----查看编辑"
+
+    [0m [90m 264 |[39m   [36mconst[39m endedRow [33m=[39m rowByName([32m'调查乙'[39m)[33m;[39m
+     [90m 265 |[39m   expect(endedRow)[33m.[39mtoBeTruthy()[33m;[39m
+    [31m[1m>[22m[39m[90m 266 |[39m   expect(endedRow[33m.[39mtextContent)[33m.[39mtoContain([32m'已结束'[39m)[33m;[39m
+     [90m     |[39m                                [31m[1m^[22m[39m
+     [90m 267 |[39m   expect(findButton(endedRow[33m,[39m [32m'结束调查'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+     [90m 268 |[39m   expect(findButton(endedRow[33m,[39m [32m'取消调查'[39m))[33m.[39mtoBeUndefined()[33m;[39m
+     [90m 269 |[39m   [36mconst[39m cancelledRow [33m=[39m rowByName([32m'调查丙'[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:266:32)
+
+  ● 取消调查弹窗：必填原因校验，填写后 POST cancel 携带 cancel_reason
+
+    expect(received).toBeTruthy()
+
+    Received: undefined
+
+    [0m [90m 286 |[39m   [36mawait[39m renderNode([33m<[39m[33mInvestigationsPage[39m[33m/[39m[33m>[39m)[33m;[39m
+     [90m 287 |[39m   [36mconst[39m cancelBtn [33m=[39m findButton(rowByName([32m'调查甲'[39m)[33m,[39m [32m'取消调查'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 288 |[39m   expect(cancelBtn)[33m.[39mtoBeTruthy()[33m;[39m
+     [90m     |[39m                     [31m[1m^[22m[39m
+     [90m 289 |[39m   click(cancelBtn)[33m;[39m
+     [90m 290 |[39m   [36mawait[39m act([36masync[39m () [33m=>[39m { [36mawait[39m flush()[33m;[39m })[33m;[39m
+     [90m 291 |[39m   [36mconst[39m modal [33m=[39m modalByTitle([32m'取消调查'[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:288:21)
+
+  ● 结束失败（http reject）：不显示成功提示、列表不重拉、弹窗保持打开
+
+    TypeError: Cannot read properties of undefined (reading 'dispatchEvent')
+
+    [0m [90m 90 |[39m [36mfunction[39m click(node) {
+     [90m 91 |[39m   act(() [33m=>[39m {
+    [31m[1m>[22m[39m[90m 92 |[39m     node[33m.[39mdispatchEvent([36mnew[39m [33mMouseEvent[39m([32m'click'[39m[33m,[39m {bubbles[33m:[39m [36mtrue[39m}))[33m;[39m
+     [90m    |[39m          [31m[1m^[22m[39m
+     [90m 93 |[39m   })[33m;[39m
+     [90m 94 |[39m }
+     [90m 95 |[39m[0m
+
+      at src/pages/interference/__tests__/investigationLifecycle.test.js:92:10
+      at batchedUpdates$1 (node_modules/react-dom/cjs/react-dom.development.js:21856:12)
+      at act (node_modules/react-dom/cjs/react-dom-test-utils.development.js:929:14)
+      at click (src/pages/interference/__tests__/investigationLifecycle.test.js:91:6)
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:319:3)
+
+  ● 编辑表单退役「调查状态」下拉，概览页签只读展示状态与调查结果
+
+    expect(received).toBeNull()
+
+    Received: <div class="ant-select ant-select-in-form-item ant-select-status-success ant-select-single ant-select-show-arrow"><div class="ant-select-selector"><span class="ant-select-selection-search"><input aria-activedescendant="status_list_0" aria-autocomplete="list" aria-controls="status_list" aria-haspopup="listbox" aria-owns="status_list" autocomplete="off" class="ant-select-selection-search-input" id="status" readonly="" role="combobox" style="opacity: 0;" type="search" unselectable="on" value="" /></span><span class="ant-select-selection-item" title="ended">ended</span></div><span aria-hidden="true" class="ant-select-arrow" style="user-select: none;" unselectable="on"><span aria-label="down" class="anticon anticon-down ant-select-suffix" role="img"><svg aria-hidden="true" data-icon="down" fill="currentColor" focusable="false" height="1em" viewBox="64 64 896 896" width="1em"><path d="M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z" /></svg></span></span></div>
+
+    [0m [90m 341 |[39m   [90m// 修复前：表单「调查状态」下拉随 PUT 提交 status 键（后端已拒绝）；[39m
+     [90m 342 |[39m   [90m// 表单内其余字段均为 Input/DatePicker/TextArea，无任何 Select[39m
+    [31m[1m>[22m[39m[90m 343 |[39m   expect(modal[33m.[39mquerySelector([32m'.ant-select'[39m))[33m.[39mtoBeNull()[33m;[39m
+     [90m     |[39m                                              [31m[1m^[22m[39m
+     [90m 344 |[39m   expect(document[33m.[39mbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查状态：已结束'[39m)[33m;[39m
+     [90m 345 |[39m   expect(document[33m.[39mbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查结果：发现规律'[39m)[33m;[39m
+     [90m 346 |[39m   [90m// 非 cancelled 不显示取消原因[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:343:46)
+
+  ● 已取消调查概览展示取消原因，未填写调查结果显示 -
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "调查状态：已取消"
+    Received string:    "规律调查详情调查名称调查状态已取消负责人触发原因开始时间结束时间调查范围备注概览关联事件频谱测量调查结论附件关联事件：0 条首次发生：-最近发生：-关 闭"
+
+    [0m [90m 352 |[39m   [36mconst[39m modal [33m=[39m [36mawait[39m openFormWith({[33m...[39m[33mROW_CANCELLED[39m[33m,[39m events[33m:[39m [][33m,[39m measurements[33m:[39m []})[33m;[39m
+     [90m 353 |[39m   expect(modal)[33m.[39mtoBeTruthy()[33m;[39m
+    [31m[1m>[22m[39m[90m 354 |[39m   expect(document[33m.[39mbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查状态：已取消'[39m)[33m;[39m
+     [90m     |[39m                                     [31m[1m^[22m[39m
+     [90m 355 |[39m   expect(document[33m.[39mbody[33m.[39mtextContent)[33m.[39mtoContain([32m'取消原因：与另一调查重复'[39m)[33m;[39m
+     [90m 356 |[39m   expect(document[33m.[39mbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查结果：-'[39m)[33m;[39m
+     [90m 357 |[39m })[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/investigationLifecycle.test.js:354:37)
+
+PASS src/pages/interference/__tests__/detailFetchLoop.test.js (14.583s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at investigations.js:75)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in EventForm (at events.js:133)
+
+FAIL src/pages/interference/__tests__/eventsList.test.js (21.632s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at events.js:137)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+
+  ● 关联调查列（生命周期改造 2026-10-26）：调查状态 raw 码列退役 › 无关联行显示「未关联」，旧「调查状态」列名与 raw 状态码不再出现
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "未关联"
+    Received string:    "           2026-10-01 08:00:00地面事件1未加入查看编辑删除2026-10-01 08:00:00地面事件2未加入查看编辑删除2026-10-01 08:00:00地面事件3未加入查看编辑删除2026-10-01 08:00:00地面事件4未加入查看编辑删除2026-10-01 08:00:00地面事件5未加入查看编辑删除2026-10-01 08:00:00地面事件6未加入查看编辑删除2026-10-01 08:00:00地面事件7未加入查看编辑删除2026-10-01 08:00:00地面事件8未加入查看编辑删除2026-10-01 08:00:00地面事件9未加入查看编辑删除2026-10-01 08:00:00地面事件10未加入查看编辑删除2026-10-01 08:00:00地面事件11未加入查看编辑删除2026-10-01 08:00:00地面事件12未加入查看编辑删除2026-10-01 08:00:00地面事件13未加入查看编辑删除2026-10-01 08:00:00地面事件14未加入查看编辑删除2026-10-01 08:00:00地面事件15未加入查看编辑删除2026-10-01 08:00:00地面事件16未加入查看编辑删除2026-10-01 08:00:00地面事件17未加入查看编辑删除2026-10-01 08:00:00地面事件18未加入查看编辑删除2026-10-01 08:00:00地面事件19未加入查看编辑删除2026-10-01 08:00:00地面事件20未加入查看编辑删除"
+
+    [0m [90m 621 |[39m     [36mconst[39m tbody [33m=[39m document[33m.[39mquerySelector([32m'.ant-table-tbody'[39m)[33m;[39m
+     [90m 622 |[39m     expect(tbody)[33m.[39mtoBeTruthy()[33m;[39m
+    [31m[1m>[22m[39m[90m 623 |[39m     expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'未关联'[39m)[33m;[39m
+     [90m     |[39m                               [31m[1m^[22m[39m
+     [90m 624 |[39m     [90m// 修复前列名「调查状态」+ render raw 英文码（如 draft）[39m
+     [90m 625 |[39m     expect(tbody[33m.[39mtextContent)[33m.[39mnot[33m.[39mtoContain([32m'调查状态'[39m)[33m;[39m
+     [90m 626 |[39m     expect(tbody[33m.[39mtextContent)[33m.[39mnot[33m.[39mtoContain([32m'draft'[39m)[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/eventsList.test.js:623:31)
+
+  ● 关联调查列（生命周期改造 2026-10-26）：调查状态 raw 码列退役 › 有关联行显示「名称（状态文本）」并以、连接多条
+
+    expect(received).toContain(expected) // indexOf
+
+    Expected substring: "调查七（调查中）、调查八（已结束）"
+    Received string:    "           2026-10-01 08:00:00地面事件一未加入查看编辑删除2026-10-02 08:00:00空中事件二未加入查看编辑删除"
+
+    [0m [90m 645 |[39m     [36mawait[39m act([36masync[39m () [33m=>[39m { [36mawait[39m flush()[33m;[39m })[33m;[39m
+     [90m 646 |[39m     [36mconst[39m tbody [33m=[39m document[33m.[39mquerySelector([32m'.ant-table-tbody'[39m)[33m;[39m
+    [31m[1m>[22m[39m[90m 647 |[39m     expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'调查七（调查中）、调查八（已结束）'[39m)[33m;[39m
+     [90m     |[39m                               [31m[1m^[22m[39m
+     [90m 648 |[39m     expect(tbody[33m.[39mtextContent)[33m.[39mtoContain([32m'未关联'[39m)[33m;[39m
+     [90m 649 |[39m   })[33m;[39m
+     [90m 650 |[39m })[33m;[39m[0m
+
+      at Object.<anonymous> (src/pages/interference/__tests__/eventsList.test.js:647:31)
+
+PASS src/pages/interference/__tests__/permissionMatrix.test.js (26.467s)
+  ● Console
+
+    console.error node_modules/react-dom/cjs/react-dom.development.js:88
+      Warning: Can't perform a React state update on an unmounted component. This is a no-op, but it indicates a memory leak in your application. To fix, cancel all subscriptions and asynchronous tasks in a useEffect cleanup function.
+          in InvestigationForm (at investigations.js:75)
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error node_modules/rc-util/lib/warning.js:43
+      Warning: Instance created by `useForm` is not connected to any Form element. Forget to pass `form` prop?
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+    console.error src/components/AttachmentManager.js:242
+      [AttachmentManager:interference] 获取附件列表失败: TypeError: (data || []).map is not a function
+          at E:\TDYW\spug-3.0\spug_web\src\components\AttachmentManager.js:241:52
+
+
+Test Suites: 2 failed, 5 passed, 7 total
+Tests:       9 failed, 66 passed, 75 total
+Snapshots:   0 total
+Time:        28.68s, estimated 30s
+Ran all test suites matching /pages\\interference/i.

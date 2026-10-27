@@ -19,7 +19,12 @@ if [ -n "${RELEASE_PENDING_APPS}" ]; then
 fi
 echo "执行数据库迁移..."
 cd /data/spug/spug_api
-python manage.py migrate --noinput || echo "迁移失败或已跳过"
+# 迁移失败必须显式失败（容器退出非零码），不得用 || echo 包装成成功，
+# 否则部署验证无法发现迁移失败（2026-10 前该掩盖曾致 upgrade 停在 0021 未被发现）。
+if ! python manage.py migrate --noinput; then
+    echo "[ERROR] 数据库迁移失败，容器终止（退出码 1）"
+    exit 1
+fi
 
 # 初始化文档系统目录（党建文档等，幂等，每次启动自动确保绑定存在）
 echo "初始化文档系统目录..."

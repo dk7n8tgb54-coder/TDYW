@@ -1,0 +1,9 @@
+=== 迁移测试真隔离证明：顺序倒置（迁移测试在最前 + 生命周期 + 分类选项，单进程一条命令） ===
+命令: python manage.py test apps.interference.tests.test_investigation_status_migration apps.interference.tests.test_investigation_lifecycle apps.interference.tests.test_category_options --keepdb -v 1
+（迁移测试自备专属库 test_spug_qa_invlife_mig：克隆 default 测试库头部结构，用毕即删；default 测试库全程零写入，种子在迁移测试之后仍完好）
+.
+----------------------------------------------------------------------
+Ran 52 tests in 16.849s
+
+OK
+Preserving test database for alias 'default'...

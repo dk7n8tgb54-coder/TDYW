@@ -93,9 +93,12 @@ class ExcelLedgerDetailView(View):
         if not ledger:
             return json_response(error='台账不存在')
         try:
-            # 填写值整体替换（仅草稿可编辑）
+            # 填写值整体替换（仅草稿可编辑）：服务层行锁内重取并复查状态，
+            # expected_version（可选）做乐观并发校验，成功后 version+1
             if 'values' in body:
-                excel_ledger_services.update_values(request.user, ledger, body.get('values'))
+                ledger = excel_ledger_services.update_values(
+                    request.user, pk, body.get('values'),
+                    expected_version=body.get('expected_version'))
         except ExcelLedgerError as e:
             return json_response(error=str(e))
         record_audit_event(
@@ -123,8 +126,10 @@ class ExcelLedgerCompleteView(View):
 class ExcelLedgerCorrectView(View):
     """已完成台账更正：POST /excel-ledgers/<pk>/correct/。
 
-    body: {"reason": 必填原因, "values"?: 整体填写值}。
-    变更前后值逐项写入更正记录（修改人/时间由更正记录承载），无实际变更拒绝。
+    body: {"reason": 必填原因, "values"?: 整体填写值, "expected_version"?: 乐观版本}。
+    服务层行锁内重取台账与填写记录（并发更正串行、diff 基线为锁内最新值），
+    expected_version（可选）不匹配视为并发冲突拒绝；变更前后值逐项写入更正
+    记录（修改人/时间由更正记录承载），无实际变更拒绝。
     """
 
     @auth('equipment_lifecycle.ledger.edit')
@@ -136,7 +141,7 @@ class ExcelLedgerCorrectView(View):
         if not ledger:
             return json_response(error='台账不存在')
         ledger, correction, changes, error = excel_ledger_services.correct_completed_ledger(
-            request.user, ledger, body)
+            request.user, pk, body)
         if error:
             return json_response(error=error)
         record_audit_event(

@@ -35,6 +35,7 @@ import DocumentIndex from './pages/document';
 import PartyBuildingDocumentsIndex from './pages/document/PartyBuildingDocumentsIndex';
 import InterferenceEvents from './pages/interference/events';
 import InterferenceInvestigations from './pages/interference/investigations';
+import InterferenceCategories from './pages/interference/categories';
 import UpgradeCenter, {UpgradeCenterRedirect} from './pages/upgrade/UpgradeCenter';
 import UpgradeWorkbench from './pages/upgrade/Workbench';
 import DepartmentDutyLogIndex from './pages/departmentDutyLog';
@@ -115,6 +116,9 @@ export default [
   {icon: <ExceptionOutlined/>, title: '干扰管理', auth: 'interference.interference.view|interference.investigation.view', child: [
     {title: '干扰记录', auth: 'interference.interference.view', path: '/interference/events', component: InterferenceEvents},
     {title: '规律调查', auth: 'interference.investigation.view', path: '/interference/investigations', component: InterferenceInvestigations},
+    // 分类选项为全平台字典，仅超级管理员维护：后端以独立权限码+is_supper 双重校验，
+    // 该权限码不进入角色权限树，普通用户无法获得
+    {title: '分类选项', auth: 'interference.category.manage', path: '/interference/categories', component: InterferenceCategories},
   ]},
   {icon: <NotificationOutlined/>, title: '公告与提醒', auth: 'home.announcement.view|home.reminder.view', child: [
     {title: '发布公告', auth: 'home.announcement.view', path: '/system/announcement', component: AnnouncementAdmin},

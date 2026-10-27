@@ -56,7 +56,11 @@ class FormLedgerDetailView(View):
 
     @auth('equipment_lifecycle.ledger.edit')
     def put(self, request, pk):
-        """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正流程）。"""
+        """保存填写值（整体替换；仅草稿可编辑，完成后修改走更正流程）。
+
+        服务层行锁内重取并复查状态，expected_version（可选）做乐观并发
+        校验（与手工/Excel 路线同语义），成功保存后 version+1。
+        """
         body = _read_json_body(request)
         if body is None:
             return json_response(error='请求体格式不正确')
@@ -64,7 +68,9 @@ class FormLedgerDetailView(View):
         if not ledger:
             return json_response(error='台账不存在')
         try:
-            form_ledger_services.update_values(request.user, ledger, body.get('values'))
+            ledger = form_ledger_services.update_values(
+                request.user, pk, body.get('values'),
+                expected_version=body.get('expected_version'))
         except form_ledger_services.FormLedgerError as e:
             return json_response(error=str(e))
         record_audit_event(request, 'update', AUDIT_TARGET_LEDGER, ledger.id,

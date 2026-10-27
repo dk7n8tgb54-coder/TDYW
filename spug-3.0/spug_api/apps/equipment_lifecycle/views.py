@@ -78,6 +78,17 @@ DATE_FORMAT = '%Y-%m-%d'
 # 兼容历史调用仍提交带时分的值：只取日期部分，时间丢弃
 LEGACY_DATETIME_FORMATS = ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M')
 
+# 档案编辑路径允许写库的列。健康状态由有效故障重算服务独占写入
+# （operation_services.recompute_systems_health），档案保存必须用
+# update_fields 限定到本清单，避免"事务外读取→全字段落库"把读取时点的
+# 陈旧 health_status 覆盖回数据库（丢失更新）。
+SYSTEM_EDITABLE_FIELDS = (
+    'name', 'system_model', 'install_location', 'geo_coordinate', 'callsign',
+    'work_frequency', 'system_purpose', 'manufacturer', 'install_unit',
+    'use_unit', 'install_time', 'enable_time', 'responsible_user_name',
+    'remark', 'updated_at', 'updated_by',
+)
+
 
 def _parse_date(value):
     """解析安装/启用时间为 date；非法返回 None。"""
@@ -465,7 +476,7 @@ class SystemDetailView(View):
         _apply_fixed_fields(item, form, install_time, enable_time, request.user)
         changes = _diff_fixed_changes(before, _fixed_field_snapshot(item))
         with transaction.atomic():
-            item.save()
+            item.save(update_fields=list(SYSTEM_EDITABLE_FIELDS))
             record_audit_event(request, 'update', AUDIT_TARGET_SYSTEM, item.id, item.name,
                                before_value={'changed': [c['label'] for c in changes]},
                                after_value={'system_code': item.system_code})
@@ -489,7 +500,7 @@ class SystemDetailView(View):
         changes = _diff_fixed_changes(before, _fixed_field_snapshot(item))
 
         with transaction.atomic():
-            item.save()
+            item.save(update_fields=list(SYSTEM_EDITABLE_FIELDS))
             record_audit_event(request, 'update', AUDIT_TARGET_SYSTEM, item.id, item.name,
                                before_value={'changed': [c['label'] for c in changes]},
                                after_value={'system_code': item.system_code})

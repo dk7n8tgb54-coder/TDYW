@@ -14,6 +14,9 @@
  * 导出经公共 exportFile 二进制下载；PDF 导出先走预检接口（溢出/空白页/
  * 分页越界提示，确认后继续），默认使用版本快照参数，可传覆盖参数；
  * 作废/删除沿用既有 /ledgers 端点（删除仅草稿与旧流程历史状态）。
+ * 并发防护（2026-10-26）：写操作互斥守卫；fetchDetail 序列守卫防翻阅
+ * 竞态（旧响应不得覆盖新台账）；保存/更正携带乐观锁令牌
+ * expected_version（详情顶层 version 为基线，缺省不带，后端不校验）。
  */
 import {observable, action, computed} from 'mobx';
 import {message} from 'antd';
@@ -50,6 +53,8 @@ export class ExcelLedgerStore {
   @observable detail = null;      // 台账详情（含 excel：version/values/editable）
   @observable values = {};        // field_id -> 填写值（编辑副本）
   @observable savedValues = {};   // 最近一次保存成功的服务端值（脏值比对基线）
+  savedVersion = undefined;       // 乐观锁令牌基线（详情顶层 version；缺省则请求不带）
+  detailLoadSeq = 0;              // 详情请求序列（翻阅竞态守卫：仅最新响应可落地）
   @observable saving = false;
   @observable submitting = false;
   @observable creating = false;
@@ -155,13 +160,34 @@ export class ExcelLedgerStore {
     return this.editable || this.correcting;
   }
 
+  /**
+   * 填写区可编辑：完成/更正提交在途时锁定——这两类请求成功后以服务端
+   * 详情整体重置 values，在途输入会被静默丢弃（普通保存不重置编辑副本，
+   * 保存期间仍可继续输入）。
+   */
+  @computed get fillEditable() {
+    if (!this.correctingEditable) return false;
+    if (this.submitting) return false;
+    if (this.correcting && this.saving) return false;
+    return true;
+  }
+
   @action applyDetail(detail) {
     const payload = detail && detail.data ? detail.data : detail;
+    if (!payload) {
+      // 返回列表/退出翻阅：使在途详情请求失效——否则详情关闭后旧响应
+      // 落地仍会 applyDetail 胜出，把已退出的台账重新打开
+      this.detailLoadSeq += 1;
+      this.loading = false;
+    }
     this.detail = payload;
     this.values = {...(payload && payload.excel ? payload.excel.values : {})};
     // 服务端真值即脏值比对基线；
     // 更正模式随详情刷新退出（是否更正成功以服务端详情为准）
     this.savedValues = {...this.values};
+    // 乐观锁基线：详情/完成/更正响应统一从顶层 version 更新；
+    // 旧后端/测试 mock 无 version 时置 undefined（保存/更正请求缺省不带令牌）
+    this.savedVersion = payload ? payload.version : undefined;
     this.correcting = false;
     this.correctReason = '';
     // 切换台账详情回到主工作表（手选工作表不跨详情残留）
@@ -224,15 +250,24 @@ export class ExcelLedgerStore {
   }
 
   async fetchDetail(ledgerId) {
+    // 竞态守卫（翻阅快速连点）：发起时取序列号，响应落地前已有更新的
+    // 详情请求则本响应整体丢弃——旧详情不得覆盖新台账（否则后续保存
+    // PUT 会发往错误台账 id）
+    const seq = ++this.detailLoadSeq;
     action(() => { this.loading = true; })();
     try {
       const res = await http.get(`${API}/${ledgerId}/`);
+      if (seq !== this.detailLoadSeq) return this.detail;
       this.applyDetail(res);
       return this.detail;
     } finally {
-      // action 包裹：详情请求完成后 loading 复位必须触发订阅者重渲染
-      // （裸写在渲染调度竞态下会让详情卡加载态永久定格，2026-10-17 实机缺陷）
-      action(() => { this.loading = false; })();
+      // 仅最新请求负责复位 loading（被取代的旧请求不复位，避免提前
+      // 关掉新请求的加载态）。action 包裹：详情请求完成后 loading 复位
+      // 必须触发订阅者重渲染（裸写在渲染调度竞态下会让详情卡加载态
+      // 永久定格，2026-10-17 实机缺陷）
+      if (seq === this.detailLoadSeq) {
+        action(() => { this.loading = false; })();
+      }
     }
   }
 
@@ -258,13 +293,35 @@ export class ExcelLedgerStore {
 
   /**
    * 把未保存修改（填写值）一次 PUT 保存成功；无未保存修改时不发请求。
+   * 携带乐观锁令牌 expected_version（详情顶层 version 为基线，缺省不带）。
+   * 成功后只更新详情与保存基线（已保存部分不再算脏），编辑副本 values
+   * 不整体重置——PUT 在途期间用户的新输入保留、仍如实显示未保存
+   * （完成/更正后的 applyDetail 重置保留：完成后转只读是合理语义）。
    * 失败向上抛出（拦截器已提示），页面内容不受影响。
    */
   async _savePendingChanges(options = {}) {
     if (!this.valuesDirty) return this.detail;
+    const ledgerId = this.detail.id;
     const body = {values: this.values};
-    const res = await http.put(`${API}/${this.detail.id}/`, body);
-    this.applyDetail(res);
+    if (this.savedVersion !== undefined && this.savedVersion !== null) {
+      body.expected_version = this.savedVersion;
+    }
+    const res = await http.put(`${API}/${ledgerId}/`, body);
+    const payload = res && res.data ? res.data : res;
+    // 保存在途期间返回列表/切换详情：旧响应不写回（否则刚关闭的台账被
+    // 重新打开，或覆盖已切换的新详情）；服务端已保存，重新打开该台账
+    // 时按库内最新值展示
+    if (!this.detail || this.detail.id !== ledgerId) return null;
+    const values = payload && payload.excel ? payload.excel.values : this.values;
+    action(() => {
+      this.detail = payload;
+      this.savedValues = {...(values || {})};
+      if (payload && payload.version !== undefined && payload.version !== null) {
+        this.savedVersion = payload.version;
+      }
+      // 保存后服务端数据已变，旧打印预览失效（与 applyDetail 同一口径）
+      this.resetPrintPreview();
+    })();
     if (options.successText) message.success(options.successText);
     return this.detail;
   }
@@ -322,10 +379,16 @@ export class ExcelLedgerStore {
    */
   async complete() {
     if (!this.detail || this.saving || this.submitting) return;
+    const ledgerId = this.detail.id;
     this.submitting = true;
     try {
       await this._savePendingChanges();
-      const res = await http.post(`${API}/${this.detail.id}/complete/`);
+      // 保存在途期间返回列表/切换详情：本台账的完成流程终止（内层保存
+      // 响应已按 id 守卫丢弃，不得对已关闭/已切换的详情继续完成）
+      if (!this.detail || this.detail.id !== ledgerId) return;
+      const res = await http.post(`${API}/${ledgerId}/complete/`);
+      // 完成请求在途期间返回列表：响应落地不得把已关闭的详情重新打开
+      if (!this.detail || this.detail.id !== ledgerId) return;
       this.applyDetail(res);
       message.success('已完成填写');
     } finally {
@@ -351,13 +414,20 @@ export class ExcelLedgerStore {
   /**
    * 提交更正：整体提交当前填写值 + 原因，后端记录修改人/时间/
    * 前后值并生成更正记录；成功后以服务端详情为准（更正模式自动退出）。
+   * 与保存/完成互斥：进行中重复调用直接忽略（防止重复点击与并发处理）。
    */
   async submitCorrection() {
-    if (!this.detail || !this.correcting) return;
+    if (!this.detail || !this.correcting || this.saving || this.submitting) return;
+    const ledgerId = this.detail.id;
     this.saving = true;
     try {
       const body = {reason: this.correctReason, values: this.values};
-      const res = await http.post(`${API}/${this.detail.id}/correct/`, body);
+      if (this.savedVersion !== undefined && this.savedVersion !== null) {
+        body.expected_version = this.savedVersion;
+      }
+      const res = await http.post(`${API}/${ledgerId}/correct/`, body);
+      // 更正请求在途期间返回列表：响应落地不得把已关闭的详情重新打开
+      if (!this.detail || this.detail.id !== ledgerId) return null;
       this.applyDetail(res);
       message.success('更正已保存');
       return this.detail;

@@ -2,10 +2,12 @@
 
 from django.db.models import Count
 
+from apps.interference.category_services import load_category_text_maps
 from apps.interference.models import (
     InterferenceEvent,
     InterferenceInvestigation,
     InvestigationEvent,
+    SCENE_CODE_TEXT,
     SpectrumMeasurement,
 )
 from libs.tenant_utils import apply_tenant_filter
@@ -18,10 +20,26 @@ from .common import (
 )
 
 
+def _apply_distribution_names(distributions, category_maps):
+    """把分布项的原始编码替换为显示名称（含场景固定名称）。"""
+    for dist in distributions.get('by_scene', []):
+        dist['name'] = SCENE_CODE_TEXT.get(dist['name'], dist['name'])
+    for key, group in (
+        ('by_interference_kind', 'interference_kind'),
+        ('by_affected_system', 'affected_system'),
+        ('by_source_type', 'source_type'),
+    ):
+        name_map = category_maps.get(group, {})
+        for dist in distributions.get(key, []):
+            dist['name'] = name_map.get(dist['name'], dist['name'])
+    return distributions
+
+
 def get_interference_analysis(user, start_date, end_date):
     """返回事件、调查和频谱测量的统一聚合结果。
 
     统计只从事件主表聚合，因此跨场景事件、明细表和调查关联都不会重复计数。
+    分布项输出分类显示名称（含管理员自定义选项），不输出原始编码。
     """
     event_base = apply_tenant_filter(
         InterferenceEvent.objects.filter(is_deleted=False), user)
@@ -40,6 +58,7 @@ def get_interference_analysis(user, start_date, end_date):
     by_kind = build_distribution(events, 'interference_kind_code')
     by_system = build_distribution(events, 'affected_system_code')
     by_source = build_distribution(events, 'source_type_code')
+    category_maps = load_category_text_maps()
     return {
         'meta': build_meta(start_date, end_date),
         'summary': {
@@ -50,8 +69,6 @@ def get_interference_analysis(user, start_date, end_date):
             'air_count': events.filter(scene_code='air').count(),
             'cross_count': events.filter(scene_code='cross').count(),
             'unknown_count': events.filter(scene_code='unknown').count(),
-            'pending_count': events.filter(classification_status='pending').count(),
-            'confirmed_count': events.filter(classification_status='confirmed').count(),
         },
         'trends': {
             'record_monthly': build_monthly_trend(
@@ -61,10 +78,10 @@ def get_interference_analysis(user, start_date, end_date):
             'measurement_monthly': build_monthly_trend(
                 measurement_base, 'measured_at', start_date, end_date),
         },
-        'distributions': {
+        'distributions': _apply_distribution_names({
             'by_scene': by_scene,
             'by_interference_kind': by_kind,
             'by_affected_system': by_system,
             'by_source_type': by_source,
-        },
+        }, category_maps),
     }

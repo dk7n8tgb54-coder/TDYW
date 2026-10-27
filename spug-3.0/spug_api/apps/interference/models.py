@@ -6,6 +6,7 @@
 专属字段分别放在共享主键明细表中，避免把两种场景拼成一张宽表。
 """
 
+import re
 from collections import Counter
 
 from django.core.exceptions import ValidationError
@@ -28,53 +29,38 @@ SCENE_CODE_CHOICES = (
 )
 SCENE_CODE_TEXT = dict(SCENE_CODE_CHOICES)
 
-CLASSIFICATION_STATUS_CHOICES = (
-    ('pending', '待分类'),
-    ('confirmed', '已确认'),
+# 干扰分类选项分组（2026-10-25 起三个分类下拉从固定枚举改为选项表维护）
+CATEGORY_GROUP_KIND = 'interference_kind'
+CATEGORY_GROUP_SYSTEM = 'affected_system'
+CATEGORY_GROUP_SOURCE = 'source_type'
+CATEGORY_GROUP_CHOICES = (
+    (CATEGORY_GROUP_KIND, '具体干扰类型'),
+    (CATEGORY_GROUP_SYSTEM, '受影响系统'),
+    (CATEGORY_GROUP_SOURCE, '疑似干扰源'),
 )
-CLASSIFICATION_STATUS_TEXT = dict(CLASSIFICATION_STATUS_CHOICES)
+CATEGORY_GROUP_TEXT = dict(CATEGORY_GROUP_CHOICES)
 
-INTERFERENCE_KIND_CODE_CHOICES = (
-    ('noise', '杂音'),
-    ('intermittent', '间歇中断'),
-    ('communication_loss', '完全失联'),
-    ('frequency_occupy', '频率占用'),
-    ('blocking', '阻塞'),
-    ('false_alarm', '虚警'),
-    ('other', '其他'),
-    ('unknown', '未知'),
-)
-INTERFERENCE_KIND_CODE_TEXT = dict(INTERFERENCE_KIND_CODE_CHOICES)
+# 稳定编码规则：小写字母开头，仅小写字母/数字/下划线
+CATEGORY_CODE_PATTERN = re.compile(r'^[a-z][a-z0-9_]*$')
 
-AFFECTED_SYSTEM_CODE_CHOICES = (
-    ('communication', '通信'),
-    ('navigation', '导航'),
-    ('surveillance', '监视'),
-    ('datalink', '数据链'),
-    ('equipment', '设备电磁兼容'),
-    ('other', '其他'),
-)
-AFFECTED_SYSTEM_CODE_TEXT = dict(AFFECTED_SYSTEM_CODE_CHOICES)
-
-SOURCE_TYPE_CODE_CHOICES = (
-    ('ground_equipment', '地面设备'),
-    ('vehicle_power', '车辆/电源'),
-    ('aircraft_equipment', '机载设备'),
-    ('external_transmitter', '外部发射源'),
-    ('environment', '环境'),
-    ('unknown', '未知'),
-)
-SOURCE_TYPE_CODE_TEXT = dict(SOURCE_TYPE_CODE_CHOICES)
-
+# 规律调查生命周期（2026-10-26 三态收敛）：调查只由用户从选中记录主动
+# 发起，保存后即 investigating；状态只能通过「结束调查」「取消调查」两个
+# 业务动作变更（见 investigation_actions），通用创建/编辑路径 fail-closed。
 INVESTIGATION_STATUS_CHOICES = (
-    ('draft', '草稿'),
-    ('observing', '持续观察'),
-    ('measuring', '测量中'),
-    ('concluded', '已形成结论'),
-    ('closed', '已结束'),
+    ('investigating', '调查中'),
+    ('ended', '已结束'),
     ('cancelled', '已取消'),
 )
 INVESTIGATION_STATUS_TEXT = dict(INVESTIGATION_STATUS_CHOICES)
+
+# 「结束调查」动作的业务结论：发现规律/未发现规律/暂无法确认。
+# 历史行 result 保持空串，禁止从自由文本 conclusion 推断。
+INVESTIGATION_RESULT_CHOICES = (
+    ('found', '发现规律'),
+    ('not_found', '未发现规律'),
+    ('undetermined', '暂无法确认'),
+)
+INVESTIGATION_RESULT_TEXT = dict(INVESTIGATION_RESULT_CHOICES)
 
 
 class SoftDeleteTenantModel(models.Model, TenantModelMixin):
@@ -89,25 +75,81 @@ class SoftDeleteTenantModel(models.Model, TenantModelMixin):
         abstract = True
 
 
+class InterferenceCategoryOption(models.Model):
+    """干扰分类选项：全平台共用的字典数据，仅超级管理员维护。
+
+    - 不带租户字段，所有租户的事件共用同一套选项；
+    - 编码一经使用即不可删除或复用：已被任何事件（含跨租户、含软删除）
+      引用的选项拒绝删除，从未被引用的选项允许物理删除；
+    - 停用（is_active=False）后不再供新事件选择，历史事件仍按名称显示；
+    - unknown 编码是新建事件的缺省分类值，任何分组下都不允许删除；
+    - created_by 可空：迁移播种的系统内置选项没有维护人。
+    """
+
+    group = models.CharField(
+        max_length=32, choices=CATEGORY_GROUP_CHOICES, verbose_name='分组')
+    code = models.CharField(max_length=40, verbose_name='稳定编码')
+    name = models.CharField(max_length=100, verbose_name='名称')
+    sort_id = models.IntegerField(default=0, verbose_name='排序')
+    is_active = models.BooleanField(default=True, verbose_name='启用')
+    created_by = models.ForeignKey(
+        User, models.PROTECT, related_name='+', null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_by = models.ForeignKey(
+        User, models.PROTECT, related_name='+', null=True, blank=True)
+    updated_at = models.DateTimeField(null=True, blank=True)
+
+    def clean(self):
+        if self.group not in CATEGORY_GROUP_TEXT:
+            raise ValidationError({'group': '无效的选项分组'})
+        if not self.code or not CATEGORY_CODE_PATTERN.match(self.code):
+            raise ValidationError({
+                'code': '编码必须以小写字母开头，仅含小写字母、数字和下划线'})
+        if not self.name or not self.name.strip():
+            raise ValidationError({'name': '请输入选项名称'})
+
+    def to_view(self):
+        return {
+            'id': self.id,
+            'group': self.group,
+            'group_text': CATEGORY_GROUP_TEXT.get(self.group, self.group),
+            'code': self.code,
+            'name': self.name,
+            'sort_id': self.sort_id,
+            'is_active': self.is_active,
+            'created_at': self.created_at,
+            'updated_at': self.updated_at,
+        }
+
+    class Meta:
+        db_table = 'tdyw_interference_category_options'
+        verbose_name = '干扰分类选项'
+        verbose_name_plural = '干扰分类选项'
+        ordering = ('group', 'sort_id', 'id')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['group', 'code'], name='inter_cat_group_code_unique'),
+        ]
+
+
 class InterferenceEvent(SoftDeleteTenantModel):
-    """一次干扰事实事件。"""
+    """一次干扰事实事件。
+
+    三个分类字段（具体干扰类型/受影响系统/疑似干扰源）不再绑定固定枚举，
+    取值由 InterferenceCategoryOption 选项表在写入层校验；数据库层仅保留
+    非空与长度约束，历史编码按选项表名称显示。
+    """
 
     datetime = models.DateTimeField(verbose_name='发生时间')
     scene_code = models.CharField(
         max_length=20, choices=SCENE_CODE_CHOICES, default='unknown',
         verbose_name='发生场景')
-    classification_status = models.CharField(
-        max_length=20, choices=CLASSIFICATION_STATUS_CHOICES, default='pending',
-        verbose_name='分类状态')
     interference_kind_code = models.CharField(
-        max_length=40, choices=INTERFERENCE_KIND_CODE_CHOICES, default='unknown',
-        verbose_name='具体干扰类型')
+        max_length=40, default='unknown', verbose_name='具体干扰类型')
     affected_system_code = models.CharField(
-        max_length=40, choices=AFFECTED_SYSTEM_CODE_CHOICES, default='other',
-        verbose_name='受影响系统')
+        max_length=40, default='unknown', verbose_name='受影响系统')
     source_type_code = models.CharField(
-        max_length=40, choices=SOURCE_TYPE_CODE_CHOICES, default='unknown',
-        verbose_name='疑似干扰源')
+        max_length=40, default='unknown', verbose_name='疑似干扰源')
     flight_number = models.CharField(max_length=100, blank=True, default='')
     aircraft_no = models.CharField(max_length=100, blank=True, default='')
     aircraft_type = models.CharField(max_length=100, blank=True, default='')
@@ -122,42 +164,28 @@ class InterferenceEvent(SoftDeleteTenantModel):
     updated_at = models.DateTimeField(null=True, blank=True)
 
     def clean(self):
-        """对已确认事件校验明细边界（跨表完整性由写入服务补齐）。"""
+        """校验场景取值（跨表明细一致性由写入服务补齐）。"""
         super().clean()
-        if self.scene_code not in dict(SCENE_CODE_CHOICES):
+        if self.scene_code not in SCENE_CODE_TEXT:
             raise ValidationError({'scene_code': '无效的发生场景'})
-        if self.classification_status not in dict(CLASSIFICATION_STATUS_CHOICES):
-            raise ValidationError({'classification_status': '无效的分类状态'})
-        if not self.pk or self.classification_status != 'confirmed':
-            return
-        ground_exists = GroundInterferenceDetail.objects.filter(
-            event_id=self.pk, is_deleted=False).exists()
-        air_exists = AirInterferenceDetail.objects.filter(
-            event_id=self.pk, is_deleted=False).exists()
-        if self.scene_code == 'ground' and (not ground_exists or air_exists):
-            raise ValidationError('地面事件必须只有地面明细')
-        if self.scene_code == 'air' and (not air_exists or ground_exists):
-            raise ValidationError('空中事件必须只有空中明细')
-        if self.scene_code == 'unknown' and (ground_exists or air_exists):
-            raise ValidationError('未知场景事件不能存在专属明细')
 
-    def to_view(self, include_details=True):
+    def to_view(self, include_details=True, category_maps=None):
+        if category_maps is None:
+            from apps.interference import category_services
+            category_maps = category_services.load_category_text_maps()
         result = {
             'id': self.id,
             'datetime': self.datetime,
             'scene_code': self.scene_code,
             'scene_text': SCENE_CODE_TEXT.get(self.scene_code, self.scene_code),
-            'classification_status': self.classification_status,
-            'classification_status_text': CLASSIFICATION_STATUS_TEXT.get(
-                self.classification_status, self.classification_status),
             'interference_kind_code': self.interference_kind_code,
-            'interference_kind_text': INTERFERENCE_KIND_CODE_TEXT.get(
+            'interference_kind_text': category_maps['interference_kind'].get(
                 self.interference_kind_code, self.interference_kind_code),
             'affected_system_code': self.affected_system_code,
-            'affected_system_text': AFFECTED_SYSTEM_CODE_TEXT.get(
+            'affected_system_text': category_maps['affected_system'].get(
                 self.affected_system_code, self.affected_system_code),
             'source_type_code': self.source_type_code,
-            'source_type_text': SOURCE_TYPE_CODE_TEXT.get(
+            'source_type_text': category_maps['source_type'].get(
                 self.source_type_code, self.source_type_code),
             'flight_number': self.flight_number,
             'aircraft_no': self.aircraft_no,
@@ -195,29 +223,11 @@ class InterferenceEvent(SoftDeleteTenantModel):
                          name='inter_event_time_idx'),
             models.Index(fields=['tenant_id', 'scene_code'],
                          name='inter_event_scene_idx'),
-            models.Index(fields=['tenant_id', 'classification_status'],
-                         name='inter_event_class_idx'),
         ]
         constraints = [
             models.CheckConstraint(
                 check=models.Q(scene_code__in=[x[0] for x in SCENE_CODE_CHOICES]),
                 name='inter_event_scene_valid'),
-            models.CheckConstraint(
-                check=models.Q(
-                    classification_status__in=[x[0] for x in CLASSIFICATION_STATUS_CHOICES]),
-                name='inter_event_class_valid'),
-            models.CheckConstraint(
-                check=models.Q(
-                    interference_kind_code__in=[x[0] for x in INTERFERENCE_KIND_CODE_CHOICES]),
-                name='inter_event_kind_valid'),
-            models.CheckConstraint(
-                check=models.Q(
-                    affected_system_code__in=[x[0] for x in AFFECTED_SYSTEM_CODE_CHOICES]),
-                name='inter_event_system_valid'),
-            models.CheckConstraint(
-                check=models.Q(
-                    source_type_code__in=[x[0] for x in SOURCE_TYPE_CODE_CHOICES]),
-                name='inter_event_source_valid'),
         ]
 
 
@@ -312,7 +322,12 @@ class InterferenceInvestigation(SoftDeleteTenantModel):
     start_at = models.DateTimeField(null=True, blank=True)
     end_at = models.DateTimeField(null=True, blank=True)
     status = models.CharField(
-        max_length=20, choices=INVESTIGATION_STATUS_CHOICES, default='draft')
+        max_length=20, choices=INVESTIGATION_STATUS_CHOICES,
+        default='investigating')
+    result = models.CharField(
+        max_length=20, choices=INVESTIGATION_RESULT_CHOICES,
+        blank=True, default='', verbose_name='调查结果')
+    cancel_reason = models.TextField(blank=True, default='', verbose_name='取消原因')
     conclusion = models.TextField(blank=True, default='')
     follow_up_advice = models.TextField(blank=True, default='')
     remark = models.TextField(blank=True, default='')
@@ -323,10 +338,20 @@ class InterferenceInvestigation(SoftDeleteTenantModel):
         User, models.PROTECT, related_name='+', null=True, blank=True)
     updated_at = models.DateTimeField(null=True, blank=True)
 
-    def to_view(self):
+    @classmethod
+    def _load_view_context(cls, investigation_ids):
+        """批量加载序列化所需的关联与明细（列表页避免逐条 N+1）。
+
+        查询语义与单条 to_view 完全一致：有效关联（关联与事件均未删除）
+        按事件发生时间排序，地面/空中明细按事件批量取一次。
+        """
         links = list(InvestigationEvent.objects.filter(
-            investigation_id=self.pk, is_deleted=False, event__is_deleted=False
+            investigation_id__in=investigation_ids, is_deleted=False,
+            event__is_deleted=False,
         ).select_related('event').order_by('event__datetime', 'event_id'))
+        links_by_investigation = {}
+        for link in links:
+            links_by_investigation.setdefault(link.investigation_id, []).append(link)
         event_ids = [link.event_id for link in links]
         ground_by_event = {
             detail.event_id: detail for detail in GroundInterferenceDetail.objects.filter(
@@ -336,6 +361,10 @@ class InterferenceInvestigation(SoftDeleteTenantModel):
             detail.event_id: detail for detail in AirInterferenceDetail.objects.filter(
                 event_id__in=event_ids, is_deleted=False)
         }
+        return links_by_investigation, ground_by_event, air_by_event
+
+    def _build_view(self, links, ground_by_event, air_by_event):
+        event_ids = [link.event_id for link in links]
 
         def most_common(values):
             values = [str(value).strip() for value in values if str(value or '').strip()]
@@ -365,6 +394,9 @@ class InterferenceInvestigation(SoftDeleteTenantModel):
             'end_at': self.end_at,
             'status': self.status,
             'status_text': INVESTIGATION_STATUS_TEXT.get(self.status, self.status),
+            'result': self.result,
+            'result_text': INVESTIGATION_RESULT_TEXT.get(self.result, self.result),
+            'cancel_reason': self.cancel_reason,
             'conclusion': self.conclusion,
             'follow_up_advice': self.follow_up_advice,
             'remark': self.remark,
@@ -378,6 +410,28 @@ class InterferenceInvestigation(SoftDeleteTenantModel):
             'updated_by': self.updated_by_id,
             'updated_at': self.updated_at,
         }
+
+    def to_view(self):
+        links_by_investigation, ground_by_event, air_by_event = (
+            self._load_view_context([self.pk]))
+        return self._build_view(
+            links_by_investigation.get(self.pk, []),
+            ground_by_event, air_by_event)
+
+    @classmethod
+    def serialize_list(cls, investigations):
+        """列表页批量序列化：每页固定 3 次查询替代逐条 to_view 的 N+1。"""
+        investigations = list(investigations)
+        if not investigations:
+            return []
+        links_by_investigation, ground_by_event, air_by_event = (
+            cls._load_view_context([item.id for item in investigations]))
+        return [
+            item._build_view(
+                links_by_investigation.get(item.id, []),
+                ground_by_event, air_by_event)
+            for item in investigations
+        ]
 
     class Meta:
         db_table = 'tdyw_interference_investigations'
@@ -502,10 +556,10 @@ class SpectrumMeasurement(SoftDeleteTenantModel):
 __all__ = [
     'InterferenceEvent', 'GroundInterferenceDetail', 'AirInterferenceDetail',
     'InterferenceInvestigation', 'InvestigationEvent', 'SpectrumMeasurement',
-    'SCENE_CODE_CHOICES', 'CLASSIFICATION_STATUS_CHOICES',
-    'INTERFERENCE_KIND_CODE_CHOICES', 'AFFECTED_SYSTEM_CODE_CHOICES',
-    'SOURCE_TYPE_CODE_CHOICES', 'INVESTIGATION_STATUS_CHOICES',
-    'SCENE_CODE_TEXT', 'CLASSIFICATION_STATUS_TEXT',
-    'INTERFERENCE_KIND_CODE_TEXT', 'AFFECTED_SYSTEM_CODE_TEXT',
-    'SOURCE_TYPE_CODE_TEXT', 'INVESTIGATION_STATUS_TEXT',
+    'InterferenceCategoryOption',
+    'SCENE_CODE_CHOICES', 'SCENE_CODE_TEXT', 'INVESTIGATION_STATUS_CHOICES',
+    'INVESTIGATION_STATUS_TEXT', 'INVESTIGATION_RESULT_CHOICES',
+    'INVESTIGATION_RESULT_TEXT', 'CATEGORY_GROUP_KIND', 'CATEGORY_GROUP_SYSTEM',
+    'CATEGORY_GROUP_SOURCE', 'CATEGORY_GROUP_CHOICES', 'CATEGORY_GROUP_TEXT',
+    'CATEGORY_CODE_PATTERN',
 ]

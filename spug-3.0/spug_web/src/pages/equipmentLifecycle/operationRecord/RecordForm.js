@@ -311,6 +311,9 @@ const RecordForm = observer(function RecordForm() {
       if (!isFault) {
         // 一般记录/异常事件：故障专用字段不提交（切换类型前残留值不带给后端）
         delete payload.affects_system_operation;
+        // 类别显式提交（清空后 antd 值为 undefined、JSON 序列化会丢键，
+        // 后端按"缺键保留原值"处理会静默失效；显式空串=清空为未选择）
+        payload.category = values.category || '';
         delete payload.impact_status;
         delete payload.fault_level;
         delete payload.fault_object_name;

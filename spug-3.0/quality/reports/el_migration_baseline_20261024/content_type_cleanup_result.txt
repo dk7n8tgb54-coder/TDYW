@@ -1,0 +1,16 @@
+deleted_permissions
+32
+deleted_content_types
+8
+x
+remaining
+COUNT(*)
+0
+COUNT(*)
+0
+x
+integrity
+COUNT(*)
+1
+COUNT(*)
+1

@@ -13,7 +13,7 @@ source_ledger_item 正式外键 + source_id 冗余）保持双向可追溯。
 - 带入台账类型、编号、检查项、异常说明、实测值与现场处理内容组装情况描述；
 - 同一异常明细默认只允许生成一条有效目标；目标已撤销后重新处置须填写原因；
 - 权限：ledger.handle_exception 且同时具备 operation_record.add_fault；
-- 持健康重算锁 + 单事务，转换与来源关系/健康重算处于同一事务。
+- 持编号锁 + 健康重算锁 + 单事务，转换与来源关系/健康重算处于同一事务。
 """
 import json
 
@@ -127,7 +127,9 @@ class LedgerItemConvertToFaultView(View):
     - 只有结果为"异常"的明细可以转故障；草稿/退回/作废台账不能转；
     - 目标为统一主表的设备故障记录（创建即处置中），不再创建第二张单；
     - 必须调用 operation_services.create_operation_record（统一创建服务），
-      转换与来源关系保存处于同一事务，同事务重算系统健康状态。
+      转换与来源关系保存处于同一事务，同事务重算系统健康状态；
+    - 持编号锁 + 健康重算锁 + 单事务（锁序：编号锁 → 健康锁，与手工创建
+      一致），编号在 el_operation_record_no 全局锁内生成。
     """
 
     @auth('equipment_lifecycle.ledger.handle_exception')
@@ -143,43 +145,48 @@ class LedgerItemConvertToFaultView(View):
         except (ValueError, UnicodeDecodeError):
             return json_response(error='请求数据格式不正确')
         try:
-            with operation_services.health_recalc_lock():
-                with transaction.atomic():
-                    item, ledger, error = _get_ledger_item_for_convert(
-                        ledger_pk, item_pk, request.user, for_update=True)
-                    if error:
-                        return json_response(error=error)
-                    error = _check_item_redispose(
-                        item, request.user, body.get('re_dispose_reason'))
-                    if error:
-                        return json_response(error=error)
-                    params, error = _resolve_convert_payload(body, item, ledger)
-                    if error:
-                        return json_response(error=error)
+            # 编号锁 → 健康锁（锁序与手工创建一致）：generate_record_no 约定
+            # 在编号锁内调用，否则与手工新增并发窗口内可撞号（同租户撞唯一
+            # 约束 500 / 跨租户重复 JL 号）
+            with operation_services.record_no_lock():
+                with operation_services.health_recalc_lock():
+                    with transaction.atomic():
+                        item, ledger, error = _get_ledger_item_for_convert(
+                            ledger_pk, item_pk, request.user, for_update=True)
+                        if error:
+                            return json_response(error=error)
+                        error = _check_item_redispose(
+                            item, request.user, body.get('re_dispose_reason'))
+                        if error:
+                            return json_response(error=error)
+                        params, error = _resolve_convert_payload(body, item, ledger)
+                        if error:
+                            return json_response(error=error)
 
-                    record = operation_services.create_operation_record(
-                        tenant_id=request.user.tenant_id,
-                        created_by=request.user,
-                        system=item.system,
-                        record_type='fault',
-                        title=params['title'],
-                        source_type=SOURCE_LEDGER_ITEM,
-                        source_ledger_item=item,
-                        request=request,
-                        **{k: v for k, v in params.items() if k != 'title'},
-                    )
-                    record_audit_event(request, 'create', AUDIT_TARGET_RECORD,
-                                       record.id, record.record_no,
-                                       after_value={
-                                           'action': 'convert_from_ledger_item',
-                                           'ledger_no': ledger.ledger_no,
-                                           'ledger_item_id': item.id,
-                                           'item_name': item.item_name_snapshot,
-                                           'status': record.status,
-                                           're_dispose_reason': (
-                                               body.get('re_dispose_reason') or '').strip()[:200],
-                                       })
+                        record = operation_services.create_operation_record(
+                            tenant_id=request.user.tenant_id,
+                            created_by=request.user,
+                            system=item.system,
+                            record_type='fault',
+                            title=params['title'],
+                            source_type=SOURCE_LEDGER_ITEM,
+                            source_ledger_item=item,
+                            request=request,
+                            **{k: v for k, v in params.items() if k != 'title'},
+                        )
+                        record_audit_event(request, 'create', AUDIT_TARGET_RECORD,
+                                           record.id, record.record_no,
+                                           after_value={
+                                               'action': 'convert_from_ledger_item',
+                                               'ledger_no': ledger.ledger_no,
+                                               'ledger_item_id': item.id,
+                                               'item_name': item.item_name_snapshot,
+                                               'status': record.status,
+                                               're_dispose_reason': (
+                                                   body.get('re_dispose_reason') or '').strip()[:200],
+                                           })
         except (operation_services.HealthRecalcLockTimeout,
+                operation_services.RecordLockTimeout,
                 operation_services.RecordNoExhausted) as exc:
             return json_response(error=str(exc))
         record = SystemOperationRecord.objects.select_related('system').get(pk=record.id)

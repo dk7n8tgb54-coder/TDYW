@@ -166,7 +166,7 @@ export default [{
     label: '频谱测量',
     perms: [
       {key: 'view', label: '查看频谱测量'},
-      {key: 'add', label: '录入频谱测量'},
+      {key: 'add', label: '录入频谱测量（需同时授予查看规律调查）'},
       {key: 'edit', label: '编辑频谱测量'},
       {key: 'del', label: '删除频谱测量'},
     ]

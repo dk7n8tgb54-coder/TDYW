@@ -31,9 +31,10 @@
   不做计划提醒。
 """
 import json
+import logging
 from datetime import datetime
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -64,6 +65,8 @@ from apps.equipment_lifecycle.models import (
     OperationLedgerItem,
 )
 from apps.equipment_lifecycle.operation_models import SystemOperationRecord
+
+logger = logging.getLogger(__name__)
 
 # 明细值/结果字段（快照映射展示用）
 ITEM_RESULT_TEXT_MAP = {
@@ -162,16 +165,21 @@ def parse_datetime_value(value, field_label, allow_empty=False):
     raise LedgerValidationError('%s格式不正确' % field_label)
 
 
-def generate_ledger_no(tenant_id, ledger_type, base_date):
+def generate_ledger_no(tenant_id, ledger_type, base_date, locked=False):
     """生成台账编号：{前缀}-{YYYYMMDD}-{当日序号:04d}，租户内唯一。
 
     base_date 为编号基准日期（手工/单条新增=录入当天，周期生成=期次起始
-    日期）。并发冲突由 (tenant_id, ledger_no) 唯一约束兜底，调用方捕获
-    IntegrityError 后重试。
+    日期）。并发冲突由 (tenant_id, ledger_no) 唯一约束兜底，调用方经
+    create_ledger_row_with_no_retry（或周期生成路线的等价重试）捕获
+    IntegrityError 后重试。locked=True 时序号查询加行锁（重试路径的
+    当前读，缩小重复取号的竞态窗口；须在事务内调用）。
     """
     prefix = LEDGER_NO_PREFIX_MAP[ledger_type]
     base = '%s-%s-' % (prefix, base_date.strftime('%Y%m%d'))
-    rows = OperationLedger.objects.all_with_deleted().filter(
+    rows = OperationLedger.objects.all_with_deleted()
+    if locked:
+        rows = rows.select_for_update()
+    rows = rows.filter(
         tenant_id=tenant_id, ledger_no__startswith=base).values_list('ledger_no', flat=True)
     seq = 0
     for no in rows:
@@ -179,6 +187,41 @@ def generate_ledger_no(tenant_id, ledger_type, base_date):
         if tail.isdigit():
             seq = max(seq, int(tail))
     return '%s%04d' % (base, seq + 1)
+
+
+# 台账编号唯一约束名（重试判定的依据；非该约束的 IntegrityError 原样抛出）
+LEDGER_NO_UNIQUE_CONSTRAINT = 'uniq_el_operation_ledger_no'
+# 编号生成冲突重试上限（与周期生成路线 _create_generated_ledger 一致）
+LEDGER_NO_RETRY_MAX_ATTEMPTS = 3
+
+
+def is_ledger_no_integrity_error(error):
+    """判定 IntegrityError 是否为台账编号唯一约束冲突（其余冲突不重试）。"""
+    return LEDGER_NO_UNIQUE_CONSTRAINT in str(error)
+
+
+def create_ledger_row_with_no_retry(build_row, max_attempts=LEDGER_NO_RETRY_MAX_ATTEMPTS):
+    """单条台账创建统一并发重试：编号生成 + 创建体包独立保存点。
+
+    编号序号为"查询最大 + 1"，并发取到同号时由 (tenant_id, ledger_no)
+    唯一约束兜底：捕获该约束的 IntegrityError 后在保存点回滚内重算序号
+    有界重试（重试轮 locked=True 让序号查询走锁内当前读）；非编号约束的
+    IntegrityError 原样抛出；重试耗尽抛 LedgerValidationError（与周期
+    生成路线同文案）。build_row(locked) 执行真实创建体并返回台账对象
+    （手工/Excel/数字表单三条单条创建路线共用）。
+    """
+    last_error = None
+    for attempt in range(max_attempts):
+        try:
+            with transaction.atomic():
+                return build_row(locked=attempt > 0)
+        except IntegrityError as error:
+            if not is_ledger_no_integrity_error(error):
+                raise
+            last_error = error
+    # 约束名/重复键细节只进服务端日志，不进用户可见文案
+    logger.warning('台账编号唯一约束冲突重试耗尽：%s', last_error)
+    raise LedgerValidationError('台账编号生成冲突，请重试')
 
 
 def get_systems_for_user(user, system_ids):
@@ -456,11 +499,18 @@ def create_ledger(user, body):
             **header,
         )
         items = _build_item_instances(user, ledger, systems_map, entries)
-        ledger.ledger_no = generate_ledger_no(
-            user.tenant_id, ledger.ledger_type, timezone.now().date())
         ledger.client_token = client_token
-        ledger.save()
-        OperationLedgerItem.objects.bulk_create(items)
+
+        def _build_row(locked=False):
+            # 编号生成 + 落库包保存点重试：并发取到同号时按唯一约束
+            # 冲突重算序号（见 create_ledger_row_with_no_retry）
+            ledger.ledger_no = generate_ledger_no(
+                user.tenant_id, ledger.ledger_type, timezone.now().date(), locked=locked)
+            ledger.save()
+            OperationLedgerItem.objects.bulk_create(items)
+            return ledger
+
+        create_ledger_row_with_no_retry(_build_row)
         return ledger, None
     except LedgerValidationError as e:
         return None, str(e)

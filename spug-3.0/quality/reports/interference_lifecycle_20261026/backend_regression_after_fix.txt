@@ -1,0 +1,14 @@
+=== [回归] apps.data_analysis ===
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.034s
+
+OK
+Preserving test database for alias 'default'...
+=== [回归] apps.interference 全模块（含重构后的迁移隔离测试） ===
+.
+----------------------------------------------------------------------
+Ran 72 tests in 19.143s
+
+OK
+Preserving test database for alias 'default'...

@@ -233,7 +233,11 @@ class PeriodGenerateUsesCurrentVersionTests(CurrentVersionContractBase):
                 ledger_period_services.timezone, 'now',
                 return_value=datetime(2026, 10, 19, 10, 0, 0)):
             result = self.client.post(
-                GENERATE_URL, json.dumps({'ledger_type': 'week_month'}),
+                GENERATE_URL,
+                json.dumps({'ledger_type': 'week_month',
+                            'maintenance_cycles': ['weekly', 'monthly'],
+                            'template_ids': [template['id']],
+                            'template_kinds': ['excel']}),
                 content_type='application/json').json()
         self.assertEqual(result.get('error', ''), '')
         created = result['data']['created']
@@ -259,7 +263,11 @@ class PeriodGenerateUsesCurrentVersionTests(CurrentVersionContractBase):
             return_value=datetime(2026, 10, 19, 10, 0, 0))
         with today_patch:
             first = self.client.post(
-                GENERATE_URL, json.dumps({'ledger_type': 'week_month'}),
+                GENERATE_URL,
+                json.dumps({'ledger_type': 'week_month',
+                            'maintenance_cycles': ['weekly', 'monthly'],
+                            'template_ids': [template['id']],
+                            'template_kinds': ['excel']}),
                 content_type='application/json').json()
             self.assertEqual(first.get('error', ''), '')
             ledger_id = first['data']['created'][0]['id']

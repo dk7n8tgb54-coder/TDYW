@@ -1,6 +1,7 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""设备全生命周期——统一处理进展视图（2026-10-11 合并改造）。
+"""设备全生命周期——处理进展视图（2026-10-11 合并改造，条目名随记录类型：
+一般记录=补充记录/异常事件=跟进记录/设备故障=处置记录）。
 
 三种记录类型共用的统一进展（SystemOperationProgress）：
 - 一般记录：允许补充进展（不改变状态，恒为"已记录"）；

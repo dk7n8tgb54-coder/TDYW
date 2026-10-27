@@ -13,7 +13,6 @@ from libs import json_response, auth
 from libs.pagination import paginate
 from libs.tenant_utils import apply_tenant_filter
 
-from apps.equipment_lifecycle.models import LifecycleSystem
 from apps.upgrade.models import UpgradeRecord
 from apps.upgrade.serializers import UpgradeRecordSerializer
 
@@ -23,6 +22,10 @@ class UpgradeCandidateSystemsView(View):
 
     @auth('upgrade.upgrade.view')
     def get(self, request):
+        # 函数内导入：RELEASE_PENDING_APPS 门控摘除 equipment_lifecycle 时，
+        # upgrade 仍须可安装，模块级导入会导致启动崩溃。
+        from apps.equipment_lifecycle.models import LifecycleSystem
+
         systems = apply_tenant_filter(
             LifecycleSystem.objects.all(), request.user
         ).filter(is_active=True).order_by('system_code')
@@ -39,6 +42,8 @@ class SystemUpgradeRecordsView(View):
 
     @auth('upgrade.upgrade.view')
     def get(self, request, pk):
+        from apps.equipment_lifecycle.models import LifecycleSystem
+
         system = apply_tenant_filter(
             LifecycleSystem.objects.all(), request.user
         ).filter(pk=pk).first()

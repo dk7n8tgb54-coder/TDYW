@@ -8,6 +8,7 @@
 - 本模块只承载周期生成与分组查询，台账通用创建/编辑/状态机仍在
   ledger_services（本文件可反向导入，不构成循环）。
 """
+import logging
 import re
 from datetime import date, datetime, timedelta
 
@@ -50,6 +51,8 @@ from apps.equipment_lifecycle.ledger_services import (
     generate_ledger_no,
     validate_ledger_type,
 )
+
+logger = logging.getLogger(__name__)
 
 # ======================================================================
 # 本期应填台账生成（2026-10-14 重构原"周期批量新增"：不再创建手工壳）
@@ -830,7 +833,10 @@ def _create_generated_ledger(user, template, version, entry, kind='excel'):
                 return ledger
         except IntegrityError as e:
             last_error = e
-    raise LedgerValidationError('台账编号生成冲突，请重试（%s）' % last_error)
+    # 与 ledger_services.create_ledger_row_with_no_retry 同口径：约束细节
+    # 只进日志（此为既有文案的历史泄漏，2026-10-26 复核一并净化）
+    logger.warning('台账编号唯一约束冲突重试耗尽：%s', last_error)
+    raise LedgerValidationError('台账编号生成冲突，请重试')
 
 
 def _filtered_period_ledger_query(user, ledger_type, status='', system_id=None, keyword=''):

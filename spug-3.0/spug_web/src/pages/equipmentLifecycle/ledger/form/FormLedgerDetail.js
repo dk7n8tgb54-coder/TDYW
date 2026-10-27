@@ -214,8 +214,11 @@ function FormLedgerDetail({store, onBack}) {
                           data-testid="form-pdf-export"
                           loading={store.exportingPdf}
                           onClick={handlePdfExport}>导出 PDF</AuthButton>
+              {/* 保存与完成互斥（disabled/loading 双保险，与 Excel 路线
+                  一致），防止重复点击与并发处理 */}
               {editable && (
                 <Button style={{marginLeft: 8}} loading={store.saving}
+                        disabled={store.submitting}
                         data-testid="form-save-draft"
                         onClick={() => store.saveValues().catch(() => {})}>
                   保存草稿
@@ -223,6 +226,7 @@ function FormLedgerDetail({store, onBack}) {
               )}
               {editable && (
                 <Button style={{marginLeft: 8}} type="primary" loading={store.submitting}
+                        disabled={store.saving}
                         data-testid="form-complete"
                         onClick={handleComplete}>
                   完成填写
@@ -241,7 +245,7 @@ function FormLedgerDetail({store, onBack}) {
       <FormFillRenderer
         form={store.formStructure}
         values={store.values}
-        editable={editable}
+        editable={store.fillEditable}
         narrow={narrow}
         onEdit={(...args) => store.edit(...args)}/>
       <LedgerPdfPreviewModal visible={pdfPreviewVisible} store={store}

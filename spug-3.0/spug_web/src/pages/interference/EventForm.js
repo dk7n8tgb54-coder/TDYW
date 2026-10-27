@@ -1,6 +1,7 @@
 import React, {useEffect, useState} from 'react';
 import {Button, Col, DatePicker, Form, Input, InputNumber, Modal, Row, Select, message} from 'antd';
 import moment from 'moment';
+import {observer} from 'mobx-react';
 import {http, hasPermission} from 'libs';
 import {AttachmentManager} from 'components';
 import store from './store';
@@ -12,32 +13,20 @@ const SCENE_OPTIONS = [
   {value: 'cross', label: '地面+空中'},
   {value: 'unknown', label: '未知'},
 ];
-const KIND_OPTIONS = [
-  {value: 'noise', label: '杂音'},
-  {value: 'intermittent', label: '间歇中断'},
-  {value: 'communication_loss', label: '完全失联'},
-  {value: 'frequency_occupy', label: '频率占用'},
-  {value: 'blocking', label: '阻塞'},
-  {value: 'false_alarm', label: '虚警'},
-  {value: 'other', label: '其他'},
-  {value: 'unknown', label: '未知'},
-];
-const SYSTEM_OPTIONS = [
-  {value: 'communication', label: '通信'},
-  {value: 'navigation', label: '导航'},
-  {value: 'surveillance', label: '监视'},
-  {value: 'datalink', label: '数据链'},
-  {value: 'equipment', label: '设备电磁兼容'},
-  {value: 'other', label: '其他'},
-];
-const SOURCE_OPTIONS = [
-  {value: 'ground_equipment', label: '地面设备'},
-  {value: 'vehicle_power', label: '车辆/电源'},
-  {value: 'aircraft_equipment', label: '机载设备'},
-  {value: 'external_transmitter', label: '外部发射源'},
-  {value: 'environment', label: '环境'},
-  {value: 'unknown', label: '未知'},
-];
+// 三个分类下拉的具体干扰类型/受影响系统/疑似干扰源选项由接口下发，
+// 此处仅维护字段名与选项分组键的对应关系。
+const CATEGORY_FIELDS = ['interference_kind_code', 'affected_system_code', 'source_type_code'];
+const CATEGORY_TEXT_KEYS = {
+  interference_kind_code: 'interference_kind_text',
+  affected_system_code: 'affected_system_text',
+  source_type_code: 'source_type_text',
+};
+// 新建事件分类字段统一采用明确的「未知/待查」语义，不再默认「其他」
+const CATEGORY_DEFAULTS = {
+  interference_kind_code: 'unknown',
+  affected_system_code: 'unknown',
+  source_type_code: 'unknown',
+};
 
 export function buildEventPayload(values, eventId) {
   const payload = {...values};
@@ -91,6 +80,20 @@ function valuesFromEvent(event) {
   };
 }
 
+// 编辑历史事件时，当前值若不在接口选项里（如已停用编码）也要有 label 可显示
+export function mergeCategoryOptions(options, event) {
+  const merged = {...options};
+  for (const field of CATEGORY_FIELDS) {
+    const value = event ? event[field] : undefined;
+    if (!value || (merged[field] || []).some(item => item.value === value)) continue;
+    merged[field] = [
+      ...(merged[field] || []),
+      {value, label: (event && event[CATEGORY_TEXT_KEYS[field]]) || value},
+    ];
+  }
+  return merged;
+}
+
 function DetailFields({scene}) {
   if (scene === 'ground') {
     return <GroundFields/>;
@@ -129,7 +132,20 @@ function AirFields() {
   </div>;
 }
 
-export default function EventForm() {
+// 新建事件时对未设置的分类字段应用「未知/待查」缺省；编辑保留存量值
+export function withCategoryDefaults(values, isEdit) {
+  if (isEdit) return values;
+  const merged = {...values};
+  for (const field of CATEGORY_FIELDS) {
+    const current = merged[field];
+    if (current === undefined || current === null || current === '') {
+      merged[field] = CATEGORY_DEFAULTS[field];
+    }
+  }
+  return merged;
+}
+
+function EventForm() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const info = store.event || {};
@@ -139,15 +155,19 @@ export default function EventForm() {
     hasPermission('interference.interference.edit') ||
     (!infoId && hasPermission('interference.interference.add'))
   );
+  const categoryOptions = mergeCategoryOptions(store.categoryOptions, info);
 
   useEffect(() => {
     let active = true;
     if (!visible) return undefined;
+    store.fetchCategories().catch(() => {});
     const load = infoId && (!info.ground_detail && !info.air_detail)
       ? store.fetchEvent(infoId)
       : Promise.resolve(info);
     load.then(data => {
-      if (active) form.setFieldsValue(valuesFromEvent(data || info));
+      if (active) {
+        form.setFieldsValue(withCategoryDefaults(valuesFromEvent(data || info), infoId));
+      }
     }).catch(() => {}).finally(() => {});
     return () => {
       active = false;
@@ -196,10 +216,9 @@ export default function EventForm() {
       <div className={styles.section}>
         <div className={styles.sectionTitle}>干扰分类</div>
         <Row gutter={[20, 0]}>
-          <Col span={8} className={styles.thirdField}><Form.Item name="classification_status" label="分类状态"><Select options={[{value: 'pending', label: '待分类'}, {value: 'confirmed', label: '已确认'}]}/></Form.Item></Col>
-          <Col span={8} className={styles.thirdField}><Form.Item name="interference_kind_code" label="具体干扰类型"><Select options={KIND_OPTIONS}/></Form.Item></Col>
-          <Col span={8} className={styles.thirdField}><Form.Item name="affected_system_code" label="受影响系统"><Select options={SYSTEM_OPTIONS}/></Form.Item></Col>
-          <Col span={8} className={styles.thirdField}><Form.Item name="source_type_code" label="疑似干扰源"><Select options={SOURCE_OPTIONS}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="interference_kind_code" label="具体干扰类型"><Select options={categoryOptions.interference_kind_code}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="affected_system_code" label="受影响系统"><Select options={categoryOptions.affected_system_code}/></Form.Item></Col>
+          <Col span={8} className={styles.thirdField}><Form.Item name="source_type_code" label="疑似干扰源"><Select options={categoryOptions.source_type_code}/></Form.Item></Col>
         </Row>
       </div>
       <div className={styles.section}>
@@ -243,3 +262,5 @@ export default function EventForm() {
     </>}
   </Modal>;
 }
+
+export default observer(EventForm);
