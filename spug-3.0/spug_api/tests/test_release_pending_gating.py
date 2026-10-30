@@ -34,6 +34,8 @@ PROBE = (
     "routes = [str(getattr(p.pattern, '_route', None) or getattr(p.pattern, '_regex', ''))"
     " for p in get_resolver().url_patterns];"
     "print('EL_ROUTE=', any('equipment-lifecycle' in r for r in routes));"
+    "print('INST_INSTALLED=', apps.is_installed('apps.institution'));"
+    "print('INST_ROUTE=', any(r.startswith('institution/') for r in routes));"
     "print('UPGRADE_INSTALLED=', apps.is_installed('apps.upgrade'));"
     "from apps.upgrade.models import UpgradeRecord;"
     "print('UPGRADE_MODEL_OK=1')"
@@ -56,7 +58,8 @@ class ReleasePendingGatingTests(SimpleTestCase):
             capture_output=True, text=True, encoding='utf-8', errors='replace')
 
     def test_gate_off_all_modules_load(self):
-        """不设置门控变量：equipment_lifecycle 安装且路由注册（现状语义）。"""
+        """不设置门控变量：equipment_lifecycle 与 institution 安装且路由注册
+        （现状语义）。"""
         proc = self._run_probe(release_pending_apps=None)
         self.assertEqual(
             proc.returncode, 0,
@@ -64,12 +67,14 @@ class ReleasePendingGatingTests(SimpleTestCase):
             % (proc.stdout[-2000:], proc.stderr[-2000:]))
         self.assertIn('EL_INSTALLED= True', proc.stdout)
         self.assertIn('EL_ROUTE= True', proc.stdout)
+        self.assertIn('INST_INSTALLED= True', proc.stdout)
+        self.assertIn('INST_ROUTE= True', proc.stdout)
         self.assertIn('UPGRADE_INSTALLED= True', proc.stdout)
         self.assertIn('UPGRADE_MODEL_OK=1', proc.stdout)
 
     def test_gate_on_el_hidden_and_startup_survives(self):
         """门控含 equipment_lifecycle：启动必须成功（不再崩溃），EL 应用与
-        路由均不加载，upgrade 应用照常安装且模型可导入。"""
+        路由均不加载，其余应用（upgrade、institution）照常安装。"""
         proc = self._run_probe(release_pending_apps='equipment_lifecycle')
         self.assertEqual(
             proc.returncode, 0,
@@ -77,6 +82,39 @@ class ReleasePendingGatingTests(SimpleTestCase):
             % (proc.stdout[-2000:], proc.stderr[-2000:]))
         self.assertIn('EL_INSTALLED= False', proc.stdout)
         self.assertIn('EL_ROUTE= False', proc.stdout)
+        self.assertIn('INST_INSTALLED= True', proc.stdout)
+        self.assertIn('INST_ROUTE= True', proc.stdout)
+        self.assertIn('UPGRADE_INSTALLED= True', proc.stdout)
+        self.assertIn('UPGRADE_MODEL_OK=1', proc.stdout)
+
+    def test_gate_on_institution_hidden_and_startup_survives(self):
+        """门控含 institution（生产延迟上线制度管理）：启动成功，
+        institution 应用与路由均不加载，其余应用照常。"""
+        proc = self._run_probe(release_pending_apps='institution')
+        self.assertEqual(
+            proc.returncode, 0,
+            '门控 institution 时启动失败\nstdout:%s\nstderr:%s'
+            % (proc.stdout[-2000:], proc.stderr[-2000:]))
+        self.assertIn('INST_INSTALLED= False', proc.stdout)
+        self.assertIn('INST_ROUTE= False', proc.stdout)
+        self.assertIn('EL_INSTALLED= True', proc.stdout)
+        self.assertIn('EL_ROUTE= True', proc.stdout)
+        self.assertIn('UPGRADE_INSTALLED= True', proc.stdout)
+        self.assertIn('UPGRADE_MODEL_OK=1', proc.stdout)
+
+    def test_gate_on_both_hidden_and_startup_survives(self):
+        """门控同时含 equipment_lifecycle 与 institution：启动成功，两者
+        应用与路由均不加载。"""
+        proc = self._run_probe(
+            release_pending_apps='equipment_lifecycle,institution')
+        self.assertEqual(
+            proc.returncode, 0,
+            '门控 EL+institution 时启动失败\nstdout:%s\nstderr:%s'
+            % (proc.stdout[-2000:], proc.stderr[-2000:]))
+        self.assertIn('EL_INSTALLED= False', proc.stdout)
+        self.assertIn('EL_ROUTE= False', proc.stdout)
+        self.assertIn('INST_INSTALLED= False', proc.stdout)
+        self.assertIn('INST_ROUTE= False', proc.stdout)
         self.assertIn('UPGRADE_INSTALLED= True', proc.stdout)
         self.assertIn('UPGRADE_MODEL_OK=1', proc.stdout)
 
@@ -97,3 +135,18 @@ class ReleasePendingGatingTests(SimpleTestCase):
             % (proc.stdout[-2000:], proc.stderr[-2000:]))
         self.assertNotIn('fields.E300', proc.stdout + proc.stderr)
         self.assertNotIn('fields.E307', proc.stdout + proc.stderr)
+
+    def test_gate_on_institution_system_checks_pass(self):
+        """门控 institution 时 manage.py check 必须通过（生产 entrypoint
+        部署链第一关）。check 不访问数据库。"""
+        env = dict(os.environ)
+        env['PYTHONIOENCODING'] = 'utf-8'
+        env['RELEASE_PENDING_APPS'] = 'institution'
+        proc = subprocess.run(
+            [sys.executable, str(MANAGE_PY), 'check'], cwd=str(MANAGE_PY.parent),
+            env=env, timeout=120, capture_output=True, text=True,
+            encoding='utf-8', errors='replace')
+        self.assertEqual(
+            proc.returncode, 0,
+            '门控 institution 时系统检查失败\nstdout:%s\nstderr:%s'
+            % (proc.stdout[-2000:], proc.stderr[-2000:]))

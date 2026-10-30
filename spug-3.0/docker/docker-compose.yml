@@ -42,6 +42,15 @@ services:
       - TZ=Asia/Shanghai
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw}
+      # ONLYOFFICE Docs 在线编辑（制度管理，2026-10-27）
+      # DOCS_URL=浏览器经 nginx 同源代理访问 DS；PUBLIC_BASE_URL=DS 回源本应用
+      # JWT_SECRET 与 onlyoffice 服务的 JWT_SECRET 必须一致；留空则在线编辑
+      # 自动降级为"下载→本机编辑→上传保存"，不影响其余功能
+      - ONLYOFFICE_DOCS_URL=${ONLYOFFICE_DOCS_URL:-/onlyoffice}
+      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - ONLYOFFICE_PUBLIC_BASE_URL=${ONLYOFFICE_PUBLIC_BASE_URL:-http://tdyw}
+      - ONLYOFFICE_ALLOWED_URL_HOSTS=${ONLYOFFICE_ALLOWED_URL_HOSTS:-tdyw-onlyoffice,tdyw}
+      - ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS=${ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS:-3600}
       # Excel 台账 PDF 引擎：chromium（浏览器打印引擎，网页与 PDF 统一排版）/ libreoffice / auto
       - EXCEL_PDF_ENGINE=${EXCEL_PDF_ENGINE:-chromium}
       # 延迟上线开关：逗号分隔的暂不上线模块名（如 equipment_lifecycle），
@@ -51,6 +60,7 @@ services:
       - tdyw-media:/data/spug/spug_api/media  # 运行日志附件存储
       - tdyw-documents:/data/spug/spug_api/storage/documents  # 资料库文件存储
       - tdyw-document-chunks:/data/spug/spug_api/storage/document_chunks  # 资料库上传分片存储
+      - tdyw-institution:/data/spug/spug_api/storage/institution  # 制度管理原稿/草稿/发布版本存储
       - tdyw-logs:/var/log/supervisor  # 日志文件
       - tdyw-nginx-logs:/var/log/nginx  # 结构化运行日志持久化
       - tdyw-health-probe-logs:/var/log/tdyw:ro  # sidecar 外部探活记录
@@ -191,6 +201,44 @@ services:
     networks:
       - tdyw-network
 
+  # ==================== ONLYOFFICE Docs 在线编辑服务 ====================
+  # 制度管理 Word 手册在线编辑（2026-10-27）。与 kkFileView（只读预览）
+  # 相互独立：编辑走 onlyoffice + JWT 回调，预览继续走 kkfileview。
+  # 浏览器经 tdyw nginx 的 /onlyoffice/ 同源代理访问；DS 回源应用走
+  # http://tdyw（tdyw 网络别名）。未配置 ONLYOFFICE_JWT_SECRET 时应用侧
+  # 自动降级，本服务可先不启动。
+  onlyoffice:
+    image: onlyoffice/documentserver:8.1
+    container_name: tdyw-onlyoffice
+    restart: unless-stopped
+    stop_grace_period: 60s
+    environment:
+      - JWT_ENABLED=true
+      # 与 tdyw 服务的 ONLYOFFICE_JWT_SECRET 一致（.env 统一提供）
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      - TZ=Asia/Shanghai
+    volumes:
+      - tdyw-onlyoffice-data:/var/www/onlyoffice/Data
+      - tdyw-onlyoffice-log:/var/log/onlyoffice
+    deploy:
+      resources:
+        limits:
+          cpus: '2'           # 文档转换消耗 CPU（与 kkfileview 相当）
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s    # DS 首次启动需生成字体等，较慢
+    networks:
+      - tdyw-network
+
 networks:
   tdyw-network:
     driver: bridge
@@ -203,6 +251,12 @@ volumes:
   tdyw-documents:
     driver: local
   tdyw-document-chunks:
+    driver: local
+  tdyw-institution:
+    driver: local
+  tdyw-onlyoffice-data:
+    driver: local
+  tdyw-onlyoffice-log:
     driver: local
   tdyw-logs:
     driver: local

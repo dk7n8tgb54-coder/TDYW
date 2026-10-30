@@ -1,0 +1,60 @@
+# ==================== ONLYOFFICE 新版对照测试实例（隔离） ====================
+# 制度管理显示保真对照（2026-10-28）：与 dev/docker-compose.yml 的 8.1 实例
+# （tdyw-onlyoffice-test）并行的隔离测试实例，不替换 8.1、不共用其缓存与数据卷。
+#
+# 隔离手段：
+# - 独立 compose 项目名 `oo-next`：卷自动落在 oo-next_onlyoffice-* 命名空间，
+#   与 dev 项目的 dev_onlyoffice-* 完全隔离；
+# - 独立容器名 tdyw-onlyoffice-next、网络别名 onlyoffice-next；
+# - 仅外部加入既有 dev_default 网络，使 tdyw-test 内 Nginx 能反代
+#   /onlyoffice-next/（见 config/dev/nginx.conf 同名 location）。
+#
+# 使用：cd dev && docker compose -f docker-compose.onlyoffice-next.yml --env-file .env up -d
+# 字体：与 8.1 实例相同的四份中文字体文件（simfang/simhei/simsun/SIMYOU，
+#       从 8.1 容器逐字复制），首启后 docker cp 进容器并执行
+#       documentserver-generate-allfonts.sh 重建字体索引（详见对照记录）。
+# 生命周期：测试实例，restart 默认 no（不随 daemon 常驻）；8.1 实例不受影响。
+name: oo-next
+
+services:
+  onlyoffice-next:
+    image: onlyoffice/documentserver:9.0.4
+    container_name: tdyw-onlyoffice-next
+    networks:
+      dev_default:
+        aliases:
+          - onlyoffice-next
+    # 仅本机诊断端口（healthcheck/版本核对）；浏览器与业务流量走
+    # tdyw-test Nginx 的 /onlyoffice-next/ 反代，不依赖该端口
+    ports:
+      - "127.0.0.1:8301:80"
+    environment:
+      # JWT 双向签名：与 8.1 实例同一 secret（dev/.env 注入）
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      # 与 8.1 相同：放开 DS 出站私网过滤（回调 URL 白名单由 spug 侧负责）
+      - USE_UNAUTHORIZED_STORAGE=true
+      - TZ=Asia/Shanghai
+    volumes:
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-data:/var/lib/onlyoffice      # 文档缓存与字体索引（独立）
+      - onlyoffice-postgresql:/var/lib/postgresql # DS 内置数据库（独立）
+      - onlyoffice-rabbitmq:/var/lib/rabbitmq     # DS 内置消息队列（独立）
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+networks:
+  dev_default:
+    external: true
+
+volumes:
+  onlyoffice-logs:
+  onlyoffice-data:
+  onlyoffice-postgresql:
+  onlyoffice-rabbitmq:

@@ -56,6 +56,26 @@ export default [{
     ]
   }]
 }, {
+  // 制度管理（2026-10-27 新增）：Word 手册的查看/编制/发布按平台级角色 +
+  // 手册级角色关联双重授权；tenant_id 不参与授权判定
+  key: 'institution',
+  label: '制度管理',
+  pages: [{
+    key: 'manual',
+    label: '制度手册',
+    perms: [
+      {key: 'view',      label: '查看制度手册'},
+      {key: 'add',       label: '新建手册'},
+      {key: 'edit',      label: '编辑手册信息'},
+      {key: 'delete',    label: '删除手册'},
+      {key: 'config',    label: '配置手册权限与密码'},
+      {key: 'upload',    label: '上传手册原稿'},
+      {key: 'download',  label: '下载手册文件'},
+      {key: 'draft_edit', label: '编辑手册草稿'},
+      {key: 'publish',   label: '发布手册版本'},
+    ]
+  }]
+}, {
   // runlog（事件管理）与 duty（值班日志）权限组已随两模块 2026-10-11 整体下线删除，
   // 权限码退役；存量角色 JSON 中的 runlog./duty. 权限码惰性失效（无任何后端校验
   // 引用），无需清洗，角色保存时会自然剪除；"部门值班日志"为独立模块继续保留。

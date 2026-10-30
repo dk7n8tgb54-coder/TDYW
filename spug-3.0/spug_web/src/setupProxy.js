@@ -61,6 +61,42 @@ module.exports = function (app) {
     })
   );
 
+  // 代理 ONLYOFFICE Docs 请求到 Nginx（再由 Nginx 转发到 onlyoffice 容器）
+  // 与 /kkfileview 同理：前端跑在 localhost:3000 时，编辑器 api.js、静态
+  // 资源与协同编辑 WebSocket 都走 /onlyoffice/ 同源路径，必须代理到
+  // tdyw-test 的 Nginx（由它做子路径转发与 WS upgrade）。协同编辑是
+  // WebSocket 长连接，ws: true 不可省。
+  // 代理 ONLYOFFICE Docs 请求到 Nginx（再由 Nginx 转发到 onlyoffice 容器）
+  // 与 /kkfileview 同理：前端跑在 localhost:3000 时，编辑器 api.js、静态
+  // 资源与协同编辑 WebSocket 都走 /onlyoffice/ 同源路径。注意目标必须是
+  // tdyw-test 的 Nginx（8080，负责 /onlyoffice 子路径剥离与 WS upgrade），
+  // 不能跟随 PROXY_TARGET 直连 gunicorn——gunicorn 没有该路由。
+  // changeOrigin 必须为 false：DS 按请求 Host 生成缓存文件绝对 URL，
+  // 需要 Nginx 看到浏览器真实 Host（含端口）才能让缓存 URL 与浏览器
+  // 同源（跨源会被浏览器拦截，表现为"下载失败"）。
+  // 不能传 keepAlive:false 的自定义 agent——会干扰 WebSocket 升级管道，
+  // 表现为 101 握手成功后 socket 立即断开、编辑器无限重连。
+  app.use(
+    '/onlyoffice',
+    proxy({
+      target: 'http://127.0.0.1:8080',
+      changeOrigin: false,
+      ws: true,
+      proxyTimeout: 3600000, // 协同编辑 WebSocket 长连接
+      timeout: 3600000,
+      onError: (err, req, res) => {
+        console.error(`[Proxy] ONLYOFFICE 代理失败:`, err.message);
+        console.error('[Proxy] 请确保 Docker 环境中的 onlyoffice 容器正在运行');
+        if (res && typeof res.writeHead === 'function') {
+          res.writeHead(503, { 'Content-Type': 'text/plain' });
+          res.end('ONLYOFFICE 文档服务暂时不可用');
+        } else {
+          console.error('[Proxy] Proxy error:', err.message);
+        }
+      }
+    })
+  );
+
   // 代理 kkFileView 预览服务请求到 Nginx（再由 Nginx 转发到 kkFileView 容器）
   // 开发环境下前端运行在 localhost:3000，iframe 中的 /kkfileview/ 请求需要代理到 Nginx
   // 生产环境下前端由 Nginx 直接服务，不存在此问题

@@ -47,6 +47,7 @@ urlpatterns = [
 _pending_app_urls = {
     'coop_task': ('coop-task/', 'apps.coop_task.urls'),
     'equipment_lifecycle': ('equipment-lifecycle/', 'apps.equipment_lifecycle.urls'),
+    'institution': ('institution/', 'apps.institution.urls'),
 }
 urlpatterns += [
     path(prefix, include(urlconf))

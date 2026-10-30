@@ -69,6 +69,9 @@ ENV TZ=Asia/Shanghai \
 # 安装运行时依赖
 # fonts-noto-cjk：中文渲染字体（Excel 台账 PDF 打印引擎共用，2026-10-21；
 # 未安装时 Chromium/LibreOffice 中文渲染为替换字体或方框）
+# libreoffice-writer：制度管理 .doc 原稿 -> .docx 工作副本转换
+# （apps/institution/services.ensure_docx_workfile；缺失时该功能明确
+#   报错降级，不影响预览/下载。2026-10-27 制度管理模块引入）
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3.10 \
@@ -88,6 +91,7 @@ RUN apt-get update && \
     gcc \
     g++ \
     fonts-noto-cjk \
+    libreoffice-writer \
     && rm -rf /var/lib/apt/lists/*
 
 # 设置 Python 命令

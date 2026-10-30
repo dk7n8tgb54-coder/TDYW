@@ -84,6 +84,7 @@ _base_installed_apps = [
     'apps.contract_agreement',
     'apps.evidence',
     'apps.regulation',
+    'apps.institution',
     'apps.signature',
     'apps.department_duty_log',
     'apps.data_analysis',
@@ -355,6 +356,46 @@ TEXT_PREVIEW_MAX_SIZE = 2 * 1024 * 1024
 KKFILEVIEW_API_URL = os.environ.get('KKFILEVIEW_API_URL', '')
 KKFILEVIEW_SERVER_URL = os.environ.get('KKFILEVIEW_SERVER_URL', '')
 
+# ONLYOFFICE Docs 在线编辑（制度管理，2026-10-27）
+# ONLYOFFICE_DOCS_URL: 文档服务访问地址（浏览器经 nginx 同源代理时填
+#   /onlyoffice；DS 容器直连时填 http://onlyoffice）
+# ONLYOFFICE_JWT_SECRET: 与 DS 的 JWT_ENABLED_SECRET 一致；未配置时在线编辑
+#   整体降级为"下载→本机编辑→上传保存"（editor_available=false）
+# ONLYOFFICE_PUBLIC_BASE_URL: DS 回源 spug API 的基址（Docker 网络内可达，
+#   如 http://tdyw），document.url 与 callbackUrl 基于它生成
+# ONLYOFFICE_ALLOWED_URL_HOSTS: 回调文件下载允许的主机名白名单（逗号分隔）。
+#   协议中回调 url 指向 DS 自身缓存文件，须包含 DS 容器自身主机名
+# ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS: DS 取文件令牌有效期（覆盖长编辑会话）
+# ONLYOFFICE_COMMAND_BASE_URL: 后端调用 DS Command Service（forcesave）的基址。
+#   缺省自动推导：ONLYOFFICE_DOCS_URL 为绝对地址时直接使用；为 /onlyoffice 等
+#   nginx 同源代理路径时取 ONLYOFFICE_PUBLIC_BASE_URL + 该路径（后端容器可达）
+ONLYOFFICE_DOCS_URL = os.environ.get('ONLYOFFICE_DOCS_URL', '')
+ONLYOFFICE_JWT_SECRET = os.environ.get('ONLYOFFICE_JWT_SECRET', '')
+ONLYOFFICE_PUBLIC_BASE_URL = os.environ.get('ONLYOFFICE_PUBLIC_BASE_URL', '')
+ONLYOFFICE_COMMAND_BASE_URL = os.environ.get('ONLYOFFICE_COMMAND_BASE_URL', '')
+_ONLYOFFICE_URL_HOSTS = os.environ.get('ONLYOFFICE_ALLOWED_URL_HOSTS', '')
+ONLYOFFICE_ALLOWED_URL_HOSTS = [
+    h.strip().lower() for h in _ONLYOFFICE_URL_HOSTS.split(',') if h.strip()]
+ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS = int(
+    os.environ.get('ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS', '3600'))
+
+# 制度文件生命周期保留策略（2026-10-29）。全部配置化，未配置期限（默认 0）
+# 时保留策略执行入口整体拒绝物理删除；不启用任何自动定时清理，清理只能
+# 经 institution 的 cleanup 预检/执行端点显式触发。
+# INSTITUTION_VERSION_RETENTION_DAYS: 历史发布版本文件保留天数（按发布时间），
+#   主开关——<=0 表示未配置，cleanup 预检/执行均不产生任何物理删除；
+# INSTITUTION_VERSION_RECENT_KEEP_COUNT: 近期历史版本保护数量（版本号最近
+#   N 个版本受保护，不受期限影响）；0 表示不按数量保护；
+# INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS: 原稿清理缓冲期——制度文件首次
+#   进入成功发布版本后再过 N 天，其原稿本体才可成为清理候选（元数据永久
+#   保留）；0 表示不设缓冲。
+INSTITUTION_VERSION_RETENTION_DAYS = int(
+    os.environ.get('INSTITUTION_VERSION_RETENTION_DAYS', '0') or 0)
+INSTITUTION_VERSION_RECENT_KEEP_COUNT = int(
+    os.environ.get('INSTITUTION_VERSION_RECENT_KEEP_COUNT', '0') or 0)
+INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS = int(
+    os.environ.get('INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS', '0') or 0)
+
 # Excel 台账 PDF 生成引擎（2026-10-21）：libreoffice（缺省，既有路径）/
 # chromium（浏览器打印引擎：网页与 PDF 共用统一打印布局）/ auto（chromium
 # 可用时优先，回落 libreoffice）。生产 compose 缺省注入 chromium。
@@ -410,6 +451,13 @@ AUTHENTICATION_EXCLUDES = (
     re.compile('/document/health/celery/$'),
     re.compile('/api/document/health/$'),
     re.compile('/api/document/health/celery/$'),
+    # ONLYOFFICE 文档服务通道（制度管理）：DS 携带 editor_token / 回调 JWT，
+    # 不携带 x-token；由视图自行校验（OoEditorFileView / OoEditorCallbackView）。
+    # 多文件模型后路由绑定具体制度文件（manuals/<pk>/files/<fid>/...）
+    re.compile('/institution/manuals/\\d+/files/\\d+/attachments/oo-editor-file/$'),
+    re.compile('/institution/manuals/\\d+/files/\\d+/attachments/oo-editor-callback/$'),
+    re.compile('/api/institution/manuals/\\d+/files/\\d+/attachments/oo-editor-file/$'),
+    re.compile('/api/institution/manuals/\\d+/files/\\d+/attachments/oo-editor-callback/$'),
 )
 
 # IP绑定检查排除列表：这些端点仍需token认证，但跳过IP校验

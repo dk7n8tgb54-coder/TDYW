@@ -85,6 +85,12 @@ services:
         - /mnt/e/TDYW/spug-3.0/config/dev/nginx.conf:/etc/nginx/nginx.conf:ro
         - /mnt/e/TDYW/spug-3.0/config/dev/supervisor/supervisord.conf:/etc/supervisor/conf.d/supervisord.conf:rw
         - /mnt/e/TDYW/spug-3.0/config/dev/supervisor/conf.d:/etc/supervisor/conf.d:rw
+        # institution .doc->.docx 转换字体（与 onlyoffice 服务共用 dev/onlyoffice-fonts/，
+        # 含 sim 全系宋体/仿宋/黑体/楷体等；镜像内另有 fonts-noto-cjk 兜底）。
+        # 注意：tdyw:django42-stage2 镜像由容器 commit 固化（原构建配方已失传），
+        # 2026-10-29 在容器内补装 libreoffice-writer + fonts-noto-cjk 后 commit——
+        # 直接用旧镜像重建容器会同时丢 LibreOffice 与中文字体。
+        - /mnt/e/TDYW/spug-3.0/dev/onlyoffice-fonts:/usr/share/fonts/custom:ro
         - tdyw-health-probe-test-logs:/var/log/tdyw:ro
 
     # 端口映射：宿主机 80 -> 容器 80
@@ -119,6 +125,22 @@ services:
       #   开发环境默认用容器名 tdyw-test（docker-compose 网络 DNS 可解析）
       - KKFILEVIEW_API_URL=${KKFILEVIEW_API_URL:-/kkfileview}
       - KKFILEVIEW_SERVER_URL=${KKFILEVIEW_SERVER_URL:-http://tdyw-test}
+      # ONLYOFFICE Docs 在线编辑（制度管理，2026-10-28 dev 联调）
+      # ONLYOFFICE_DOCS_URL: 浏览器经 tdyw-test 内 Nginx 同源子路径代理访问 DS
+      # ONLYOFFICE_PUBLIC_BASE_URL: DS 容器回访 spug API 的基址（Compose 网络
+      #   内 DNS 直连容器名，nginx 在容器内 80 端口）
+      # ONLYOFFICE_JWT_SECRET: 与 onlyoffice 服务的 JWT_SECRET 同源（dev/.env，
+      #   未跟踪文件）；留空时后端 editor_available=false 整体降级为 multipart
+      #   本机编辑路径，不会导致应用启动失败
+      # ONLYOFFICE_ALLOWED_URL_HOSTS: 回调文件下载主机名白名单（DS 缓存 URL
+      #   以 http://localhost:8080/onlyoffice/cache/... 生成，经 tdyw-test
+      #   自身 Nginx 回到 DS，见 config/dev/nginx.conf 注释；PUBLIC_BASE_URL
+      #   的主机名 tdyw-test 由后端自动并入）
+      - ONLYOFFICE_DOCS_URL=${ONLYOFFICE_DOCS_URL:-/onlyoffice}
+      - ONLYOFFICE_PUBLIC_BASE_URL=${ONLYOFFICE_PUBLIC_BASE_URL:-http://tdyw-test}
+      - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - ONLYOFFICE_ALLOWED_URL_HOSTS=${ONLYOFFICE_ALLOWED_URL_HOSTS:-localhost,onlyoffice}
+      - ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS=${ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS:-3600}
     # 依赖关系：spug 服务依赖 db 服务，确保数据库健康后才启动
     depends_on:
       db:
@@ -203,6 +225,50 @@ services:
       retries: 5
       start_period: 120s     # LibreOffice首次启动较慢，给2分钟
 
+  # ==================== ONLYOFFICE Docs 文档服务 ====================
+  # 制度管理 Word 手册在线编辑（2026-10-28 dev 联调）
+  # 不映射宿主机端口：浏览器经 tdyw-test 内 Nginx /onlyoffice/ 子路径代理访问，
+  # spug 容器经 PUBLIC_BASE_URL=http://tdyw-test 回源通道与 DS 互通。
+  onlyoffice:
+    image: onlyoffice/documentserver:8.1
+    container_name: tdyw-onlyoffice-test
+    restart: always
+    environment:
+      # JWT 双向签名：与 spug 的 ONLYOFFICE_JWT_SECRET 必须一致（dev/.env 注入）
+      - JWT_ENABLED=true
+      - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
+      - JWT_HEADER=Authorization
+      - JWT_IN_BODY=true
+      # document.url / callbackUrl 均为 Compose 网络私有地址（tdyw-test），
+      # 放开 DS 出站私网过滤（spug 侧仍有回调 URL 白名单，不受影响）
+      - USE_UNAUTHORIZED_STORAGE=true
+      - TZ=Asia/Shanghai
+    volumes:
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-data:/var/lib/onlyoffice      # 文档缓存与字体
+      - onlyoffice-postgresql:/var/lib/postgresql # DS 内置数据库（重启用免重建）
+      - onlyoffice-rabbitmq:/var/lib/rabbitmq     # DS 内置消息队列
+      # 中文字体补充（WPS/Word 常用：楷体/微软雅黑/等线/华文楷体/Times/Arial）。
+      # 镜像自带仅 宋体/仿宋/黑体/幼圆，缺楷体与微软雅黑会导致编辑视图与
+      # WPS 渲染不一致。字体文件不入 Git，目录内 README.md 有补齐方法；
+      # 增删字体后须执行：
+      #   docker exec tdyw-onlyoffice-test documentserver-generate-allfonts.sh
+      - ./onlyoffice-fonts:/usr/share/fonts/custom:ro
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 3G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s    # 首次启动需初始化内置 postgres，给3分钟
+
 # 注意事项：
 # 1. 当前配置使用绝对路径，适用于 Windows 开发环境
 # 2. 部署到 Linux 生产环境时需要：
@@ -220,4 +286,12 @@ volumes:
   kkfileview-cache:
     driver: local
   tdyw-health-probe-test-logs:
+    driver: local
+  onlyoffice-logs:
+    driver: local
+  onlyoffice-data:
+    driver: local
+  onlyoffice-postgresql:
+    driver: local
+  onlyoffice-rabbitmq:
     driver: local

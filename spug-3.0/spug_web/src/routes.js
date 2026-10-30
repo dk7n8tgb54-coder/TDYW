@@ -10,6 +10,7 @@ import {
   SettingOutlined,
   ToolOutlined,
   FolderOpenOutlined,
+  BookOutlined,
   FileTextOutlined,
   ExceptionOutlined,
   ApartmentOutlined,
@@ -44,6 +45,9 @@ import StationFrequencyApproval from './pages/stationFrequencyApproval';
 import ContractAgreementIndex from './pages/contractAgreement';
 import CoopTaskIndex from './pages/coopTask';
 import RegulationIndex from './pages/regulation';
+import InstitutionIndex from './pages/institution';
+import InstitutionManualDetail from './pages/institution/detail';
+import InstitutionDraftWorkspace from './pages/institution/draft';
 import EquipmentSystemIndex from './pages/equipmentLifecycle';
 import EquipmentOperationRecordIndex from './pages/equipmentLifecycle/operationRecord';
 import SystemConfigMaintainIndex from './pages/equipmentLifecycle/systemConfigMaintain';
@@ -67,6 +71,14 @@ export default [
     {title: '台站频率批复', auth: 'radio_license.approval.view', path: '/station-frequency-approval', component: StationFrequencyApproval},
   ]},
   {icon: <FileTextOutlined/>, title: '合同协议', auth: 'contract_agreement.agreement.view', path: '/contract-agreement', component: ContractAgreementIndex},
+  // 制度管理（2026-10-27 新增）：Word 手册在线查阅/编制/发布，与规章管理并列；
+  // 查看与编制按平台级角色 + 手册级角色关联授权，tenant_id 不参与判定
+  {icon: <BookOutlined/>, title: '制度管理', auth: 'institution.manual.view', path: '/institution', component: InstitutionIndex},
+  // 手册详情与草稿工作台：带参数路由各占一个页签，标题与层级链单独声明
+  {path: '/institution/manuals/:id', auth: 'institution.manual.view',
+    component: InstitutionManualDetail, tabTitle: '手册详情', tabCrumbs: ['制度管理']},
+  {path: '/institution/manuals/:id/draft', auth: 'institution.manual.view',
+    component: InstitutionDraftWorkspace, tabTitle: '草稿工作台', tabCrumbs: ['制度管理', '手册详情']},
   {icon: <TeamOutlined/>, title: '协作任务', auth: 'coop.task.view|coop.task.submit', path: '/coop-task', component: CoopTaskIndex},
   {icon: <FolderOpenOutlined/>, title: '资料库', auth: 'document.document.view|document.party_building_document.view|document.regulation.view', child: [
     {title: '公共文档', auth: 'document.document.view', path: '/document', component: DocumentIndex},
