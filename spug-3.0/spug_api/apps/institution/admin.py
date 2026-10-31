@@ -2,9 +2,9 @@
 # Released under the AGPL-3.0 License.
 from django.contrib import admin
 
-from .models import (Manual, ManualCategory, ManualChapter, ManualDraft,
-                     ManualEditSession, ManualOperationLog, ManualOriginal,
-                     ManualVersion)
+from .models import (Manual, ManualAuthorization, ManualCategory,
+                     ManualChapter, ManualDraft, ManualEditSession,
+                     ManualOperationLog, ManualOriginal, ManualVersion)
 
 
 @admin.register(ManualCategory)
@@ -26,11 +26,18 @@ class ManualVersionInline(admin.TabularInline):
 
 @admin.register(Manual)
 class ManualAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'code', 'category', 'owner_type', 'owner_name',
-                    'status', 'current_version', 'created_at')
-    list_filter = ('status', 'owner_type', 'category')
-    search_fields = ('name', 'code', 'owner_name')
+    list_display = ('id', 'name', 'code', 'category', 'org_type', 'org_name',
+                    'owner', 'status', 'current_version', 'created_at')
+    list_filter = ('status', 'org_type', 'category')
+    search_fields = ('name', 'code', 'org_name')
     inlines = [ManualChapterInline, ManualVersionInline]
+
+
+@admin.register(ManualAuthorization)
+class ManualAuthorizationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'manual', 'account', 'can_view', 'can_edit',
+                    'can_publish', 'updated_at', 'updated_by')
+    search_fields = ('manual__name', 'account__username')
 
 
 @admin.register(ManualOriginal)

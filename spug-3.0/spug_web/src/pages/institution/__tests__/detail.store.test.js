@@ -608,3 +608,107 @@ describe('detail store（生命周期统一刷新 refreshAfterLifecycle）', () 
     expect(detailStore.currentFiles).toBeNull();
   });
 });
+
+describe('detail store（逐本账号授权与所有者，2026-10-31 授权模型）', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    detailStore.reset();
+  });
+
+  it('fetchAuthorizations 成功缓存清单；失败清空并置错误态（不以空清单冒充成功）', async () => {
+    http.get.mockResolvedValueOnce({
+      items: [{account_id: 11, account_name: '张三', can_view: true,
+        can_edit: true, can_publish: false}],
+      editor_can_view_published: true,
+    });
+    await detailStore.fetchAuthorizations(7);
+    expect(http.get).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/authorizations/');
+    expect(detailStore.authorizations.items).toHaveLength(1);
+    expect(detailStore.authorizations.editor_can_view_published).toBe(true);
+    expect(detailStore.authorizationsError).toBe('');
+    expect(detailStore.isFetchingAuthorizations).toBe(false);
+    http.get.mockRejectedValueOnce(new Error('network'));
+    await detailStore.fetchAuthorizations(7);
+    expect(detailStore.authorizations).toBeNull();
+    expect(detailStore.authorizationsError).toContain('加载失败');
+  });
+
+  it('saveAuthorizations PUT 全量 items + editor_can_view_published，缓存响应并透传 revoked_sessions', async () => {
+    const payload = [{account_id: 11, can_view: true, can_edit: true,
+      can_publish: false}];
+    http.put.mockResolvedValueOnce({
+      items: payload, editor_can_view_published: false, revoked_sessions: 2,
+    });
+    const data = await detailStore.saveAuthorizations(7, payload, false);
+    expect(http.put).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/authorizations/',
+      {items: payload, editor_can_view_published: false});
+    expect(detailStore.authorizations.editor_can_view_published).toBe(false);
+    expect(data.revoked_sessions).toBe(2);
+    // 失败向上抛（拦截器已提示），本地已缓存状态不动
+    http.put.mockRejectedValueOnce(new Error('denied'));
+    await expect(
+      detailStore.saveAuthorizations(7, [], true)).rejects.toBeTruthy();
+  });
+
+  it('fetchAccountOptions/fetchOwnerCandidates：skipErrorNotification，失败置错误态由卡片内重试', async () => {
+    http.get.mockImplementation((url, config) => {
+      if (url.includes('/account-options/')) {
+        expect(config).toMatchObject({skipErrorNotification: true});
+        return Promise.resolve([{id: 11, name: '张三'}]);
+      }
+      if (url.includes('/owner-candidates/')) {
+        expect(config).toMatchObject({skipErrorNotification: true});
+        return Promise.reject('手册不存在或无权限访问');
+      }
+      return Promise.reject(new Error('unexpected ' + url));
+    });
+    await detailStore.fetchAccountOptions(7);
+    await detailStore.fetchOwnerCandidates(7);
+    expect(detailStore.accountOptions).toHaveLength(1);
+    expect(detailStore.accountOptionsError).toBe('');
+    expect(detailStore.ownerCandidates).toEqual([]);
+    expect(detailStore.ownerCandidatesError).toContain('无权限');
+  });
+
+  it('setManualOwner POST owner/ 携带 account_id；响应含详情则就地更新 manual', async () => {
+    http.post.mockResolvedValueOnce({
+      id: 7, name: '手册', owner_id: 13, owner_name: '王五',
+      is_owner: false, is_admin: true,
+    });
+    await detailStore.setManualOwner(7, 13);
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/owner/', {account_id: 13});
+    expect(detailStore.manual.owner_name).toBe('王五');
+  });
+
+  it('setManualOwner 响应无详情时回退 fetchDetail 刷新', async () => {
+    http.post.mockResolvedValueOnce({});
+    http.get.mockResolvedValueOnce({
+      id: 7, name: '手册', owner_id: 14, owner_name: '赵六',
+      is_owner: false, is_admin: true,
+    });
+    await detailStore.setManualOwner(7, 14);
+    expect(http.get).toHaveBeenCalledWith('/api/institution/manuals/7/');
+    expect(detailStore.manual.owner_name).toBe('赵六');
+  });
+
+  it('reset 清理授权/账号候选/所有者候选状态', () => {
+    detailStore.authorizations = {items: []};
+    detailStore.authorizationsError = 'x';
+    detailStore.isFetchingAuthorizations = true;
+    detailStore.accountOptions = [{id: 1, name: 'a'}];
+    detailStore.accountOptionsError = 'y';
+    detailStore.ownerCandidates = [{id: 2, name: 'b'}];
+    detailStore.ownerCandidatesError = 'z';
+    detailStore.reset();
+    expect(detailStore.authorizations).toBeNull();
+    expect(detailStore.authorizationsError).toBe('');
+    expect(detailStore.isFetchingAuthorizations).toBe(false);
+    expect(detailStore.accountOptions).toEqual([]);
+    expect(detailStore.accountOptionsError).toBe('');
+    expect(detailStore.ownerCandidates).toEqual([]);
+    expect(detailStore.ownerCandidatesError).toBe('');
+  });
+});

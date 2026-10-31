@@ -17,7 +17,7 @@ from django.views.generic import View
 
 from libs import Argument, JsonParser, auth, json_response
 
-from . import editor_services, services
+from . import authorization_services, editor_services, services
 from .models import Manual
 from .views import _manual_from_request
 from .views_draft import _draft_or_error
@@ -28,8 +28,9 @@ class FileDraftForcesaveView(View):
     """请求文档服务立即保存当前编辑文档（落盘确认入口，不直接落盘）
 
     权限与会话校验与 editor-config / multipart save 同口径：模块
-    draft_edit + 手册编制角色 + 该文件有效编辑会话。响应携带请求时刻的
-    草稿修订号作为轮询基线（回调落盘后修订号单调递增）。
+    draft_edit + 负责人独占编辑（can_edit_file）+ 该文件有效编辑会话。
+    响应携带请求时刻的草稿修订号作为轮询基线（回调落盘后修订号单调
+    递增）。
     """
 
     @auth('institution.manual.draft_edit')
@@ -37,13 +38,13 @@ class FileDraftForcesaveView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
-        if manual.status != Manual.STATUS_ACTIVE:
-            return json_response(error='手册已归档，不能编辑')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
+        if manual.status != Manual.STATUS_ACTIVE:
+            return json_response(error='手册已归档，不能编辑')
         draft, err = _draft_or_error(file_entry)
         if err:
             return err

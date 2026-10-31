@@ -717,12 +717,31 @@ def period_generate(user, ledger_type, maintenance_cycles=None, template_ids=Non
     }, None
 
 
+def _rebuild_slot_block_reason(status, reason, existing):
+    """补建槽位占用拦截（2026-10-31 上线前审查）：返回拒绝信息或 None。
+
+    与生成预览同口径：本期已存在有效台账、或存在未作废的历史手工台账
+    （手工壳）占用槽位时一律拒绝；仅作废占用（或空槽位）放行补建。
+    """
+    if status == GENERATE_EXISTS:
+        return '本期已存在有效台账 %s，无需补建' % existing.ledger_no
+    if status == GENERATE_MANUAL_NEEDED and (
+            existing is None or existing.status != LEDGER_STATUS_VOID):
+        # 未作废的历史手工台账（手工壳）占用本期槽位：与生成预览"需人工处理"
+        # 判定同口径拒绝，不在补建中悄悄创建重复台账
+        return reason
+    return None
+
+
 @transaction.atomic
 def period_generate_rebuild(user, template_id, template_kind='excel'):
     """明确补建（2026-10-16）：为"已作废占用"的本期槽位重新生成应填台账。
 
     - 仅处理当期（本期）槽位：模板行锁内重算判定；本期已存在有效台账
-      （草稿/已完成/旧流程状态）时拒绝；已作废占用或槽位为空时创建；
+      （草稿/已完成/旧流程状态）时拒绝；同系统同期次存在未作废的历史手工
+      台账（手工壳）时与生成预览"需人工处理"判定一致拒绝（2026-10-31
+      上线前审查补口，两条路线同口径），先作废或处理手工台账再补建；
+      已作废占用或槽位为空时创建；
     - template_kind 选择模板路线（excel/form，缺省 excel 兼容旧调用）；
     - 作废台账保留不动（不删除、不改写），新旧台账并存；
     - 槽位唯一约束以 slot_active 豁免作废行，补建不再被作废记录阻塞。
@@ -751,10 +770,11 @@ def period_generate_rebuild(user, template_id, template_kind='excel'):
         return None, '适用系统已停用，不能用于新台账'
     slot_maps = _generation_slot_ledgers(user, template.ledger_type, [
         (template_kind, template.id, template.system_id, period)])
-    status, _, existing = _classify_slot(
+    status, reason, existing = _classify_slot(
         template, template_kind, slot_maps[template_kind], period)
-    if status == GENERATE_EXISTS:
-        return None, '本期已存在有效台账 %s，无需补建' % existing.ledger_no
+    blocked = _rebuild_slot_block_reason(status, reason, existing)
+    if blocked:
+        return None, blocked
     try:
         ledger = _create_generated_ledger(user, template, version, {
             'period_start': start,

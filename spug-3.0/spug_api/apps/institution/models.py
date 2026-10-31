@@ -3,10 +3,12 @@
 """制度管理业务模型
 
 设计原则（依据根目录《制度管理模块设计方案》）：
-- 手册主记录（Manual）承载名称、编号、类别、业务归属、状态、
-  查看/编制/发布角色关联与编辑密码哈希；业务授权完全按账号所持
-  角色与手册关联角色判定，tenant_id 仅作为数据模型约定保留，
-  不参与任何归属、可见范围或编辑权判断。
+- 手册主记录（Manual）承载名称、编号、类别、业务归属（org_type/
+  org_name，展示字段）、状态、所有者账号与编辑密码哈希；业务授权 =
+  页面权限码（系统角色功能资格）∩ 逐本账号授权（ManualAuthorization）
+  与所有者身份；tenant_id 仅作为数据模型约定保留，不参与任何归属、
+  可见范围或编辑权判断。所有者负责该手册的账号授权与文件分工，
+  不因所有者身份自动取得正文编辑或发布权。
 - 原稿（ManualOriginal）永不覆盖：每次上传都新落一条记录与新文件，
   原稿归属具体制度文件（历史数据回填到主文件）。
 - 制度文件（ManualFile）是制度下 Word 文件的稳定条目：改名/排序/移除
@@ -20,7 +22,8 @@
 - 文件分工（2026-10-29 起）记录在制度文件（ManualFile）上：每份文件
   一名负责人与分工说明，负责人完成编制后可提交（记录草稿修订号，
   草稿再变更即失效）；旧章节分工（ManualChapter）为遗留只读数据，
-  保留供人工核对，写入口已关闭。负责人不授予超出手册角色的额外编辑权。
+  保留供人工核对，写入口已关闭。负责人必须持有该手册编制授权
+  （can_edit）且仅负责人可编辑该文件（编辑密码只是附加验证）。
 - 编辑会话（ManualEditSession）以文件为单位实现单写约束：同一文件
   同一时间仅一个可写会话，同一制度的不同文件可由不同账号并行编辑；
   支持密码重置、手册移交或授权撤销后的失效。
@@ -85,11 +88,18 @@ class Manual(models.Model, TenantModelMixin):
         ManualCategory, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='manuals', verbose_name='手册类别',
     )
-    owner_type = models.CharField(
+    # 归属类型/归属单位是业务展示字段（部门/科室），与"所有者"无关；
+    # 2026-10-31 由 owner_type/owner_name 更名，verbose_name 不变语义
+    org_type = models.CharField(
         max_length=20, choices=OWNER_CHOICES,
         default=OWNER_DEPARTMENT, verbose_name='业务归属类型',
     )
-    owner_name = models.CharField(max_length=255, blank=True, default='', verbose_name='归属单位')
+    org_name = models.CharField(max_length=255, blank=True, default='', verbose_name='归属单位')
+    # 所有者账号（2026-10-31）：负责该手册的账号授权与文件分工；
+    # 不因所有者身份自动取得正文编辑或发布权。账号删除时置空不阻塞。
+    owner = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='institution_owned_manuals', verbose_name='所有者账号')
     status = models.CharField(
         max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE,
         db_index=True, verbose_name='状态',
@@ -106,13 +116,6 @@ class Manual(models.Model, TenantModelMixin):
         'ManualVersion', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='当前生效版本',
     )
-
-    view_roles = models.ManyToManyField(
-        'account.Role', blank=True, related_name='institution_view_manuals', verbose_name='查看角色')
-    edit_roles = models.ManyToManyField(
-        'account.Role', blank=True, related_name='institution_edit_manuals', verbose_name='编制角色')
-    publish_roles = models.ManyToManyField(
-        'account.Role', blank=True, related_name='institution_publish_manuals', verbose_name='发布角色')
 
     created_by = models.ForeignKey(
         User, null=True, on_delete=models.SET_NULL, related_name='+', verbose_name='创建人')
@@ -136,13 +139,60 @@ class Manual(models.Model, TenantModelMixin):
                 name='inst_manual_status_valid',
             ),
             models.CheckConstraint(
-                check=models.Q(owner_type__in=['department', 'section']),
-                name='inst_manual_owner_type_valid',
+                check=models.Q(org_type__in=['department', 'section']),
+                name='inst_manual_org_type_valid',
             ),
         ]
 
     def __str__(self):
         return f'{self.code} {self.name}'.strip()
+
+
+class ManualAuthorization(models.Model, TenantModelMixin):
+    """逐本账号授权（2026-10-31，替代手册 M2M 角色关联）
+
+    系统角色（页面权限码）只决定功能资格（查看/编制/发布等入口能否
+    打开）；具体可操作哪本手册由本表的逐本授权决定：
+    - can_view：可查看手册元数据与详情入口（工作区之外的信息）。
+    - can_edit：编制资格——配合文件负责人（ManualFile.owner）独占编辑，
+      资格本身不等于可编辑任意文件。
+    - can_publish：发布域操作（发布/废止/回退/预检/长期保留标记）。
+    全 False 的行由服务层落为删除，不保留空授权行。管理操作
+    （整体替换授权、指定所有者）见 authorization_services.replace_manual_authorizations
+    与 views_authorization；页面权限码 institution.manual.admin 的
+    制度管理员可管理任意手册，普通所有者只管自己的手册。
+    """
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+    manual = models.ForeignKey(
+        Manual, on_delete=models.CASCADE, related_name='account_grants',
+        verbose_name='所属手册')
+    account = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='institution_manual_grants',
+        verbose_name='授权账号')
+    can_view = models.BooleanField(default=False, verbose_name='可查看')
+    can_edit = models.BooleanField(default=False, verbose_name='可编制')
+    can_publish = models.BooleanField(default=False, verbose_name='可发布')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='更新时间')
+    updated_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='更新操作人')
+
+    class Meta:
+        db_table = 'tdyw_institution_authorization'
+        verbose_name = '手册账号授权'
+        verbose_name_plural = '手册账号授权'
+        ordering = ['account_id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['manual', 'account'], name='inst_auth_manual_account'),
+        ]
+        indexes = [
+            models.Index(fields=['account'], name='inst_auth_account_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.manual_id}:{self.account_id}'
 
 
 class ManualFile(models.Model, TenantModelMixin):
@@ -156,8 +206,9 @@ class ManualFile(models.Model, TenantModelMixin):
       原稿、历史快照与 ID 全部保留（整版回退可重新纳入）。
     - 文件分工（2026-10-29，替代旧章节分工）：分工单位是整份文件，
       每份文件至多一名负责人与一段分工说明，字段就在本条目上——
-      结构上不可能出现同一文件多条互相冲突的"当前分工"。负责人只是
-      责任标记，不授予任何超出手册角色的编辑权。
+      结构上不可能出现同一文件多条互相冲突的"当前分工"。被指派
+      负责人必须持有该手册 can_edit 编制授权；此后仅负责人可编辑
+      该文件（2026-10-31 负责人独占，编辑密码只是附加验证）。
     """
     objects = TenantModelManager()
     tenant_id = make_tenant_id()
@@ -180,7 +231,8 @@ class ManualFile(models.Model, TenantModelMixin):
     revision_open = models.BooleanField(default=True, verbose_name='修订进行中')
     # ---- 文件分工（2026-10-29，替代旧章节分工 ManualChapter）----
     # 每份文件至多一名负责人：owner 为空即"未分配"；owner_name 为账号名
-    # 快照（账号删除后仍可读）。指定负责人不授予任何编辑权限。
+    # 快照（账号删除后仍可读）。被指派账号必须持有该手册 can_edit 编制
+    # 授权（2026-10-31 起）；负责人独占编辑该文件，改派/撤权撤销在途会话。
     owner = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='文件负责人')
@@ -417,6 +469,13 @@ class ManualEditSession(models.Model, TenantModelMixin):
     # 实例回调，拒绝保存（防旧内容覆盖；多标签重新取配置即换 key）
     current_doc_key = models.CharField(
         max_length=64, blank=True, default='', verbose_name='当前编辑文档键')
+    # 撤销时是否声明保留收尾回调（仅撤销端点 discard=false 显式置位，
+    # 即"保存并结束编辑"确认成功后的撤销）：True 时本会话（同一
+    # current_doc_key）的收尾 status-2/6 回调在撤销后仍允许按防线落盘
+    # （editor_services._resolve_final_callback_session）；密码重置/
+    # 整套回退/草稿恢复等批量失效不置位，收尾回调照旧拒绝。
+    final_callback_allowed = models.BooleanField(
+        default=False, verbose_name='撤销后保留收尾回调')
 
     class Meta:
         db_table = 'tdyw_institution_edit_session'

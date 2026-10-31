@@ -2,18 +2,20 @@
 # Released under the AGPL-3.0 License.
 """文件分工与提交编制的真实行为测试（2026-10-29，替代旧章节分工）
 
-覆盖（《制度管理模块设计方案》文件分工节）：
+覆盖（《制度管理模块设计方案》文件分工节 + 2026-10-31 授权模型改造）：
 - 文件分工：新增文件时指定负责人、assignment 接口改派/清空（未分配）、
   文件清单行下发负责人与提交状态（草稿域信息按工作区可见口径门控）。
-- 权限：查看角色不能分工；负责人身份不授予编辑权；跨制度文件 ID 拒绝；
-  提交编制放行口径=负责人/管理权限/编制角色。
+- 权限：分工业务门禁=手册所有者/制度管理员（2026-10-31 起）；被指派
+  负责人必须持有该手册 can_edit 编制资格；负责人身份+授权才有编辑权；
+  跨制度文件 ID 拒绝；提交编制放行口径=文件负责人/手册所有者/制度管理员。
 - 提交编制：记录提交时草稿修订号与时间；无有效草稿、活跃编辑会话、
   归档手册拒绝；草稿再次保存/重建/回退后提交状态失效（不得显示已完成）；
-  可重复提交。
+  可重复提交；改派/清空撤销在途编辑会话。
 - 发布核对：publish-preview 各分组行携带负责人与提交状态，但提交与否
   不新增发布阻断（现有整套发布校验保持不变）。
 - 旧章节数据：ManualChapter 记录保留可读，写接口全部关闭且不删改记录。
 """
+import json
 import tempfile
 from unittest.mock import patch
 
@@ -22,12 +24,12 @@ from django.test import TestCase
 
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualChapter, ManualDraft,
-                                     ManualFile, ManualOperationLog,
-                                     ManualVersion)
+                                     ManualEditSession, ManualFile,
+                                     ManualOperationLog, ManualVersion)
 from apps.institution.tests.base import (
-    ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_UPLOAD,
-    PERM_VIEW,
-    delete_json, get_data, has_error, make_client, make_role, make_user,
+    ALL_PERMS, PERM_ADMIN, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH,
+    PERM_UPLOAD, PERM_VIEW,
+    delete_json, get_data, has_error, make_client, make_grant, make_user,
     post_json, put_json, setup_test_env,
 )
 
@@ -35,7 +37,7 @@ DOCX = b'PK\x03\x04 file-assignment-docx'
 
 
 class FileAssignmentBase(TestCase):
-    """管理者 + 两名编制者 + 一名发布者 + 查看者；手册就绪"""
+    """管理者（=手册所有者）+ 两名编制者 + 一名发布者 + 查看者；手册就绪"""
 
     def setUp(self):
         setup_test_env()
@@ -49,26 +51,21 @@ class FileAssignmentBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='部门管理手册', code='BM-001',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='某部门',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.publish_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
-        self.manual.publish_roles.add(self.publish_role)
+            org_type=Manual.OWNER_DEPARTMENT, org_name='某部门',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
         self.editor2 = make_user('editor2', tenant_id='deptC',
-                                 perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                 roles=[self.edit_role])
+                                 perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
+        make_grant(self.manual, self.editor2, can_view=True, can_edit=True)
         self.publisher = make_user('pub', tenant_id='deptZ',
                                    perms=[PERM_PUBLISH, PERM_DOWNLOAD,
-                                          PERM_VIEW],
-                                   roles=[self.publish_role])
-        self.view_role = make_role()
-        self.manual.view_roles.add(self.view_role)
+                                          PERM_VIEW])
+        make_grant(self.manual, self.publisher, can_view=True, can_publish=True)
         self.viewer = make_user('viewer', tenant_id='deptY',
-                                perms=[PERM_VIEW], roles=[self.view_role])
+                                perms=[PERM_VIEW])
+        make_grant(self.manual, self.viewer, can_view=True)
         self.manager_client = make_client(self.manager)
         self.editor_client = make_client(self.editor)
         self.editor2_client = make_client(self.editor2)
@@ -149,16 +146,23 @@ class AssignmentTests(FileAssignmentBase):
         self.assertEqual(data['assignment']['owner_name'], '')
         self.assertIsNone(ManualFile.objects.get(pk=data['id']).owner_id)
 
-    def test_assign_and_reassign_by_editor(self):
+    def test_assign_by_owner_and_reassign(self):
+        """分工业务门禁=手册所有者（或制度管理员）：编制授权不足以分工"""
         data = self._add_file('甲.docx')
-        # 编制角色（无管理权限）也能分工
+        # 仅持编制授权的账号不能分工
         resp = self._assign(self.editor_client, data['id'],
+                            owner_id=self.editor2.id, note='由乙编制')
+        self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
+        self.assertIsNone(ManualFile.objects.get(pk=data['id']).owner_id)
+        # 所有者指定
+        resp = self._assign(self.manager_client, data['id'],
                             owner_id=self.editor2.id, note='由乙编制')
         self.assertFalse(has_error(resp), resp.content)
         body = get_data(resp)
         self.assertEqual(body['assignment']['owner_id'], self.editor2.id)
-        # 改派
-        resp = self._assign(self.editor2_client, data['id'],
+        # 所有者改派
+        resp = self._assign(self.manager_client, data['id'],
                             owner_id=self.editor.id, note='改由甲编制')
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(get_data(resp)['assignment']['owner_id'], self.editor.id)
@@ -166,6 +170,24 @@ class AssignmentTests(FileAssignmentBase):
         self.assertTrue(ManualOperationLog.objects.filter(
             manual=self.manual, file_id=data['id'],
             action='file_assign').exists())
+
+    def test_assign_requires_can_edit_qualification(self):
+        """被指派账号必须持有该手册 can_edit 编制资格"""
+        data = self._add_file('资格.docx')
+        # 无任何授权的账号被拒
+        outsider = make_user('no-grant', tenant_id='deptW', perms=[PERM_VIEW])
+        resp = self._assign(self.manager_client, data['id'],
+                            owner_id=outsider.id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('编制资格', resp.json()['error'])
+        # 仅有 can_view 授权的账号同样被拒
+        viewer = make_user('view-grant', tenant_id='deptW', perms=[PERM_VIEW])
+        make_grant(self.manual, viewer, can_view=True)
+        resp = self._assign(self.manager_client, data['id'],
+                            owner_id=viewer.id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('编制资格', resp.json()['error'])
+        self.assertIsNone(ManualFile.objects.get(pk=data['id']).owner_id)
 
     def test_clear_owner_becomes_unassigned(self):
         data = self._add_file('乙.docx', owner=self.editor)
@@ -184,7 +206,7 @@ class AssignmentTests(FileAssignmentBase):
         resp = self._assign(self.manager_client, data['id'], owner_id=9999999)
         self.assertTrue(has_error(resp))
 
-    def test_assign_denied_for_view_only_role(self):
+    def test_assign_denied_for_view_only_grant(self):
         data = self._add_file('丁.docx')
         resp = self._assign(self.viewer_client, data['id'],
                             owner_id=self.editor.id)
@@ -193,7 +215,7 @@ class AssignmentTests(FileAssignmentBase):
 
     def test_assign_cross_manual_file_rejected(self):
         other = Manual.objects.create(
-            name='其他手册', tenant_id='deptA')
+            name='其他手册', owner=self.manager, tenant_id='deptA')
         other_file = ManualFile.objects.create(
             manual=other, display_name='别册.docx')
         data = self._add_file('本册.docx')
@@ -212,11 +234,11 @@ class AssignmentTests(FileAssignmentBase):
         self._set_password()
         resp = self._start_session(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
-        # 工作区可见者（编制/发布/管理）：submission 在，含草稿修订号
+        # 工作区可见者（编制/发布/所有者）：submission 在，含草稿修订号
         row = {x['id']: x for x in self._files_list(self.editor_client)}[data['id']]
         self.assertEqual(row['submission']['state'], 'none')
         self.assertEqual(row['submission']['draft_revision'], 1)
-        # 仅查看角色：assignment 可见（负责人是责任信息），submission/draft 不下发
+        # 仅查看授权：assignment 可见（负责人是责任信息），submission/draft 不下发
         row = {x['id']: x for x in self._files_list(self.viewer_client)}[data['id']]
         self.assertEqual(row['assignment']['owner_id'], self.editor.id)
         self.assertNotIn('submission', row)
@@ -231,21 +253,27 @@ class AssignmentTests(FileAssignmentBase):
 
 
 class OwnerPermissionTests(FileAssignmentBase):
-    """指定负责人不自动授予编辑权限"""
+    """编制资格与负责人独占编辑（2026-10-31 授权模型改造）"""
 
-    def test_owner_without_edit_role_cannot_edit(self):
-        # 负责人只挂查看角色：分工不改变授权，开启会话仍被拒
-        owner = make_user('owner', tenant_id='deptW', perms=[PERM_VIEW],
-                          roles=[self.view_role])
-        data = self._add_file('仅查看负责人.docx', owner=owner)
+    def test_owner_without_edit_grant_cannot_edit(self):
+        """负责人必持编制授权：无 can_edit 授权者既不能被指派也不能编辑"""
+        outsider = make_user('owner', tenant_id='deptW', perms=[PERM_VIEW])
+        data = self._add_file('仅查看负责人.docx')
+        resp = self._assign(self.manager_client, data['id'],
+                            owner_id=outsider.id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('编制资格', resp.json()['error'])
         self._set_password()
-        resp = self._start_session(make_client(owner), data['id'])
+        # 直接构造的负责人（绕过 API）同样不能开启会话
+        ManualFile.objects.filter(pk=data['id']).update(owner_id=outsider.id)
+        resp = self._start_session(make_client(outsider), data['id'])
         self.assertTrue(has_error(resp))
 
-    def test_owner_can_submit_with_view_perm_only(self):
-        """负责人完成编制后可提交（提交是状态交接，不要求编制角色）"""
-        owner = make_user('owner2', tenant_id='deptW', perms=[PERM_VIEW],
-                          roles=[self.view_role])
+    def test_owner_can_submit_with_view_page_perm_only(self):
+        """负责人完成编制后可提交（提交是状态交接，不要求 draft_edit
+        页面权限；编制资格由授权行承载）"""
+        owner = make_user('owner2', tenant_id='deptW', perms=[PERM_VIEW])
+        make_grant(self.manual, owner, can_view=True, can_edit=True)
         data = self._add_file('提交.docx', owner=owner)
         resp = self._submit(make_client(owner), data['id'])
         self.assertFalse(has_error(resp), resp.content)
@@ -256,23 +284,57 @@ class OwnerPermissionTests(FileAssignmentBase):
         self.assertEqual(entry.submitted_by_id, owner.id)
         self.assertIsNotNone(entry.submitted_at)
 
-    def test_non_owner_without_roles_cannot_submit(self):
+    def test_non_assignee_cannot_submit(self):
+        """放行口径=文件负责人/手册所有者/制度管理员：编制资格（非负责人）
+        与仅查看授权均不可提交"""
         data = self._add_file('越权提交.docx', owner=self.editor)
         resp = self._submit(self.viewer_client, data['id'])
         self.assertTrue(has_error(resp))
         entry = ManualFile.objects.get(pk=data['id'])
         self.assertIsNone(entry.submitted_at)
-        # 编制角色（非负责人）可以提交：放行口径=负责人/管理/编制角色
+        # 编制授权（非负责人）不可提交：负责人独占编辑后提交随负责人走
         resp = self._submit(self.editor2_client, data['id'])
+        self.assertTrue(has_error(resp))
+        # 手册所有者可代为提交
+        resp = self._submit(self.manager_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
+        self.assertIsNotNone(
+            ManualFile.objects.get(pk=data['id']).submitted_at)
 
     def test_submit_cross_manual_file_rejected(self):
-        other = Manual.objects.create(name='别册手册', tenant_id='deptA')
+        other = Manual.objects.create(name='别册手册', owner=self.manager,
+                                      tenant_id='deptA')
         other_file = ManualFile.objects.create(
             manual=other, display_name='别册.docx',
             owner=self.editor)
         resp = self._submit(self.editor_client, other_file.id)
         self.assertTrue(has_error(resp))
+
+    def test_reassignment_revokes_active_sessions(self):
+        """改派/清空负责人撤销该文件活跃会话，旧负责人不能再保存"""
+        data = self._add_file('改派.docx', owner=self.editor)
+        self._set_password()
+        resp = self._start_session(self.editor_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
+        session_key = get_data(resp)['session_key']
+        # 改派给 editor2：旧负责人会话被撤销
+        resp = self._assign(self.manager_client, data['id'],
+                            owner_id=self.editor2.id)
+        self.assertFalse(has_error(resp), resp.content)
+        detail = json.loads(ManualOperationLog.objects.filter(
+            manual=self.manual, file_id=data['id'],
+            action='file_assign').latest('id').detail)
+        self.assertGreaterEqual(detail.get('revoked_sessions', 0), 1)
+        self.assertIsNotNone(ManualEditSession.objects.get(
+            session_key=session_key).revoked_at)
+        # 旧负责人已非负责人：负责人独占拒绝（早于会话校验）
+        resp = self._save(self.editor_client, data['id'], session_key, 1,
+                          content=DOCX + b'-late')
+        self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
+        # 新负责人可开启会话
+        resp = self._start_session(self.editor2_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
 
 
 class SubmitValidationTests(FileAssignmentBase):
@@ -358,8 +420,9 @@ class SubmissionInvalidationTests(FileAssignmentBase):
     def test_rebuild_from_original_after_submit_marks_stale(self):
         data = self._submitted_file('重建.docx')
         original_id = ManualDraft.objects.get(file_id=data['id']).source_original_id
+        # 重建是内容写路径：负责人独占，由文件负责人执行
         resp = post_json(
-            self.manager_client,
+            self.editor_client,
             f'/institution/manuals/{self.manual.id}/files/{data["id"]}/draft/create/',
             {'original_id': original_id})
         self.assertFalse(has_error(resp), resp.content)
@@ -503,13 +566,13 @@ class LegacyChapterRecordTests(FileAssignmentBase):
 
 
 class AssignmentOwnerOptionsTests(FileAssignmentBase):
-    """负责人候选接口（2026-10-30 权限匹配修正）
+    """负责人候选接口（2026-10-31 授权模型改造后口径）
 
-    根因：旧前端打开分工弹窗直接拉账号管理列表 /api/account/user/
-    （GET 要求 system.account.view），持有制度分工权限但无账号查看权的
-    用户点「负责人分配」即"权限拒绝"，且候选被 catch 吞掉表现为空列表。
-    修正：制度模块提供与分工写路径同权限口径的候选接口（仅 ID+显示名，
-    不开放账号管理清单、不放宽 /api/account/user/ 权限）。
+    - 业务门禁与分工写路径一致：手册所有者或制度管理员（仅页面权限
+      不再放行无授权调用者）；
+    - 候选=持有该手册 can_edit 编制授权的启用账号（与
+      _resolve_assignee 的校验口径一致；跨租户账号可作负责人是预期）；
+    - 只返回 id + name（昵称，空则账号名）最小字段。
     """
 
     def _owners(self, client):
@@ -518,51 +581,58 @@ class AssignmentOwnerOptionsTests(FileAssignmentBase):
 
     def test_account_user_list_still_denies_assignment_perm_user(self):
         """根因固化：账号管理清单仍要求 system.account.view，制度分工
-        权限不放行（修正绝不以放宽账号接口为手段）"""
+        权限不放行（候选接口绝不以放宽账号接口为手段）"""
         # 测试内路径不含 /api 前缀（nginx 重写后；前端实际请求 /api/account/user/）
         resp = self.editor_client.get('/account/user/')
         self.assertTrue(has_error(resp))
         self.assertEqual(resp.json()['error'], '权限拒绝')
 
-    def test_editor_without_account_view_gets_candidates(self):
-        """核心回归：编制角色 + draft_edit（无任何 system.* 权限）可取候选"""
-        resp = self._owners(self.editor_client)
+    def test_owner_gets_can_edit_holders_as_candidates(self):
+        """核心回归：所有者可取候选，候选=持该手册 can_edit 的启用账号"""
+        resp = self._owners(self.manager_client)
         self.assertFalse(has_error(resp), resp.content)
         rows = get_data(resp)
         by_id = {r['id']: r for r in rows}
-        # 候选含跨租户账号：口径=启用账号即可作负责人（与 _resolve_owner 一致，
-        # 跨租户持角色/作负责人是本模块明确预期，见模块 AGENTS.md 授权模型）
+        # 候选含跨租户授权账号（本模块授权与 tenant 无关的不变量）
+        self.assertIn(self.editor.id, by_id)
+        self.assertEqual(by_id[self.editor.id]['name'], self.editor.nickname)
         self.assertIn(self.editor2.id, by_id)
-        self.assertEqual(by_id[self.editor2.id]['name'], self.editor2.nickname)
-        self.assertIn(self.manager.id, by_id)
+        # 仅 can_view / can_publish 授权或无授权账号不在候选
+        self.assertNotIn(self.viewer.id, by_id)
+        self.assertNotIn(self.publisher.id, by_id)
+        self.assertNotIn(self.manager.id, by_id)
+        outsider = make_user('no-grant', tenant_id='deptW', perms=[PERM_DRAFT])
+        self.assertNotIn(outsider.id, by_id)
         # 仅返回最小字段（ID+显示名），不回传账号管理字段
         for row in rows:
             self.assertEqual(set(row.keys()), {'id', 'name'})
 
-    def test_upload_perm_editor_gets_candidates_for_new_file_flow(self):
-        """新增文件携带负责人（upload + 编制角色）同样可取候选：
-        候选接口权限=draft_edit|upload 页面权限 +（管理权限或编制角色）"""
-        creator = make_user('creator', tenant_id='deptA',
-                            perms=[PERM_VIEW, PERM_UPLOAD],
-                            roles=[self.edit_role])
-        resp = self._owners(make_client(creator))
+    def test_admin_gets_candidates_for_any_manual(self):
+        """制度管理员（institution.manual.admin）对任意手册可取候选"""
+        admin = make_user('inst-admin', tenant_id='deptA',
+                          perms=[PERM_VIEW, PERM_UPLOAD, PERM_ADMIN])
+        resp = self._owners(make_client(admin))
         self.assertFalse(has_error(resp), resp.content)
+        self.assertIn(self.editor.id, [r['id'] for r in get_data(resp)])
 
-    def test_view_only_role_denied(self):
-        resp = self._owners(self.viewer_client)
+    def test_page_perm_without_owner_or_admin_denied(self):
+        """页面权限满足但非所有者/管理员：与分工写接口同口径拒绝"""
+        # 持 draft_edit 页面权限的编制授权账号：到达业务门后拒绝
+        resp = self._owners(self.editor_client)
         self.assertTrue(has_error(resp))
-
-    def test_draft_edit_perm_without_manual_role_denied(self):
-        """页面权限满足但无手册编制角色且无管理权限：与写接口同口径拒绝"""
-        outsider = make_user('outsider', tenant_id='deptE', perms=[PERM_DRAFT])
-        resp = self._owners(make_client(outsider))
+        self.assertIn('无权限', resp.json()['error'])
+        # 仅持 upload 页面权限（新增文件路径）同样拒绝
+        uploader = make_user('upl-only', tenant_id='deptA',
+                             perms=[PERM_UPLOAD, PERM_VIEW])
+        resp = self._owners(make_client(uploader))
         self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
 
     def test_inactive_account_not_candidate_and_rejected_as_owner(self):
         """停用账号不进候选，写接口同样拒绝（口径一致）"""
         self.editor2.is_active = False
         self.editor2.save()
-        resp = self._owners(self.editor_client)
+        resp = self._owners(self.manager_client)
         self.assertFalse(has_error(resp), resp.content)
         self.assertNotIn(self.editor2.id,
                          [r['id'] for r in get_data(resp)])

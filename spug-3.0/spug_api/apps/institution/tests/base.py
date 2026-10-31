@@ -7,6 +7,9 @@
   中间件 -> 路由 -> 视图 -> 模型 -> 数据库链路，不做源码字符串匹配。
 - 物理文件系统按需 patch 到进程级临时目录，绝不触碰容器真实 storage。
 - 数据库使用 Django test runner 创建的隔离测试库。
+- 手册级授权夹具（2026-10-31 授权模型改造）：Manual.owner（所有者）
+  + ManualAuthorization 逐本授权（make_grant），页面权限码仍经
+  make_user(perms=...) 的角色承载。
 """
 import json
 import time
@@ -26,6 +29,7 @@ PERM_UPLOAD = 'institution.manual.upload'
 PERM_DOWNLOAD = 'institution.manual.download'
 PERM_DRAFT = 'institution.manual.draft_edit'
 PERM_PUBLISH = 'institution.manual.publish'
+PERM_ADMIN = 'institution.manual.admin'
 
 ALL_PERMS = [
     PERM_VIEW, PERM_ADD, PERM_EDIT, PERM_DELETE, PERM_CONFIG,
@@ -106,6 +110,16 @@ def make_client(user):
     client = Client()
     client.defaults['HTTP_X_TOKEN'] = user.access_token
     return client
+
+
+def make_grant(manual, account, can_view=False, can_edit=False,
+               can_publish=False, updated_by=None):
+    """逐本账号授权夹具（ManualAuthorization；全 False 行不落库语义由
+    服务层负责，夹具显式传需要的能力位）"""
+    from apps.institution.models import ManualAuthorization
+    return ManualAuthorization.objects.create(
+        manual=manual, account=account, can_view=can_view,
+        can_edit=can_edit, can_publish=can_publish, updated_by=updated_by)
 
 
 def setup_test_env():

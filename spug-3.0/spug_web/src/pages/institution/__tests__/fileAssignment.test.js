@@ -46,6 +46,8 @@ jest.mock('../detail/store', () => {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
       my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
+      // 2026-10-31 授权模型：分工业务门=所有者/制度管理员（默认夹具为所有者）
+      is_owner: true, is_admin: false,
       current_version: {id: 9, version_no: 3}};
     @observable files = [];
     @observable isFetchingFiles = false;
@@ -140,6 +142,24 @@ function findButton(root, text) {
     .find(b => b.textContent.replace(/\s+/g, '').includes(text));
 }
 
+/** 表头文本集合（断言某列是否存在用，避免与说明文案误匹配） */
+function columnHeaderTexts(root) {
+  return Array.from(root.querySelectorAll('th'))
+    .map(th => th.textContent.replace(/\s+/g, ''));
+}
+
+/** 2026-10-30 双视图版：负责人/提交/批量分工属「修订草稿」视图，
+ *  相关用例先切换视图（默认视图=当前生效版本快照清单） */
+function switchView(root, label) {
+  const items = Array.from(root.querySelectorAll('.ant-segmented-item'));
+  const item = items.find(el => el.textContent.includes(label));
+  if (!item) throw new Error('未找到视图切换项: ' + label);
+  const input = item.querySelector('input');
+  act(() => {
+    input.click();
+  });
+}
+
 let container = null;
 
 beforeEach(() => {
@@ -173,13 +193,14 @@ afterEach(() => {
 });
 
 describe('文件清单页签（文件分工展示）', () => {
-  it('负责人列：已分配显示账号名，未分配明确显示「未分配」', async () => {
+  it('负责人列：已分配显示账号名，未分配明确显示「未分配」（草稿视图）', async () => {
     store.files = [
       makeFile(1, {assignment: {owner_id: 9, owner_name: '乙', note: '',
         is_mine: false}}),
       makeFile(2),
     ];
     container = renderTab();
+    switchView(container, '修订草稿');
     const text = container.textContent;
     expect(text).toContain('负责人');
     expect(text).toContain('乙');
@@ -189,6 +210,7 @@ describe('文件清单页签（文件分工展示）', () => {
   it('操作列不再渲染「文件分工」链接（入口在负责人列）', async () => {
     store.files = [makeFile(1)];
     container = renderTab();
+    switchView(container, '修订草稿');
     expect(findButton(container, '文件分工')).toBeUndefined();
   });
 
@@ -196,6 +218,7 @@ describe('文件清单页签（文件分工展示）', () => {
     store.files = [makeFile(1, {assignment: {owner_id: 55, owner_name: '戊',
       note: '', is_mine: false}})];
     container = renderTab();
+    switchView(container, '修订草稿');
     const ownerLinks = Array.from(
       container.querySelectorAll('.ant-table-tbody a'));
     expect(ownerLinks.length).toBe(1); // 负责人「戊」是行内唯一链接
@@ -232,12 +255,15 @@ describe('文件清单页签（文件分工展示）', () => {
       makeFile(3, {draft: {revision: 1}}),
     ];
     container = renderTab();
+    switchView(container, '修订草稿');
     const text = container.textContent;
     expect(text).toContain('已提交');
     expect(text).toContain('提交已失效');
     expect(text).toContain('未提交');
   });
+});
 
+describe('文件清单页签（分工过滤与提交编制入口）', () => {
   it('只看我负责的文件：按服务端 is_mine 过滤行', async () => {
     store.files = [
       makeFile(1, {assignment: {owner_id: 9, owner_name: '乙', note: '',
@@ -246,6 +272,7 @@ describe('文件清单页签（文件分工展示）', () => {
         is_mine: false}}),
     ];
     container = renderTab();
+    switchView(container, '修订草稿');
     expect(container.textContent).toContain('文件2');
     const checkbox = container.querySelector('input[type="checkbox"]');
     act(() => {
@@ -258,7 +285,8 @@ describe('文件清单页签（文件分工展示）', () => {
     expect(text).toContain('只看我负责的文件（1）');
   });
 
-  it('提交编制按钮仅在负责人（is_mine）行渲染，确认后经 store.submitCompile 提交', async () => {    store.files = [
+  it('提交编制按钮仅在负责人（is_mine）行渲染，确认后经 store.submitCompile 提交', async () => {
+    store.files = [
       makeFile(1, {draft: {revision: 5},
         assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true},
         submission: SUBMITTED}),
@@ -266,6 +294,7 @@ describe('文件清单页签（文件分工展示）', () => {
         assignment: {owner_id: 8, owner_name: '丙', note: '', is_mine: false}}),
     ];
     container = renderTab();
+    switchView(container, '修订草稿');
     const submitBtns = Array.from(container.querySelectorAll('button'))
       .filter(b => b.textContent.replace(/\s+/g, '') === '提交编制');
     expect(submitBtns.length).toBe(1);
@@ -301,6 +330,7 @@ describe('文件清单页签（批量分工）', () => {
   it('勾选多份文件 → 批量弹窗明确数量与范围 → 经 store.batchAssignFiles 提交', async () => {
     store.files = [makeFile(1), makeFile(2)];
     container = renderTab();
+    switchView(container, '修订草稿');
     checkRow(container, 0);
     checkRow(container, 1);
     expect(container.textContent).toContain('已选 2 份文件');
@@ -325,6 +355,7 @@ describe('文件清单页签（批量分工）', () => {
   it('勾选后切筛选/清除选择清空勾选（不得误操作旧选择）', async () => {
     store.files = [makeFile(1), makeFile(2)];
     container = renderTab();
+    switchView(container, '修订草稿');
     checkRow(container, 0);
     expect(container.textContent).toContain('已选 1 份文件');
     // 「只看我负责的文件」切换清空勾选（筛选后不可见的文件不保留选择）
@@ -376,12 +407,15 @@ describe('文件清单页签（旧章节过渡与仅查看口径）', () => {
     expect(container.textContent).not.toContain('人工核对');
   });
 
-  it('仅查看角色：负责人列经生效快照行关联只读下发，无编制提交列与分工入口', async () => {
+  it('仅查看角色的生效视图不渲染负责人列，仍无编制提交列与分工入口', async () => {
     const {hasPermission} = require('libs');
     hasPermission.mockImplementation(
       code => code === 'institution.manual.view' ||
         code === 'institution.manual.download');
-    store.manual = Object.assign({}, store.manual, {my_roles: ['view']});
+    store.manual = Object.assign({}, store.manual, {my_roles: ['view'],
+      // 纯仅查看账号：无所有者/管理员身份（工作区不可见，生效视图说明
+      // 不出现工作区措辞）
+      is_owner: false, is_admin: false});
     store.files = [makeFile(1, {assignment: {owner_id: 9, owner_name: '乙',
       note: '', is_mine: false}})];
     store.currentFiles = {version_id: 9, version_no: 3, items: [
@@ -390,25 +424,33 @@ describe('文件清单页签（旧章节过渡与仅查看口径）', () => {
     ], removed_items: []};
     container = renderTab();
     const text = container.textContent;
-    expect(text).toContain('乙');
+    // 行来自生效快照
+    expect(text).toContain('文件1');
+    // 生效视图不渲染负责人列（2026-10-31 起：负责人属修订分工，只在
+    // 修订草稿视图展示；表头断言以 th 文本为准，避免与说明文案误匹配）
+    expect(columnHeaderTexts(container)).not.toContain('负责人');
     expect(text).not.toContain('编制提交');
-    // 负责人对仅查看者只读（无点击入口）
+    // 无任何分工点击入口
     expect(container.querySelector('.ant-table-tbody a')).toBeNull();
     expect(findButton(container, '提交编制')).toBeUndefined();
   });
 
-  it('无 draft_edit 页面权限：有管理权限/编制角色也只读（保存必被拒不出现可点击入口）', async () => {
-    // 后端写接口=@auth draft_edit +（管理权限或编制角色）；前端入口必须
-    // 同时校验两层，缺 draft_edit 时点击后保存必然"权限拒绝"
+  it('无 draft_edit 页面权限：所有者打开分工也必然被拒，入口只读（保存必被拒不出现可点击入口）', async () => {
+    // 后端写接口=@auth draft_edit +（所有者/管理员）；前端入口必须
+    // 同时校验两层，缺 draft_edit 时点击后保存必然"权限拒绝"。
+    // 注意 2026-10-31 起工作区可见性含所有者（is_owner），
+    // 草稿视图可达，但分工入口仍必须只读
     const {hasPermission} = require('libs');
     hasPermission.mockImplementation(
       code => code === 'institution.manual.view' ||
         code === 'institution.manual.download' ||
         code === 'institution.manual.edit');
-    store.manual = Object.assign({}, store.manual, {my_roles: ['view']});
+    store.manual = Object.assign({}, store.manual, {my_roles: ['view'],
+      is_owner: true, is_admin: false});
     store.files = [makeFile(1, {assignment: {owner_id: 9, owner_name: '乙',
       note: '', is_mine: false}})];
     container = renderTab();
+    switchView(container, '修订草稿');
     const text = container.textContent;
     expect(text).toContain('乙');
     // 负责人列只读：无链接入口
@@ -419,16 +461,36 @@ describe('文件清单页签（旧章节过渡与仅查看口径）', () => {
     expect(container.querySelector('.ant-table-selection-column')).toBeNull();
   });
 
-  it('有 draft_edit + 编制角色（无管理权限）：负责人列可点击（后端同口径放行）', async () => {
+  it('有 draft_edit + 编制角色（非所有者/管理员）：负责人列只读（2026-10-31 分工收窄为所有者/管理员）', async () => {
     const {hasPermission} = require('libs');
     hasPermission.mockImplementation(
       code => code === 'institution.manual.view' ||
         code === 'institution.manual.download' ||
         code === 'institution.manual.draft_edit');
-    store.manual = Object.assign({}, store.manual, {my_roles: ['edit']});
+    store.manual = Object.assign({}, store.manual, {my_roles: ['edit'],
+      is_owner: false, is_admin: false});
     store.files = [makeFile(1, {assignment: {owner_id: 9, owner_name: '乙',
       note: '', is_mine: false}})];
     container = renderTab();
+    switchView(container, '修订草稿');
+    expect(container.textContent).toContain('乙');
+    // 负责人列只读，无勾选列与批量入口
+    expect(container.querySelector('.ant-table-tbody a')).toBeNull();
+    expect(container.querySelector('.ant-table-selection-column')).toBeNull();
+  });
+
+  it('制度管理员（is_admin）持 draft_edit：负责人列可点击（与所有者同口径）', async () => {
+    const {hasPermission} = require('libs');
+    hasPermission.mockImplementation(
+      code => code === 'institution.manual.view' ||
+        code === 'institution.manual.download' ||
+        code === 'institution.manual.draft_edit');
+    store.manual = Object.assign({}, store.manual, {my_roles: ['view'],
+      is_owner: false, is_admin: true});
+    store.files = [makeFile(1, {assignment: {owner_id: 9, owner_name: '乙',
+      note: '', is_mine: false}})];
+    container = renderTab();
+    switchView(container, '修订草稿');
     const ownerLinks = Array.from(
       container.querySelectorAll('.ant-table-tbody a'));
     expect(ownerLinks.length).toBe(1);

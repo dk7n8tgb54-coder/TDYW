@@ -54,10 +54,14 @@ jest.mock('../detail/store', () => {
   const {observable} = require('mobx');
   class DetailStore {
     @observable id = 7;
-    @observable manual = {id: 7, name: '科室操作手册', my_roles: ['edit']};
+    @observable manual = {id: 7, name: '科室操作手册', my_roles: ['edit'],
+      // 2026-10-31 授权模型：上传/更换来源业务门=所有者/管理员；
+      // 重建按文件负责人独占判定（配合 store.files 的 assignment）
+      is_owner: true, is_admin: false};
     @observable originalsOverview = [];
     @observable isFetchingOriginalsOverview = false;
     @observable originalsOverviewError = '';
+    @observable files = [];
     fetchOriginalsOverview = jest.fn(function () {
       this.originalsOverview = [JSON.parse(JSON.stringify(mockOverviewRow))];
       return Promise.resolve();
@@ -136,7 +140,11 @@ beforeEach(() => {
   http.get.mockResolvedValue({preview_url: 'http://preview/example', file_name: 'x.docx'});
   // store 是模块级单例：每个用例前复位基础状态，防止前一用例的错误态/
   // enableVersions 改写泄漏到后续用例
-  store.manual = {id: 7, name: '科室操作手册', my_roles: ['edit']};
+  store.manual = {id: 7, name: '科室操作手册', my_roles: ['edit'],
+    is_owner: true, is_admin: false};
+  // 负责人独占重建（2026-10-31）：默认当前账号是 file 11 的负责人
+  store.files = [{id: 11, name: '第一章 总则',
+    assignment: {owner_id: 9, owner_name: '我', note: '', is_mine: true}}];
   store.originalsOverview = [];
   store.originalsOverviewError = '';
   store.fetchDetail = jest.fn(function () {
@@ -299,6 +307,19 @@ describe('为已有文件更换来源（按行受控操作）', () => {
     expect(http.post.mock.calls[1][0]).toBe(
       '/api/institution/manuals/7/files/11/originals/upload/');
   });
+
+  it('非所有者/管理员：上传与更换来源禁用（页面码有 upload 但业务门收窄）', async () => {
+    store.manual = {...store.manual, is_owner: false, is_admin: false};
+    const container = renderTab();
+    await flush();
+    const uploadBtn = findButton(container, '新增制度文件');
+    expect(uploadBtn).not.toBeUndefined();
+    expect(uploadBtn.disabled).toBe(true);
+    const replaceBtn = findButton(container, '更换来源');
+    expect(replaceBtn).not.toBeUndefined();
+    expect(replaceBtn.disabled).toBe(true);
+    expect(container.textContent).toContain('仅限手册所有者或制度管理员');
+  });
 });
 
 describe('原稿预览/下载与已清理状态', () => {
@@ -333,6 +354,19 @@ describe('原稿预览/下载与已清理状态', () => {
 });
 
 describe('从原始上传文件重建草稿', () => {
+  it('非文件负责人（持编制授权）：不渲染重建入口（负责人独占，2026-10-31）', async () => {
+    store.files = [{id: 11, name: '第一章 总则',
+      assignment: {owner_id: 8, owner_name: '别人', note: '', is_mine: false}}];
+    const container = renderTab();
+    await flush();
+    expect(findButton(container, '重建草稿')).toBeUndefined();
+    // 已发布过版本时同样不出现"高级恢复操作"（无可重建文件的账号）
+    store.manual = {...store.manual, has_versions: true};
+    const container2 = renderTab();
+    await flush();
+    expect(findButton(container2, '高级恢复操作')).toBeUndefined();
+  });
+
   it('未发布过版本的制度：主行重建按钮直接可见，确认后携带 original_id', async () => {
     const container = renderTab();
     await flush();

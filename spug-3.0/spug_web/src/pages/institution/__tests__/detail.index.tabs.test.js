@@ -216,6 +216,36 @@ describe('制度详情页（信息层级与页签结构）', () => {
     expect(activeTabText()).toContain('FILE_LIST_TAB');
   });
 
+  it('权限配置页签可见性（2026-10-31）：手册所有者无需 config 权限码', async () => {
+    hasPermission.mockImplementation(
+      code => code === 'institution.manual.view');
+    store._manualOverrides = {my_roles: ['view'], is_owner: true,
+      is_admin: false};
+    container = renderPage();
+    await flush();
+    expect(tabTitles(container)).toContain('权限配置');
+  });
+
+  it('权限配置页签可见性（2026-10-31）：制度管理员（is_admin）无需 config 权限码', async () => {
+    hasPermission.mockImplementation(
+      code => code === 'institution.manual.view');
+    store._manualOverrides = {my_roles: ['view'], is_owner: false,
+      is_admin: true};
+    container = renderPage();
+    await flush();
+    expect(tabTitles(container)).toContain('权限配置');
+  });
+
+  it('权限配置页签可见性（2026-10-31）：非所有者/管理员的编制角色不渲染', async () => {
+    hasPermission.mockImplementation(
+      code => code === 'institution.manual.view');
+    store._manualOverrides = {my_roles: ['view', 'edit'], is_owner: false,
+      is_admin: false};
+    container = renderPage();
+    await flush();
+    expect(tabTitles(container)).not.toContain('权限配置');
+  });
+
   it('文件清单行「变更记录」切换到文件变更记录页签', async () => {
     container = renderPage();
     await flush();
@@ -226,5 +256,23 @@ describe('制度详情页（信息层级与页签结构）', () => {
     });
     await flush();
     expect(activeTabText()).toContain('FILE_CHANGES_TAB');
+  });
+});
+
+describe('挂载链发布内容拉取守卫', () => {
+  it('无 can_view_published 口径权限：挂载不发版本请求（其余拉取不变）', async () => {
+    // 2026-10-31 授权模型：版本历史属已发布内容，后端 VersionListView 以
+    // can_view_published 拒绝；挂载链不得产生注定失败的调用（不弹
+    // 「手册不存在或无权限访问」toast）
+    store._manualOverrides = {
+      my_roles: ['edit'], editor_can_view_published: false,
+      current_version: {id: 9, version_no: 3},
+    };
+    container = renderPage();
+    await flush();
+    expect(store.fetchVersions).not.toHaveBeenCalled();
+    expect(store.fetchChapters).toHaveBeenCalledWith('7');
+    expect(store.fetchLogs).toHaveBeenCalledWith('7');
+    expect(store.fetchDraftStatusIfAllowed).toHaveBeenCalledWith('7');
   });
 });

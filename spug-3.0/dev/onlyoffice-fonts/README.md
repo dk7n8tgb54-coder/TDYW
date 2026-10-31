@@ -43,9 +43,21 @@ dejavu/liberation/msttcorefonts 西文字体）。此前容器里的宋体等 5 
 
 ## 验证
 
-```
-docker exec tdyw-onlyoffice-test fc-list :lang=zh
-```
+10.0 镜像不带 fc-list/fontconfig CLI（实测，8.1 时代直接
+`docker exec tdyw-onlyoffice-test fc-list :lang=zh` 的验证方式在 10.0 已不可用），
+验证字体改用：
+
+1. 容器内直接看文件与产物：
+   ```
+   docker exec tdyw-onlyoffice-test ls /usr/share/fonts/custom
+   docker exec tdyw-onlyoffice-test ls /var/www/onlyoffice/documentserver/fonts/
+   ```
+   （后者是 GENERATE_FONTS 重建字体索引后的产物目录，应能看到本目录字体
+   对应生成的条目）
+2. 后端容器（同一挂载目录，镜像内有 fontconfig）：
+   ```
+   docker exec tdyw-test fc-list :lang=zh
+   ```
 
 已知边界：文档使用了本目录与镜像自带字体之外的字体（如 仿宋_GB2312、
 楷体_GB2312、方正小标宋）时，DS 仍会替换显示；需要时把对应字体文件补进来

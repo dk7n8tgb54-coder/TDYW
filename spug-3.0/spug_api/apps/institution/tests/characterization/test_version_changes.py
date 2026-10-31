@@ -26,12 +26,12 @@ from apps.institution.tests.characterization.test_manual_multi_files import (
 
 
 class VersionChangesTestBase(MultiFileBase):
-    """版本对比/发布预检共用夹具：两份文件 + 密码 + 发布与编辑助手"""
+    """版本对比/发布预检共用夹具：两份文件（负责人=editor）+ 密码 + 助手"""
 
     def setUp(self):
         super().setUp()
-        self.file_a = self._add_file('甲.docx', DOCX + b'-a')
-        self.file_b = self._add_file('乙.docx', DOCX + b'-b')
+        self.file_a = self._add_file('甲.docx', DOCX + b'-a', owner=self.editor)
+        self.file_b = self._add_file('乙.docx', DOCX + b'-b', owner=self.editor)
         self._set_password()
 
     def _publish(self, note='发布'):
@@ -271,7 +271,7 @@ class PublishPreviewTests(VersionChangesTestBase):
         ManualDraft.objects.get(file_id=self.file_b['id']).delete()
         draft_a = ManualDraft.objects.get(file_id=self.file_a['id'])
         os.remove(storage.resolve_absolute_path(draft_a.file_path))
-        self._add_file('丙.docx', DOCX + b'-c')
+        self._add_file('丙.docx', DOCX + b'-c', owner=self.editor)
         c_file = ManualFile.objects.get(
             manual=self.manual, display_name='丙.docx')
         resp = self._start_session(file_id=c_file.id)

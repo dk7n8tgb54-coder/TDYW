@@ -211,27 +211,36 @@ def to_oplog_dict(oplog):
     }
 
 
-def my_manual_roles(manual, user_role_ids):
-    """当前用户对该手册持有的角色类别列表"""
+def my_manual_roles(grant):
+    """当前账号对该手册的授权角色类别列表（授权行推导；语义沿用）
+
+    grant 为该账号在本手册的 ManualAuthorization 行（无授权为 None）。
+    """
+    if not grant:
+        return []
     roles = []
-    for kind, field in (('view', 'view_roles'), ('edit', 'edit_roles'),
-                        ('publish', 'publish_roles')):
-        ids = set(getattr(manual, field).values_list('id', flat=True))
-        if ids & user_role_ids:
-            roles.append(kind)
+    if grant.can_view:
+        roles.append('view')
+    if grant.can_edit:
+        roles.append('edit')
+    if grant.can_publish:
+        roles.append('publish')
     return roles
 
 
-def to_manual_list_item(manual, user_role_ids, include_draft=False,
-                        work_status=None):
-    """手册列表行；draft 摘要仅对可编辑者/管理者返回
+def to_manual_list_item(manual, grant=None, is_owner=False, is_admin=False,
+                        include_draft=False, work_status=None):
+    """手册列表行；draft 摘要仅对管理者返回
 
-    view/edit/publish_roles 三键同时下发（M2M 已 prefetch，无额外查询），
-    编辑弹窗从列表行回填角色，不再依赖详情端点。
+    grant 为当前账号在该手册的授权行（视图层预取，无额外查询）；
+    is_owner/is_admin 由视图层按授权模型计算。my_roles 由授权行推导
+    （view/edit/publish）。归属字段为 org_type/org_type_display/org_name
+    （2026-10-31 由 owner_* 更名），所有者账号字段 owner_id/owner_name
+    与 is_owner/is_admin 同时下发。
     files_count 优先取视图层注解 _active_file_count，未注解时回退查询。
     work_status 为整套工作状态（version_compare.build_manuals_work_status
     的单册结果）：仅对具备草稿访问权（工作区可见口径）的账号由视图层
-    传入，仅查看角色为 None——前端不得据修订号/文件名自行推断状态。
+    传入，仅查看授权为 None——前端不得据修订号/文件名自行推断状态。
     """
     active_file_count = getattr(manual, '_active_file_count', None)
     if active_file_count is None:
@@ -242,18 +251,19 @@ def to_manual_list_item(manual, user_role_ids, include_draft=False,
         'code': manual.code,
         'category_id': manual.category_id,
         'category_name': manual.category.name if manual.category else '',
-        'owner_type': manual.owner_type,
-        'owner_type_display': manual.get_owner_type_display(),
-        'owner_name': manual.owner_name,
+        'org_type': manual.org_type,
+        'org_type_display': manual.get_org_type_display(),
+        'org_name': manual.org_name,
+        'owner_id': manual.owner_id,
+        'owner_name': _user_name(manual.owner),
+        'is_owner': bool(is_owner),
+        'is_admin': bool(is_admin),
         'status': manual.status,
         'status_display': manual.get_status_display(),
         'editor_can_view_published': manual.editor_can_view_published,
         'files_count': active_file_count,
-        'view_roles': [{'id': r.id, 'name': r.name} for r in manual.view_roles.all()],
-        'edit_roles': [{'id': r.id, 'name': r.name} for r in manual.edit_roles.all()],
-        'publish_roles': [{'id': r.id, 'name': r.name} for r in manual.publish_roles.all()],
         'current_version': None,
-        'my_roles': my_manual_roles(manual, user_role_ids),
+        'my_roles': my_manual_roles(grant),
         'work_status': work_status,
         'created_at': manual.created_at,
         'created_by_name': _user_name(manual.created_by),
@@ -276,8 +286,11 @@ def to_manual_list_item(manual, user_role_ids, include_draft=False,
     return data
 
 
-def to_manual_detail(manual, user_role_ids, include_draft=True):
-    data = to_manual_list_item(manual, user_role_ids, include_draft=include_draft)
+def to_manual_detail(manual, grant=None, is_owner=False, is_admin=False,
+                     include_draft=True):
+    data = to_manual_list_item(
+        manual, grant=grant, is_owner=is_owner, is_admin=is_admin,
+        include_draft=include_draft)
     data.update({
         'has_password': bool(manual.password_hash),
         'password_updated_at': manual.password_updated_at,

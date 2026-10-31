@@ -69,6 +69,11 @@ services:
       - ./certs/prod:/etc/nginx/ssl:ro  # SSL 证书
       - ./certs/install-ca.html:/data/spug/spug_web/build/install-ca.html:ro  # 证书安装页面
       - ./certs/ca/ca.crt:/data/spug/spug_web/build/ca.crt:ro  # CA证书下载
+      # institution .doc->.docx 转换中文字体（与 onlyoffice 服务共用
+      # onlyoffice-fonts/，含 sim 全系宋体/仿宋/黑体/楷体等，与 dev 一致）。
+      # 目录须先按 onlyoffice-main/README.md 放置授权字体（字体文件因授权
+      # 不入 Git）；为空时回退镜像内 fonts-noto-cjk。
+      - ./onlyoffice-fonts:/usr/share/fonts/custom:ro
     depends_on:
       tdyw-db:
         condition: service_healthy
@@ -205,23 +210,70 @@ services:
   # 制度管理 Word 手册在线编辑（2026-10-27）。与 kkFileView（只读预览）
   # 相互独立：编辑走 onlyoffice + JWT 回调，预览继续走 kkfileview。
   # 浏览器经 tdyw nginx 的 /onlyoffice/ 同源代理访问；DS 回源应用走
-  # http://tdyw（tdyw 网络别名）。未配置 ONLYOFFICE_JWT_SECRET 时应用侧
-  # 自动降级，本服务可先不启动。
+  # http://tdyw（tdyw 网络别名）。生产启用在线编辑 = .env 配 ONLYOFFICE_* 全套
+  # （键清单见 .env.example ONLYOFFICE 段，启用步骤见 onlyoffice-main/README.md）；
+  # 未配置 ONLYOFFICE_JWT_SECRET 时应用侧自动降级为"下载→本机编辑→上传保存"，
+  # 不影响其余功能。
+  # .env 未配置 ONLYOFFICE_* 键时（2026-10-31 审查修正）：本栈各服务的变量占位
+  # 一律空缺省，**不影响 tdyw/db/kkfileview 等其他服务的任何 compose 操作**；
+  # OO 栈自身在启动层 fail-closed——DB 空密码初始化被 postgres 镜像拒绝、
+  # MQ 账号缺失被入口包装脚本拒绝，均以明确错误退出，绝不静默弱凭据运行。
+  #
+  # 2026-10-31 对齐 dev 已验证的 10.0 架构（蓝本 dev/docker-compose.yml，经 oo-10
+  # 隔离对照实例全链路验证通过；dev 主实例版本 10.0.0 Build 169）：
+  # - 10.0 社区版不再内置 PostgreSQL/RabbitMQ，新增 onlyoffice-db/onlyoffice-mq
+  #   两个外部服务；且 10.0 社区版镜像忽略 DB_*/AMQP_URI 环境变量，DB/队列连接
+  #   由入口包装脚本 docker/onlyoffice-main/ds-entrypoint.sh 按环境变量渲染
+  #   local.json 下发（local.json 不可直接 bind-mount，见该脚本注释）。
+  # - 数据全部落在 *-10 新卷；2026-10-31 起应用层（后端 editor_services
+  #   forcesave 仅 /command 直连）不再兼容 8.1，回退到 8.1 需连同后端代码
+  #   一起回退并补跑 documentserver-generate-allfonts.sh。8.1 旧数据卷
+  #   （tdyw-onlyoffice-data/tdyw-onlyoffice-log）已不在本文件声明，卷数据
+  #   仍保留在 docker 卷存储中作数据保险，未经确认绝不手动删除。
   onlyoffice:
-    image: onlyoffice/documentserver:8.1
+    image: onlyoffice/documentserver:10.0
     container_name: tdyw-onlyoffice
     restart: unless-stopped
     stop_grace_period: 60s
+    # 入口包装：先校验必需环境变量、渲染 DB/队列/JWT 覆盖配置，再交回官方入口
+    # （详见 docker/onlyoffice-main/ds-entrypoint.sh 注释）
+    entrypoint: ["/bin/bash", "/custom-ds-config/ds-entrypoint.sh"]
+    depends_on:
+      onlyoffice-db:
+        condition: service_healthy
+      onlyoffice-mq:
+        condition: service_healthy
     environment:
+      # ---- DB/队列连接（仅供入口包装脚本渲染 local.json；10.0 社区版不读取
+      # DB_*/AMQP_URI 环境变量本身）----
+      - ONLYOFFICE_DB_HOST=onlyoffice-db
+      - ONLYOFFICE_DB_PORT=5432
+      - ONLYOFFICE_DB_NAME=onlyoffice
+      - ONLYOFFICE_DB_USER=onlyoffice
+      - ONLYOFFICE_DB_PASSWORD=${ONLYOFFICE_DB_PASSWORD:-}
+      # MQ 账号透传仅供入口包装脚本 fail-closed 校验（缺失即拒绝启动 DS）
+      - ONLYOFFICE_MQ_USER=${ONLYOFFICE_MQ_USER:-}
+      - ONLYOFFICE_MQ_PASSWORD=${ONLYOFFICE_MQ_PASSWORD:-}
+      - ONLYOFFICE_AMQP_URI=amqp://${ONLYOFFICE_MQ_USER}:${ONLYOFFICE_MQ_PASSWORD}@onlyoffice-mq:5672
+      # JWT 双向签名：与 tdyw 服务的 ONLYOFFICE_JWT_SECRET 一致（.env 统一提供）
       - JWT_ENABLED=true
-      # 与 tdyw 服务的 ONLYOFFICE_JWT_SECRET 一致（.env 统一提供）
       - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
       - JWT_HEADER=Authorization
       - JWT_IN_BODY=true
+      # 10.0 中该变量仅剩 rejectUnauthorized=false 语义；私网回源由 JWT 签名
+      # URL 兜底（directIfIn.jwtToken 默认 true，dev 已实测）
+      - USE_UNAUTHORIZED_STORAGE=true
       - TZ=Asia/Shanghai
     volumes:
-      - tdyw-onlyoffice-data:/var/www/onlyoffice/Data
-      - tdyw-onlyoffice-log:/var/log/onlyoffice
+      - tdyw-onlyoffice-log-10:/var/log/onlyoffice
+      - tdyw-onlyoffice-data-10:/var/lib/onlyoffice   # 文档缓存（10.0 新卷）
+      # 中文字体补充（与 dev 同一套清单，见 onlyoffice-main/README.md；增删字体后
+      #   docker exec tdyw-onlyoffice documentserver-generate-allfonts.sh
+      # 10.0 启动时也会自动重建字体索引，GENERATE_FONTS 默认 true）
+      - ./onlyoffice-fonts:/usr/share/fonts/custom:ro
+      # 入口包装脚本目录（只读；不能直接挂 local.json 单文件——官方入口
+      # npm json -I 原地重写会 EBUSY，故由脚本启动时渲染到容器内普通文件）
+      - ./onlyoffice-main:/custom-ds-config:ro
     deploy:
       resources:
         limits:
@@ -235,7 +287,68 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s    # DS 首次启动需生成字体等，较慢
+      start_period: 180s    # 首次启动需建表/重建字体索引等，较慢
+    networks:
+      - tdyw-network
+
+  # ==================== ONLYOFFICE 10.0 专用外部 PostgreSQL ====================
+  # 10.0 社区版镜像无内置数据库（内置启动分支为商业版限定）；表结构由
+  # docker/onlyoffice-main/createdb.sql（从 10.0 镜像提取，仅建表）在
+  # postgres 首次初始化时自动导入，建库由 POSTGRES_DB 完成。
+  # user/db 固定 onlyoffice（仅 Compose 内网可达，不发布宿主机端口）；
+  # 密码独立生成，与 dev 开发凭据完全不同。
+  # 凭据缺失的语义（2026-10-31 审查修正）：占位一律为空缺省，.env 未配置
+  # ONLYOFFICE_* 键时**不影响其他服务的任何 compose 操作**；OO 栈自身的
+  # fail-closed 在启动层——postgres 镜像对"空密码 + 全新数据卷初始化"直接
+  # 拒绝启动，入口包装脚本（ds-entrypoint.sh）在 DS 启动前校验全部凭据，
+  # 二者都不会静默以空/弱凭据运行。
+  onlyoffice-db:
+    image: postgres:16-alpine
+    container_name: tdyw-onlyoffice-db
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=onlyoffice
+      - POSTGRES_USER=onlyoffice
+      # 与 onlyoffice 服务的 ONLYOFFICE_DB_PASSWORD 同源（.env 统一提供）。
+      # 空值时 postgres 镜像在全新卷初始化阶段直接报错退出（防止空密码静默
+      # 启动）；已初始化的存量卷重启不读取该值，不受影响。
+      - POSTGRES_PASSWORD=${ONLYOFFICE_DB_PASSWORD:-}
+    volumes:
+      - tdyw-onlyoffice-postgresql-10:/var/lib/postgresql/data
+      - ./onlyoffice-main/createdb.sql:/docker-entrypoint-initdb.d/10-createdb.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onlyoffice -d onlyoffice"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks:
+      - tdyw-network
+
+  # ==================== ONLYOFFICE 10.0 专用外部 RabbitMQ ====================
+  # 10.0 社区版镜像无内置队列；guest 账号仅限 localhost 登录，必须用独立账号
+  # 远程连接（.env 的 ONLYOFFICE_MQ_USER/ONLYOFFICE_MQ_PASSWORD）。
+  # 凭据占位为空缺省（理由见 onlyoffice-db 注释）：.env 未配置不影响其他
+  # 服务的 compose 操作；DS 启动前入口包装脚本校验 MQ 账号非空，缺失即
+  # 拒绝启动，绝不以 guest/空口令静默运行。
+  # 相比 dev 版刻意加固：dev 的 mq 无健康检查、onlyoffice 仅 service_started，
+  # 生产加 rabbitmq-diagnostics -q ping 健康检查并 service_healthy，
+  # 保证 onlyoffice 启动时队列已真正可用。
+  onlyoffice-mq:
+    image: rabbitmq:4-alpine
+    container_name: tdyw-onlyoffice-mq
+    restart: unless-stopped
+    environment:
+      - RABBITMQ_DEFAULT_USER=${ONLYOFFICE_MQ_USER:-}
+      - RABBITMQ_DEFAULT_PASSWORD=${ONLYOFFICE_MQ_PASSWORD:-}
+    volumes:
+      - tdyw-onlyoffice-rabbitmq-10:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
     networks:
       - tdyw-network
 
@@ -254,9 +367,18 @@ volumes:
     driver: local
   tdyw-institution:
     driver: local
-  tdyw-onlyoffice-data:
+  # ---- ONLYOFFICE 8.1 旧卷不在本文件声明（2026-10-31 清理）----
+  # tdyw-onlyoffice-data / tdyw-onlyoffice-log 两个 8.1 卷的数据仍保留在
+  # docker 卷存储中（docker volume ls 可见）作数据保险；应用层已不兼容 8.1，
+  # 回退需连同后端代码一起回退。未经确认绝不手动删除卷数据。
+  # ---- ONLYOFFICE 10.0 主实例新卷（2026-10-31）----
+  tdyw-onlyoffice-log-10:
     driver: local
-  tdyw-onlyoffice-log:
+  tdyw-onlyoffice-data-10:
+    driver: local
+  tdyw-onlyoffice-postgresql-10:
+    driver: local
+  tdyw-onlyoffice-rabbitmq-10:
     driver: local
   tdyw-logs:
     driver: local

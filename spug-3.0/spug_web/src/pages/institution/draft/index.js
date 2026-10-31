@@ -9,8 +9,11 @@
  *   "所有更改已保存"只代表文档服务缓存，绝不据此显示业务已保存）与
  *   提交编制状态（未提交/已提交/提交已失效，服务端 submission.state）。
  * - 流程按钮：开始编辑 → 保存并结束编辑 → 提交编制；下载/预览/改名/
- *   排序/移除/新增为次级操作。负责人持有该文件编辑会话时提交编制禁用
- *   （明确提示先保存并结束编辑；后端仍独立校验）。
+ *   排序/移除/新增为次级操作。2026-10-31 授权模型：负责人独占编辑——
+ *   「开始编辑」仅 文件负责人（持本手册编制授权 + assignment.is_mine）
+ *   渲染，非负责人显示明确提示；文件管理行中 下载/预览草稿同样限负责人，
+ *   改名/排序/移除/新增限 手册所有者或制度管理员。负责人持有该文件
+ *   编辑会话时提交编制禁用（明确提示先保存并结束编辑；后端仍独立校验）。
  * - 「保存并结束编辑」的真实落盘确认在 store.finishEditing：确认链路
  *   （forcesave → 轮询草稿修订号推进 → 再次 forcesave 复核到 no_changes）
  *   通过后才撤销会话并提示成功；失败或超时保留会话与编辑器并给出重试
@@ -23,6 +26,23 @@
  * - ?file= 深链：密码验证只针对指定且可编辑（存在、有草稿）的文件建立
  *   会话；目标不存在/无草稿时给出明确状态（deeplinkNotice），绝不静默
  *   开启另一份文件的会话；被他人占用时由后端验证拒绝并明确提示。
+ * - 编辑区放大/还原（2026-10-30）：编辑器上方「放大/还原」按钮（图标 +
+ *   Tooltip，还原态注明 Esc）。放大以 fixed 浮层承载（zIndex 900，低于
+ *   antd Modal/Message），收起文件导航、元数据与次级操作，顶部精简条
+ *   （ExpandedBar）保留保存状态与「保存并结束编辑」；切换放大只改容器
+ *   样式与编辑器 height prop（72vh↔100%），编辑器元素在 React 树中的
+ *   位置与 key 不变——不重建实例、不重拉 editor-config（不轮换
+ *   document key）；Esc 或显式离开动作（切换文件/返回详情/结束编辑/
+ *   不保存退出）退出放大，编辑器不可用时放大自动失效。
+ * - 编辑方式切换（2026-10-31 恢复/完善）：在线编辑与「本机编辑（下载
+ *   草稿 → 本机 Word/WPS 编辑 → 上传保存）」按文件切换（编辑区顶部
+ *   Segmented，仅在线配置可用时出现）；服务未配置/配置加载失败/编辑器
+ *   加载失败的文件恒为本机方式，本机入口不依赖失败上报的可靠性。切换
+ *   链路在 store.switchEditMode：在线切本机先确认落盘（失败留下重试），
+ *   再重取编辑配置轮换 document key 让旧编辑实例回调在服务端失效（会话
+ *   保留供本机上传）；本机上传必须携带下载草稿时记录的基线修订号，
+ *   服务端草稿已推进时被后端拒绝并要求重新下载。「下载草稿」在在线
+ *   编辑期间同样先确认落盘再下载，下载成功记录基线。
  * - 隐藏 input 不得嵌套在 Button/label 内（统一 ref 程序触发）。
  */
 import React, {useEffect} from 'react';
@@ -37,12 +57,28 @@ import { AuthButton, AuthFragment } from 'components';
 import { http } from 'libs';
 import { downloadFile, formatSize, formatDateTime } from '../utils';
 import PreviewModal from '../detail/PreviewModal';
-import OnlyOfficeEditor from './OnlyOfficeEditor';
+import EditorArea from './EditorArea';
+import ExpandedBar from './ExpandedBar';
+import SaveStatusTag from './SaveStatusTag';
 import FileNav, {submissionTagFor} from './FileNav';
+import RecoveryPanel from './RecoveryPanel';
+import { finishingErrorTitleOf, finishingRetryLabelOf } from './finishingShared';
 import useWorkTabUnsaved from '../../../layout/useWorkTabUnsaved';
 import store from './store';
 
 const {Option} = Select;
+
+/**
+ * 放大态根容器：fixed 浮层占满当前视口。zIndex 取 900——盖过主布局
+ * 头部/侧栏（z-index 1~2），低于 antd Modal（1000）/Message（1010），
+ * 保存确认弹窗、恢复确认窗等不被浮层遮挡。overflow auto 兜底窄屏：
+ * 仅浮层自身一层滚动，页面不出现第二重滚动条。
+ */
+const EXPANDED_ROOT_STYLE = {
+  position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 900,
+  maxWidth: 'none', margin: 0, padding: '8px 12px', background: '#fff',
+  display: 'flex', flexDirection: 'column', overflow: 'auto',
+};
 
 /**
  * 未保存内容登记 + beforeunload 拦截（工作页签 LRU 淘汰配套）。
@@ -68,8 +104,11 @@ function DraftUnsavedGate({dirty}) {
 class InstitutionDraftWorkspace extends React.Component {
   state = {
     password: '', preview: null,
-    adding: false, uploading: false,
+    adding: false,
     renameFile: null, renameValue: '', renaming: false,
+    // 编辑区放大态（2026-10-30）：仅在在线编辑真实可用时生效
+    // （isExpandedActive），显式退出时机见 exitExpanded 各调用点
+    expanded: false,
     // 新增文件时的可选文件分工（负责人/分工说明，2026-10-29）
     pendingFile: null, assignOwners: [], assignOwnerId: undefined,
     assignNote: '', assignOwnersError: '', fetchingOwners: false,
@@ -90,11 +129,50 @@ class InstitutionDraftWorkspace extends React.Component {
     // 各在线编辑文档落盘（quiet forcesave，DS 关闭回调兜底），不等待
     // 结果、不提示；可拦截的离开（返回详情按钮/切换文件）已在触发前
     // 走 store.confirmFileSave 确认链路。会话按文件保留在 sessionStorage
+    window.removeEventListener('keydown', this.handleExpandEsc);
     store.files.forEach(file => {
       if (store.sessionKeyOf(file.id)) store.requestForcesaveQuiet(file.id);
     });
     store.reset();
   }
+
+  componentDidUpdate(_prevProps, prevState) {
+    // Esc 还原监听随放大态挂/摘（页面焦点处按键；编辑器 iframe 内的
+    // 按键属于独立 document 不冒泡到本页，还原始终有可见按钮兜底）
+    if (prevState.expanded !== this.state.expanded) {
+      if (this.state.expanded) {
+        window.addEventListener('keydown', this.handleExpandEsc);
+      } else {
+        window.removeEventListener('keydown', this.handleExpandEsc);
+      }
+    }
+    // 编辑器不再可用（会话退出/切换到无会话文件等）：放大随之退出，
+    // 避免残留无编辑器的全屏浮层
+    if (this.state.expanded && !this.isSelectedFileOnlineEditing()) {
+      this.setState({expanded: false});
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // 编辑区放大/还原（2026-10-30）
+
+  /** 放大是否实际生效：state + 当前文件在线编辑真实可用 */
+  isExpandedActive() {
+    return this.state.expanded && this.isSelectedFileOnlineEditing();
+  }
+
+  toggleExpanded = () => {
+    this.setState(prev => ({expanded: !prev.expanded}));
+  };
+
+  handleExpandEsc = (e) => {
+    if (e.key === 'Escape') this.setState({expanded: false});
+  };
+
+  /** 显式退出放大：切换文件/返回详情/结束编辑/不保存退出共用 */
+  exitExpanded = () => {
+    if (this.state.expanded) this.setState({expanded: false});
+  };
 
   // ---------------------------------------------------------------------------
   // 密码门
@@ -135,6 +213,7 @@ class InstitutionDraftWorkspace extends React.Component {
       store.confirmFileSave(current.id, '切换文件').then(ok => {
         if (ok) {
           message.success(`当前文件「${current.name}」已保存到制度草稿`);
+          this.exitExpanded();
           store.selectFile(fileId);
         }
       });
@@ -149,7 +228,10 @@ class InstitutionDraftWorkspace extends React.Component {
       message.warning('正在保存当前文件，请稍候');
       return;
     }
-    const go = () => history.push(`/institution/manuals/${store.id}`);
+    const go = () => {
+      this.exitExpanded();
+      history.push(`/institution/manuals/${store.id}`);
+    };
     if (this.isSelectedFileOnlineEditing()) {
       const current = store.selectedFile;
       store.confirmFileSave(current.id, '返回详情').then(ok => {
@@ -158,6 +240,112 @@ class InstitutionDraftWorkspace extends React.Component {
       return;
     }
     go();
+  };
+
+  // ---------------------------------------------------------------------------
+  // 编辑方式切换（在线 ⇄ 本机）与本机编辑流程
+
+  /**
+   * 编辑方式切换（Segmented）：确认落盘、旧编辑实例回调失效（轮换
+   * document key）与会话保留都在 store.switchEditMode；此处只负责冲突
+   * 导航提示与切换成功的明示。切换失败时文件头部 Alert 呈现语境与
+   * 重试入口（handleFinishingRetry 按 finishingErrorKind 分发）。
+   */
+  handleSwitchEditMode = (mode) => {
+    if (store.finishingFileId) {
+      message.warning('正在保存当前文件，请稍候再切换编辑方式');
+      return;
+    }
+    const file = store.selectedFile;
+    if (!file) return;
+    store.switchEditMode(file.id, mode).then(res => {
+      if (res.ok && mode === 'local') {
+        message.success('已切换为本机编辑：下载草稿 → 本机 Word/WPS 编辑 → 上传保存');
+      }
+    });
+  };
+
+  /** 保存确认失败后的重试分发（语境化重试按 finishingErrorKind） */
+  handleFinishingRetry = () => {
+    if (store.finishingErrorKind === 'switch_local') {
+      this.handleSwitchEditMode('local');
+      return;
+    }
+    if (store.finishingErrorKind === 'download_draft') {
+      this.handleDownloadDraft();
+      return;
+    }
+    this.handleSaveFinish();
+  };
+
+  /**
+   * 下载草稿（本机编辑第一步，也在文件管理行提供）：在线编辑进行中先
+   * 走落盘确认链路——确认失败不下载、不切走，会话与编辑器保留供重试
+   * （finishingErrorKind='download_draft'，重试按钮=重试下载）。下载前
+   * 刷新清单并读取服务端当前修订号作为本次本机编辑基线，下载成功才
+   * 记录（downloadFile 真实完成）；上传保存必须携带该基线，服务端草稿
+   * 已推进时上传被拒、须重新下载最新草稿。无会话的查看者仅下载，
+   * 不记录基线。
+   */
+  handleDownloadDraft = () => {
+    const file = store.selectedFile;
+    if (!file || !file.draft) return;
+    if (store.finishingFileId) {
+      message.warning('正在保存当前文件，请稍候');
+      return;
+    }
+    const doDownload = () => {
+      store.refreshFiles().then(() => {
+        const entry = store.files.find(f => f.id === file.id);
+        const revision = entry && entry.draft ? entry.draft.revision : null;
+        return downloadFile(
+          `/api/institution/manuals/${store.id}/files/${file.id}/draft/download/`,
+          entry && entry.draft ? entry.draft.file_name : undefined)
+          .then(() => {
+            if (store.sessionKeyOf(file.id)) {
+              store.recordLocalBaseline(file.id, revision);
+              message.success(`草稿已下载（本机编辑基线 r${revision != null ? revision : '?'}），`
+                + '本机 Word/WPS 编辑后回到本页上传保存');
+            } else {
+              message.success('草稿已下载');
+            }
+          });
+      }).catch(() => {});
+    };
+    if (this.isSelectedFileOnlineEditing()) {
+      store.confirmFileSave(file.id, '下载草稿', 'download_draft').then(ok => {
+        if (ok) doDownload();
+      });
+      return;
+    }
+    doDownload();
+  };
+
+  /**
+   * 本机编辑上传保存（编辑区本机面板入口；隐藏 input 程序触发）：
+   * 客户端先拒绝非 .docx（不允许 .doc 覆盖工作草稿，后端独立校验）；
+   * 必须已有下载基线（store.localBaselines）。成功提示只在后端真实成功
+   * 响应之后；失败不清会话、不报成功，可重试（基线过期时重新下载）。
+   */
+  handleLocalUpload = (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.docx')) {
+      message.error('草稿工作文件必须是 .docx 格式');
+      return;
+    }
+    const fileId = store.selectedFileId;
+    if (store.localBaselines[fileId] == null) {
+      message.warning('请先下载草稿到本机编辑后再上传保存');
+      return;
+    }
+    store.uploadLocalDraft(fileId, file)
+      .then(data => {
+        const revision = data && data.revision != null ? data.revision : '?';
+        message.success(`草稿已上传保存（修订号 r${revision}）`);
+      })
+      .catch(() => {});
   };
 
   // ---------------------------------------------------------------------------
@@ -288,7 +476,11 @@ class InstitutionDraftWorkspace extends React.Component {
     const file = store.selectedFile;
     if (!file) return;
     store.finishEditing(file.id).then(ok => {
-      if (ok) message.success('已保存并结束编辑');
+      if (ok) {
+        // 会话已撤销：放大态随编辑器一起退出（结束编辑退出放大）
+        this.exitExpanded();
+        message.success('已保存并结束编辑');
+      }
     });
   };
 
@@ -307,28 +499,12 @@ class InstitutionDraftWorkspace extends React.Component {
       okText: '不保存并退出',
       okType: 'danger',
       onOk: () => store.exitFileSession(file.id)
-        .then(() => message.success('已退出编辑会话'))
+        .then(() => {
+          this.exitExpanded();
+          message.success('已退出编辑会话');
+        })
         .catch(() => {}),
     });
-  };
-
-  handleSaveUpload = (e) => {
-    const file = e.target.files[0];
-    e.target.value = '';
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.docx')) {
-      message.error('草稿工作文件必须是 .docx 格式');
-      return;
-    }
-    const fileId = store.selectedFileId;
-    this.setState({uploading: true});
-    store.saveDraft(fileId, file)
-      .then(() => {
-        message.success('草稿已保存（修订序号已递增）');
-        return store.refreshFiles();
-      })
-      .catch(() => {})
-      .finally(() => this.setState({uploading: false}));
   };
 
   handlePickSaveFile = () => {
@@ -343,108 +519,16 @@ class InstitutionDraftWorkspace extends React.Component {
   };
 
   handlePreview = (file) => {
+    const revision = file.draft ? file.draft.revision : null;
     http.get(`/api/institution/manuals/${store.id}/files/${file.id}/draft/preview-url/`)
-      .then(data => this.setState({preview: {url: data.preview_url, fileName: data.file_name}}));
+      .then(data => this.setState({preview: {
+        url: data.preview_url, fileName: data.file_name,
+        title: `预览待发布草稿 r${revision != null ? revision : '?'}：${data.file_name || ''}`,
+      }}));
   };
 
   // ---------------------------------------------------------------------------
   // 草稿恢复（无草稿文件；恢复途径以 files 清单 draft_recovery 为准）
-
-  /** 默认恢复：后端按优先级从当前生效版本快照或初始原稿建立草稿 */
-  handleRecoverDraft = () => {
-    const file = store.selectedFile;
-    if (!file) return;
-    store.recoverDraft(file.id)
-      .then(data => {
-        const revision = data && data.revision != null ? data.revision : '';
-        const source = data && data.base_version_no != null
-          ? `来源版本 v${data.base_version_no}`
-          : '来源：初始原稿';
-        message.success(`草稿已恢复（修订号 r${revision}，${source}）`);
-      })
-      .catch(() => {});
-  };
-
-  /** 高级恢复：明确「从原始上传文件重建草稿」，高风险确认后执行 */
-  showAdvancedRecovery = () => {
-    const file = store.selectedFile;
-    if (!file) return;
-    store.fetchFileOriginals(file.id).then(originals => {
-      const latest = originals && originals[0];
-      if (!latest) {
-        message.warning('该文件没有可用的原始上传文件，请先在详情页上传原稿');
-        return;
-      }
-      Modal.confirm({
-        title: '从原始上传文件重建草稿（高级恢复）',
-        content: (
-          <div>
-            <p>
-              将以原始上传文件「{latest.file_name}」的副本重建该文件草稿，
-              不可撤销。
-            </p>
-            <p style={{color: '#f5222d'}}>
-              该制度已发布过版本，此操作以原始文件（而非当前生效版本）为编辑基线，
-              仅在当前生效版本不含该文件或管理员明确要求从原始文件重新开始时使用。
-            </p>
-          </div>
-        ),
-        okText: '确认重建',
-        onOk: () => store.rebuildDraftFromOriginal(
-            file.id, latest.id, store.verifiedPassword || undefined)
-          .then(data => {
-            const revision = data && data.revision != null ? data.revision : '';
-            message.success(`草稿已按原始上传文件重建（修订号 r${revision}）`);
-          }),
-      });
-    }).catch(() => {});
-  };
-
-  /** 无草稿文件的恢复面板（途径由服务端 draft_recovery 提示决定） */
-  renderRecoveryPanel(file) {
-    const hint = file.draft_recovery || {source: 'original'};
-    if (hint.source === 'current_version') {
-      return (
-        <Alert type="warning" showIcon style={{marginTop: 12}} message={
-          <div>
-            <div style={{marginBottom: 8}}>
-              该文件还没有草稿。当前生效版本为 v{hint.version_no}，
-              可从该版本的完整文件快照恢复草稿。
-            </div>
-            <AuthButton auth="institution.manual.draft_edit" type="primary" size="small"
-              onClick={this.handleRecoverDraft}>
-              从当前生效版本恢复草稿
-            </AuthButton>
-          </div>}/>
-      );
-    }
-    if (hint.requires_confirm) {
-      return (
-        <Alert type="warning" showIcon style={{marginTop: 12}} message={
-          <div>
-            <div style={{marginBottom: 8}}>
-              该文件还没有草稿，且{hint.note || '当前生效版本不包含该文件'}；
-              不能自动从原始上传文件补建，如确认需要请执行高级恢复操作。
-            </div>
-            <Button danger size="small" onClick={this.showAdvancedRecovery}>
-              从原始上传文件重建草稿（高级恢复）
-            </Button>
-          </div>}/>
-      );
-    }
-    return (
-      <Alert type="warning" showIcon style={{marginTop: 12}} message={
-        <div>
-          <div style={{marginBottom: 8}}>
-            该文件还没有草稿，可从初始原稿创建草稿。
-          </div>
-          <AuthButton auth="institution.manual.draft_edit" type="primary" size="small"
-            onClick={this.handleRecoverDraft}>
-            从初始原稿创建草稿
-          </AuthButton>
-        </div>}/>
-    );
-  }
 
   // ---------------------------------------------------------------------------
   // 渲染
@@ -454,20 +538,29 @@ class InstitutionDraftWorkspace extends React.Component {
     const target = store.requestedFileId != null
       ? store.files.find(f => f.id === store.requestedFileId) : null;
     const locked = !!store.deeplinkNotice; // 深链目标不可用：禁用验证
+    // 负责人独占（2026-10-31）：持编制资格但未指派任何文件负责人的账号
+    // 无法建立编辑会话（后端同口径拒绝），在密码门前明确提示
+    const hasEditRole = (manual.my_roles || []).includes('edit');
+    const hasMineAssignment = (store.files || []).some(
+      f => f.assignment && f.assignment.is_mine);
     return (
       <Card title="进入草稿编辑" style={{maxWidth: 520, margin: '40px auto'}}>
         {store.deeplinkNotice && (
           <Alert type="warning" showIcon message={store.deeplinkNotice}
             style={{marginBottom: 12}}/>
         )}
+        {hasEditRole && !hasMineAssignment && (
+          <Alert type="warning" showIcon style={{marginBottom: 12}}
+            message="编辑仅限文件负责人：你持本手册编制资格，但尚未被指派任何文件的负责人，请先由手册所有者指派"/>
+        )}
         <p>
           手册「{manual.name}」的草稿编辑受编辑密码保护。
-          需同时满足：账号持有本手册的编制角色，并通过编辑密码验证。
+          需同时满足：账号持本手册编制资格且为对应文件负责人，并通过编辑密码验证。
         </p>
         <p>
           {target && target.draft
             ? `验证成功后将为文件「${target.name}」建立编辑会话并进入工作区。`
-            : '验证成功后将建立第一份可编辑文件的会话并进入工作区，其余文件可在工作区内逐一开启会话。'}
+            : '验证成功后将建立你负责文件的编辑会话并进入工作区，其余文件可在工作区内逐一开启会话。'}
         </p>
         {target && target.draft && target.active_session &&
           !target.active_session.is_mine && (
@@ -490,14 +583,19 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
-  /** 流程按钮行：开始编辑 → 保存并结束编辑 → 提交编制 + 刷新 */
+  /** 流程按钮行：开始编辑（负责人独占）→ 保存并结束编辑 → 提交编制 + 刷新 */
   renderFlowActions(file, hasSession, active) {
+    const manual = store.manual || {};
     const finishing = store.finishingFileId === file.id;
     const hasActiveSession = hasSession || !!active;
+    // 负责人独占编辑（2026-10-31）：编制授权 + 该文件负责人；非负责人
+    // （含持编制授权未指派者）不渲染会话入口，明确提示指引
+    const canEdit = (manual.my_roles || []).includes('edit');
+    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
     return (
       <div style={{marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap',
         alignItems: 'center'}}>
-        {!hasSession && (
+        {!hasSession && isAssignee && (
           <Tooltip title={!file.draft ? '该文件还没有可编辑草稿' : undefined}>
             <AuthButton auth="institution.manual.draft_edit" type="primary"
               size="small" disabled={!file.draft}
@@ -505,6 +603,11 @@ class InstitutionDraftWorkspace extends React.Component {
               开始编辑
             </AuthButton>
           </Tooltip>
+        )}
+        {!hasSession && !isAssignee && (
+          <span style={{color: '#999', fontSize: 12}}>
+            编辑仅限文件负责人，请先由手册所有者指派
+          </span>
         )}
         {hasSession && (
           <Tooltip title={store.editorConfigs[file.id] &&
@@ -517,19 +620,8 @@ class InstitutionDraftWorkspace extends React.Component {
             </Button>
           </Tooltip>
         )}
-        {/* 降级路径的保存动作：本机编辑后上传是同步 multipart 落盘 */}
-        {hasSession && file.draft && !(
-          store.editorConfigs[file.id] &&
-          store.editorConfigs[file.id].editor_available) && (
-          <Tooltip title="需要该文件的编辑会话才能保存">
-            <AuthButton auth="institution.manual.draft_edit" size="small"
-              loading={this.state.uploading || store.saving}
-              disabled={!hasSession || !file.draft}
-              onClick={this.handlePickSaveFile}>
-              本机编辑后上传（.docx）
-            </AuthButton>
-          </Tooltip>
-        )}
+        {/* 本机方式的下载/上传入口在编辑区本机面板（EditorArea，含基线
+            状态与步骤说明）；流程行只保留主流程与冲突敏感的提交编制 */}
         {(file.assignment && file.assignment.is_mine) && (
           <Tooltip title={hasActiveSession
             ? '该文件有进行中的编辑会话，请先「保存并结束编辑」后再提交编制'
@@ -550,112 +642,70 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
-  /** 次级操作行：下载/预览/改名/排序/移除；单文件制度的新增文件入口 */
+  /** 次级操作行（2026-10-31 按授权模型拆分门控）：
+   *  下载草稿/预览草稿 = 文件负责人（编制授权 + is_mine，与编辑入口同域）；
+   *  改名/上移/下移/移除/新增文件 = 手册所有者或制度管理员（AuthButton
+   *  页面码原样，后端独立校验）。 */
   renderFileAdminRow(file, draft) {
+    const manual = store.manual || {};
     const fileIndex = store.files.findIndex(f => f.id === file.id);
+    const canEdit = (manual.my_roles || []).includes('edit');
+    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
+    const canManageFiles = !!manual.is_owner || !!manual.is_admin;
     return (
       <div style={{marginTop: 10, paddingTop: 8, borderTop: '1px dashed #f0f0f0',
         display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center'}}>
         <span style={{color: '#999', fontSize: 12}}>文件管理：</span>
-        <AuthButton auth="institution.manual.download" type="link" size="small"
-          disabled={!file.draft}
-          onClick={() => downloadFile(
-            `/api/institution/manuals/${store.id}/files/${file.id}/draft/download/`,
-            draft.file_name)}>下载草稿</AuthButton>
-        <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-          disabled={!file.draft} onClick={() => this.handlePreview(file)}>
-          预览草稿
-        </AuthButton>
-        <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-          onClick={this.showRename}>改名</AuthButton>
-        {store.files.length > 1 && (
+        {isAssignee ? (
+          <span>
+            <AuthButton auth="institution.manual.download" type="link" size="small"
+              disabled={!file.draft}
+              onClick={this.handleDownloadDraft}>下载草稿</AuthButton>
+            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+              disabled={!file.draft} onClick={() => this.handlePreview(file)}>
+              预览草稿
+            </AuthButton>
+          </span>
+        ) : (
+          <span style={{color: '#999', fontSize: 12}}>下载/预览草稿仅限文件负责人</span>
+        )}
+        {canManageFiles && (
           <span>
             <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              disabled={fileIndex <= 0}
-              onClick={() => this.handleMove(file, -1)}>上移</AuthButton>
-            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              disabled={fileIndex < 0 || fileIndex >= store.files.length - 1}
-              onClick={() => this.handleMove(file, 1)}>下移</AuthButton>
+              onClick={this.showRename}>改名</AuthButton>
+            {store.files.length > 1 && (
+              <span>
+                <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                  disabled={fileIndex <= 0}
+                  onClick={() => this.handleMove(file, -1)}>上移</AuthButton>
+                <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                  disabled={fileIndex < 0 || fileIndex >= store.files.length - 1}
+                  onClick={() => this.handleMove(file, 1)}>下移</AuthButton>
+              </span>
+            )}
+            <AuthFragment auth="institution.manual.draft_edit">
+              <Popconfirm title={`确定将文件「${file.name}」移除出待发布集合？`}
+                onConfirm={() => this.handleRemove(file)}>
+                <Button type="link" danger size="small"
+                  disabled={store.files.length <= 1}>移除</Button>
+              </Popconfirm>
+            </AuthFragment>
+            {store.files.length <= 1 && (
+              <AuthButton auth="institution.manual.upload" type="link" size="small"
+                loading={this.state.adding} onClick={this.handlePickAddFile}>
+                新增文件（.doc/.docx）
+              </AuthButton>
+            )}
           </span>
-        )}
-        <AuthFragment auth="institution.manual.draft_edit">
-          <Popconfirm title={`确定将文件「${file.name}」移除出待发布集合？`}
-            onConfirm={() => this.handleRemove(file)}>
-            <Button type="link" danger size="small"
-              disabled={store.files.length <= 1}>移除</Button>
-          </Popconfirm>
-        </AuthFragment>
-        {store.files.length <= 1 && (
-          <AuthButton auth="institution.manual.upload" type="link" size="small"
-            loading={this.state.adding} onClick={this.handlePickAddFile}>
-            新增文件（.doc/.docx）
-          </AuthButton>
         )}
       </div>
     );
   }
 
   /**
-   * 独立的"制度草稿保存状态"（最重要）：只有服务端确认回调落盘后才
-   * 显示"已保存到制度草稿：rN、时间"。ONLYOFFICE 编辑器自身的"所有
-   * 更改已保存"只代表文档服务缓存，绝不据此显示业务已保存：
-   * - 确认进行中 → 正在请求服务端保存；
-   * - 在线编辑 + 有未确认修改（editorDirty 闩锁）→ 明确警示；
-   * - 在线编辑 + 确认成功（saveConfirmed）→ 已保存到制度草稿：rN、时间；
-   * - 在线编辑无确认记录 → 编辑中，内容尚未经服务端确认落盘；
-   * - 非在线编辑（无会话/降级路径）→ 服务端草稿数据本身就是落盘结果。
+   * 独立的"制度草稿保存状态"展示已抽出为 SaveStatusTag（状态条与放大态
+   * 精简顶栏共用，2026-10-30）；此处仅负责装配。
    */
-  renderSaveStatus(file, hasSession) {
-    const draft = file.draft || {};
-    const config = store.editorConfigs[file.id];
-    const onlineEditing = hasSession && !!(config && config.editor_available);
-    if (store.finishingFileId === file.id) {
-      return (
-        <span style={{fontSize: 12, color: '#1890ff'}}>
-          正在请求服务端保存当前文件…
-        </span>
-      );
-    }
-    if (onlineEditing) {
-      if (store.editorDirty[file.id]) {
-        return (
-          <Tooltip title="ONLYOFFICE 的「所有更改已保存」仅代表文档服务缓存，不代表已写入制度草稿；「保存并结束编辑」或切换文件/返回详情时会请求服务端保存并确认落盘。">
-            <Tag color="orange" style={{marginRight: 0}}>
-              有未确认落盘的修改
-            </Tag>
-          </Tooltip>
-        );
-      }
-      if (store.saveConfirmed[file.id]) {
-        const confirmed = store.saveConfirmed[file.id];
-        const revision = confirmed.revision != null
-          ? confirmed.revision : draft.revision;
-        return (
-          <span style={{fontSize: 12, color: '#389e0d'}}>
-            已保存到制度草稿：r{revision}
-            {confirmed.at ? ` · ${formatDateTime(confirmed.at)}` : ''}
-          </span>
-        );
-      }
-      return (
-        <span style={{fontSize: 12, color: '#d48806'}}>
-          编辑中：内容尚未经服务端确认落盘
-        </span>
-      );
-    }
-    if (file.draft) {
-      return (
-        <span style={{fontSize: 12, color: '#389e0d'}}>
-          已保存到制度草稿：r{draft.revision} · {formatDateTime(draft.last_saved_at)}
-          {draft.last_saved_by_name ? `（${draft.last_saved_by_name}）` : ''}
-        </span>
-      );
-    }
-    return null;
-  }
-
-  /** 右侧顶部状态条：当前文件/修订号/独立保存状态/提交状态 +
-      流程按钮（开始编辑 → 保存并结束编辑 → 提交编制）+ 次级操作行 */
   renderFileHeader(file, hasSession, active) {
     const draft = file.draft || {};
     const finishing = store.finishingFileId === file.id;
@@ -668,18 +718,20 @@ class InstitutionDraftWorkspace extends React.Component {
           {file.draft
             ? <Tag color="blue" style={{marginRight: 0}}>r{draft.revision}</Tag>
             : <Tag style={{marginRight: 0}}>无草稿</Tag>}
-          {this.renderSaveStatus(file, hasSession)}
+          <SaveStatusTag file={file} hasSession={hasSession}/>
           {submissionTagFor(file.submission)}
         </div>
         {this.renderFlowActions(file, hasSession, active)}
         {store.finishingError && store.finishingErrorFileId === file.id && (
           <Alert type="error" showIcon style={{marginTop: 10}}
-            message="保存未确认，会话已保留"
+            message={finishingErrorTitleOf(store.finishingErrorKind)}
             description={store.finishingError}
             action={
               <span>
                 <Button size="small" type="primary"
-                  onClick={this.handleSaveFinish}>重试保存</Button>
+                  onClick={this.handleFinishingRetry}>
+                  {finishingRetryLabelOf(store.finishingErrorKind)}
+                </Button>
                 <Button size="small" danger style={{marginLeft: 8}}
                   onClick={this.showDiscardExit}>不保存并退出</Button>
               </span>
@@ -725,45 +777,6 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
-  renderEditorArea(file, hasSession) {
-    const fileId = file.id;
-    if (!hasSession) {
-      return (
-        <Alert type="warning" showIcon style={{marginBottom: 12}}
-          message="该文件尚未开启编辑会话，开启后才能在线编辑或上传保存。"/>
-      );
-    }
-    if (store.editorLoadingId === fileId) {
-      return <div style={{padding: 40, textAlign: 'center'}}><Spin tip="正在获取编辑配置…"/></div>;
-    }
-    const config = store.editorConfigs[fileId];
-    if (config && config.editor_available) {
-      return (
-        <div>
-          {/* key 含 document_key：切换文件或重开会话（配置轮换）时
-              强制销毁重建编辑器实例 */}
-          <OnlyOfficeEditor key={`${fileId}:${config.document_key || fileId}`}
-            editorConfig={config}
-            onDirtyChange={dirty => store.setEditorDirty(fileId, dirty)}/>
-          <div style={{marginTop: 8, color: '#999', fontSize: 12}}>
-            在编辑器内保存（Ctrl+S / 自动保存）经文档服务回调落盘；
-            「保存并结束编辑」与切换文件/返回详情都会请求文档服务立即保存，
-            并在服务端确认落盘后才继续。编辑器的"所有更改已保存"不代表已写入制度草稿，
-            以上方保存状态为准。
-          </div>
-        </div>
-      );
-    }
-    return (
-      <Alert type="info" showIcon style={{marginBottom: 12}} message={
-        <span>
-          {store.editorErrors[fileId] || '在线编辑服务未配置。'}
-          当前工作方式：<b>下载草稿</b> → 本机 Word/WPS 编辑 → <b>上传保存</b>，
-          全程受编辑会话与修订序号保护；同一时间每个文件仅一个可写会话。
-        </span>}/>
-    );
-  }
-
   /** 无草稿文件工作区：不渲染空白编辑器，给出明确恢复入口（不得误报"草稿已保存"） */
   renderDraftlessWorkspace(file) {
     return (
@@ -776,7 +789,9 @@ class InstitutionDraftWorkspace extends React.Component {
             <Tag style={{marginRight: 0}}>无草稿</Tag>
           </div>
         </Card>
-        {this.renderRecoveryPanel(file)}
+        {/* 恢复面板（途径由服务端 draft_recovery 决定）自 2026-10-31 起
+            独立为 RecoveryPanel（文件行数门禁拆分，行为不变） */}
+        <RecoveryPanel file={file}/>
       </div>
     );
   }
@@ -785,15 +800,29 @@ class InstitutionDraftWorkspace extends React.Component {
     if (!file.draft) return this.renderDraftlessWorkspace(file);
     const active = file.active_session;
     const hasSession = !!store.sessionKeyOf(file.id);
+    const expanded = this.isExpandedActive();
     return (
-      <div>
-        {this.renderFileHeader(file, hasSession, active)}
-        {this.renderFileMeta(file, hasSession, active)}
-        <div style={{marginTop: 12}}>
-          {this.renderEditorArea(file, hasSession)}
+      /* 放大态：工作区占满 Col 并以 flex column 分层，头部/元数据/说明
+         均以 display none 收起（不改变编辑器在树中的位置，实例不重建） */
+      <div style={expanded ? {height: '100%', display: 'flex',
+        flexDirection: 'column', minHeight: 0} : undefined}>
+        <div style={expanded ? {display: 'none'} : undefined}>
+          {this.renderFileHeader(file, hasSession, active)}
+        </div>
+        <div style={expanded ? {display: 'none'} : undefined}>
+          {this.renderFileMeta(file, hasSession, active)}
+        </div>
+        <div style={expanded ? {flex: 1, minHeight: 320, marginTop: 8}
+          : {marginTop: 12}}>
+          <EditorArea file={file} hasSession={hasSession}
+            expanded={expanded} onToggleExpanded={this.toggleExpanded}
+            onSwitchMode={this.handleSwitchEditMode}
+            onDownloadDraft={this.handleDownloadDraft}
+            onPickUploadFile={this.handlePickSaveFile}/>
         </div>
         {file.draft.base_version_id && (
-          <p style={{marginTop: 8, color: '#999', fontSize: 12}}>
+          <p style={expanded ? {display: 'none'}
+            : {marginTop: 8, color: '#999', fontSize: 12}}>
             提示：完成编辑后请在手册详情页「版本与发布」中填写变更说明并发布新版本。
           </p>
         )}
@@ -835,38 +864,54 @@ class InstitutionDraftWorkspace extends React.Component {
     }
     if (!store.passwordVerified && !store.hasAnySession) return this.renderLocked();
     const file = store.selectedFile;
-    const config = file ? store.editorConfigs[file.id] : null;
-    const editorActive = !!(file && store.sessionKeyOf(file.id) &&
-      config && config.editor_available);
+    const editorActive = this.isSelectedFileOnlineEditing();
     const multi = store.files.length > 1;
+    const expanded = this.isExpandedActive();
     return (
-      <div style={{maxWidth: editorActive ? 1400 : 1000, margin: '0 auto', padding: '12px 0'}}>
-        <div style={{marginBottom: 12}}>
-          <Button type="link" icon={<ArrowLeftOutlined/>} style={{padding: 0}}
-            onClick={this.handleBackToDetail}>
-            返回 {store.manual ? store.manual.name : ''}
-          </Button>
-        </div>
+      <div style={expanded ? EXPANDED_ROOT_STYLE
+        : {maxWidth: editorActive ? 1400 : 1000, margin: '0 auto', padding: '12px 0'}}>
+        {/* 顶栏槽位（常规=返回入口；放大=精简条）：两侧分支同为 div，
+            类型稳定，切换放大不位移后续兄弟（编辑器树位置不变） */}
+        {expanded ? (
+          <div style={{flexShrink: 0, marginBottom: 8}}>
+            <ExpandedBar file={file}
+              onBackToDetail={this.handleBackToDetail}
+              onSaveFinish={this.handleSaveFinish}
+              onDiscardExit={this.showDiscardExit}
+              onFinishingRetry={this.handleFinishingRetry}/>
+          </div>
+        ) : (
+          <div style={{marginBottom: 12}}>
+            <Button type="link" icon={<ArrowLeftOutlined/>} style={{padding: 0}}
+              onClick={this.handleBackToDetail}>
+              返回 {store.manual ? store.manual.name : ''}
+            </Button>
+          </div>
+        )}
         {/* 隐藏 input 不得作为 Button/label 的嵌套子节点（嵌套会双触发
             或留死按钮），统一 ref 程序触发，见 handlePickAddFile /
-            handlePickSaveFile */}
+            handlePickSaveFile；本机上传 input onChange=handleLocalUpload */}
         <input ref={el => { this.addFileInput = el; }} type="file"
           accept=".doc,.docx" style={{display: 'none'}} onChange={this.handleAddFile}/>
         <input ref={el => { this.saveFileInput = el; }} type="file"
-          accept=".docx" style={{display: 'none'}} onChange={this.handleSaveUpload}/>
+          accept=".docx" style={{display: 'none'}} onChange={this.handleLocalUpload}/>
         {store.deeplinkNotice && (
-          <Alert type="warning" showIcon style={{marginBottom: 12}}
+          <Alert type="warning" showIcon
+            style={expanded ? {display: 'none'} : {marginBottom: 12}}
             message={store.deeplinkNotice}/>
         )}
-        <Row gutter={16}>
+        <Row gutter={16} style={expanded ? {flex: 1, minHeight: 0} : undefined}>
           {multi && (
-            <Col xs={24} md={8} lg={7} xl={6} style={{marginBottom: 16}}>
+            <Col xs={24} md={8} lg={7} xl={6}
+              style={expanded ? {display: 'none'} : {marginBottom: 16}}>
               <FileNav adding={this.state.adding}
                 onPickAddFile={this.handlePickAddFile}
                 onSelect={this.handleSelectFile}/>
             </Col>
           )}
-          <Col xs={24} md={multi ? 16 : 24} lg={multi ? 17 : 24} xl={multi ? 18 : 24}>
+          <Col xs={24} md={multi ? 16 : 24} lg={multi ? 17 : 24} xl={multi ? 18 : 24}
+            style={expanded ? {flex: '1 1 auto', minWidth: 0, maxWidth: '100%'}
+              : undefined}>
             {file
               ? this.renderWorkspace(file)
               : this.renderEmptyWorkspace()}
@@ -889,7 +934,7 @@ class InstitutionDraftWorkspace extends React.Component {
                 onClick={() => this.fetchAssignOwners()}>重试</Button>}/>
           )}
           <Form labelCol={{span: 5}} wrapperCol={{span: 17}}>
-            <Form.Item label="负责人" extra="可选；负责人完成编制后可提交编制，负责人身份不授予编辑权限">
+            <Form.Item label="负责人" extra="可选；负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑并提交编制">
               <Select allowClear showSearch optionFilterProp="children"
                 loading={this.state.fetchingOwners}
                 placeholder="选择负责人账号（可留空）"
@@ -910,6 +955,7 @@ class InstitutionDraftWorkspace extends React.Component {
         </Modal>
         <PreviewModal visible={!!this.state.preview} url={this.state.preview && this.state.preview.url}
           fileName={this.state.preview && this.state.preview.fileName}
+          title={this.state.preview && this.state.preview.title}
           onClose={() => this.setState({preview: null})}/>
       </div>
     );

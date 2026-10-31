@@ -98,6 +98,9 @@ docker-compose*.yml
 
 # 隐藏目录
 .codebuddy
+# Mimosa 安全扫描插件工作数据（源码基线快照，约 7MB 生成物）
+.mimosa
+**/.mimosa
 
 # 大目录（导致构建上下文过大）
 mysql/

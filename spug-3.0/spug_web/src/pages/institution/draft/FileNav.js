@@ -86,16 +86,22 @@ class FileNav extends React.Component {
   }
 
   render() {
+    // 新增制度文件业务门=手册所有者或制度管理员（2026-10-31 授权模型；
+    // 页面权限码 upload 原样，后端独立校验）
+    const manual = store.manual || {};
+    const canAddFile = !!manual.is_owner || !!manual.is_admin;
     return (
       <Card size="small" title={`待发布文件（共 ${store.files.length} 份）`}
         bodyStyle={{padding: '8px'}}>
         {store.files.map((file, index) => this.renderItem(file, index))}
-        <div style={{padding: '8px 4px 0'}}>
-          <AuthButton auth="institution.manual.upload" size="small" block
-            loading={this.props.adding} onClick={this.props.onPickAddFile}>
-            新增文件（.doc/.docx）
-          </AuthButton>
-        </div>
+        {canAddFile && (
+          <div style={{padding: '8px 4px 0'}}>
+            <AuthButton auth="institution.manual.upload" size="small" block
+              loading={this.props.adding} onClick={this.props.onPickAddFile}>
+              新增文件（.doc/.docx）
+            </AuthButton>
+          </div>
+        )}
       </Card>
     );
   }

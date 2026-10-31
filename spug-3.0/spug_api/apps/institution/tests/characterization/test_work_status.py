@@ -199,12 +199,10 @@ class ManualListWorkStatusTests(VersionChangesTestBase):
     # ------------------------------------------------------------------
 
     def _make_bare_manual(self):
-        manual = Manual.objects.create(
+        return Manual.objects.create(
             name='空手册', code='BM-EMPTY',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='某部门',
-            tenant_id='deptA')
-        manual.edit_roles.add(self.edit_role)
-        return manual
+            org_type=Manual.OWNER_DEPARTMENT, org_name='某部门',
+            owner=self.manager, tenant_id='deptA')
 
 
 class RemovedFileHistoryTests(VersionChangesTestBase):
@@ -229,13 +227,17 @@ class RemovedFileHistoryTests(VersionChangesTestBase):
         self.assertTrue(row['is_removed'])
 
     def test_removed_file_version_history_accessible(self):
-        """已移除文件的 version-history 仍可查（发布参与历史不丢）"""
+        """已移除文件的 version-history 仍可查（发布参与历史不丢）
+
+        version-history 属发布域（can_view_published）：所有者不自动可见
+        发布版，由持 can_view 授权的发布者查询。
+        """
         self._publish('v1')
         post_json(
             self.manager_client,
             f'/institution/manuals/{self.manual.id}/files/'
             f'{self.file_b["id"]}/remove/', {})
-        resp = self.manager_client.get(
+        resp = self.publisher_client.get(
             f'/institution/manuals/{self.manual.id}/files/'
             f'{self.file_b["id"]}/version-history/')
         self.assertFalse(has_error(resp), resp.content)
@@ -260,7 +262,7 @@ class RemovedFileHistoryTests(VersionChangesTestBase):
             manual_file_id=self.file_a['id'])
         snap.cleaned_at = snap.cleaned_at or timezone.now()
         snap.save(update_fields=['cleaned_at'])
-        resp = self.manager_client.get(
+        resp = self.publisher_client.get(
             f'/institution/manuals/{self.manual.id}/files/'
             f'{self.file_a["id"]}/version-history/')
         self.assertFalse(has_error(resp), resp.content)

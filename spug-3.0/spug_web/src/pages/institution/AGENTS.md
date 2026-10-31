@@ -13,6 +13,22 @@
 > 清单行再次「变更记录」的目标由页签内 mobx reaction 消费（此前仅
 > componentDidMount 消费，二次跳转不生效）；store 的
 > fetchFileVersionHistory/fetchFileLogs 加 reqSeq 守卫防迟到响应覆盖。
+> **2026-10-30 文件清单双视图**：文件清单页签内拆「当前生效版本 vN」/
+> 「修订草稿」两个内容视图（Segmented 切换、默认按是否有生效版本），
+> 版本来源在入口按钮与预览标题持续明确；提交编制的"无历史副本"限制与
+> 负责人责任归属语义在视图说明中明确。
+> **2026-10-31 生效视图不展示负责人**：「当前生效版本」视图不再渲染
+> 负责人列；负责人属修订分工，只在「修订草稿」视图展示与维护（分工
+> 入口保留在草稿视图负责人列）。
+> **2026-10-31 授权模型改造已落地**（对应后端迁移 0008）：手册级授权由
+> 旧角色关联改为「手册所有者（manual.owner/is_owner）+ 制度管理员
+> （institution.manual.admin，manual.is_admin）+ 逐本账号授权
+> （authorizations：can_view/can_edit/can_publish 三布尔）」；可见性
+> 只由 my_roles 与 is_owner/is_admin 决定（utils，模块权限码不再直通），
+> 内容编辑按**负责人独占**（can_edit 授权 + assignment.is_mine）；归属
+> 字段更名 org_type/org_type_display/org_name，列表过滤参数 org_type；
+> 权限配置页签对 config 码/所有者/管理员可见，页签内为 所有者卡 +
+> 账号授权卡（AuthorizationCard，替代旧角色关联）+ 编辑密码卡。
 
 ## 一、结构
 
@@ -38,10 +54,18 @@ pages/institution/
 │   ├── OriginalsTab.js# 初始来源（高级恢复入口，次级信息）：全文件列表 +
 │   │                  #   最初原稿/展开历史/更换来源/重建确认/已清理态
 │   ├── RecordsTab.js / ConfigTab.js
+│   │                  # ConfigTab（2026-10-31 授权模型）：所有者卡 + 账号
+│   │                  #   授权卡 AuthorizationCard.js（逐本账号三布尔授权，
+│   │                  #   PUT authorizations 整体替换）+ 编辑密码卡
 │   └── PreviewModal.js
 └── draft/             # /institution/manuals/:id/draft 草稿工作台（唯一编辑页面）
     ├── store.js       # 文件清单 + 选中文件 + 按文件会话（sessionStorage 持久化）
-    └── index.js       # 密码验证门 → 文件清单（多文件）+ 选中文件工作区；支持 ?file= 深链
+    │                  #   + 编辑方式切换/本机编辑基线（2026-10-31）
+    ├── index.js       # 密码验证门 → 文件清单（多文件）+ 选中文件工作区；支持 ?file= 深链
+    ├── EditorArea.js  # 编辑区四态 + 编辑方式切换（Segmented）+ 本机编辑面板
+    ├── RecoveryPanel.js # 无草稿恢复面板（2026-10-31 自 index.js 抽出，行为不变）
+    ├── finishingShared.js # 保存确认失败语境（finishingErrorKind）文案映射
+    ├── ExpandedBar.js / SaveStatusTag.js / FileNav.js / OnlyOfficeEditor.js
 ```
 
 ## 一·补、详情页信息层级（2026-10-29 交互优化版，最重要）
@@ -69,14 +93,55 @@ pages/institution/
   核对整套变化并发布；发布/回退/废止后统一走
   `store.refreshAfterLifecycle`（详情/版本/日志/草稿状态/当前生效清单）。
 
-## 二、授权与按钮
+## 二、授权与按钮（2026-10-31 授权模型版）
 
-- 页面权限码统一 `institution.manual.*`（树见 `src/pages/system/role/codes.js`），路由 `auth: 'institution.manual.view'`。
-- **行内/页签内的内容操作按钮以接口返回的 `my_roles`（view/edit/publish）为判定**（手册级授权），模块级 AuthButton 管页面入口；两层都不能省——后端独立校验。
-- 权限配置页签仅对持有 `institution.manual.config` 的账号渲染。
+- 页面权限码统一 `institution.manual.*`（树见 `src/pages/system/role/codes.js`，
+  含 2026-10-31 新增的 `admin`=制度管理员），路由 `auth: 'institution.manual.view'`。
+  页面码只授予功能入口资格；**具体可操作哪本手册由 `my_roles`（授权推导
+  view/edit/publish）与 `is_owner`/`is_admin` 决定**，模块级 AuthButton 管
+  页面入口；两层都不能省——后端独立校验。
+- **可见性口径唯一实现在 `utils.js`**：`canViewPublished` = view 授权 or
+  （edit 授权且 manual.editor_can_view_published）or is_admin；`canViewWorkspace`
+  = edit/publish 授权 or is_owner or is_admin。**不再以 hasPermission(edit/config)
+  直通**（2026-10-31 改造，所有者身份同样不自动可见发布版）。
+- **负责人独占编辑**：内容写入口（开始编辑/开始修订/继续编辑/草稿预览下载/
+  重建草稿）= my_roles.edit **且** 该文件 `assignment.is_mine`；非负责人的
+  编制授权账号不渲染编辑入口，显示「编辑仅限文件负责人」占位提示。
+- **分工与文件结构写=所有者或管理员**：文件分工（单/批量）、新增/改名/排序/
+  移除/新增文件、更换来源/上传原稿 = `manual.is_owner || manual.is_admin`
+  （页面码 draft_edit|upload 原样保留，与后端 @auth+业务门一致）；
+  发布 = my_roles.publish（授权推导，owner/admin 不自动可发布）。
+- 权限配置页签可见 = `institution.manual.config` 码 or `is_owner` or
+  `is_admin`；页签内三卡：手册所有者卡（admin 可指定/接管/移交，候选走
+  `owner-candidates/`；owner 只读）、账号授权卡 `AuthorizationCard.js`
+  （逐本账号 can_view/can_edit/can_publish 三布尔行 + 「编制授权者可查看
+  发布版」Switch，PUT `authorizations/` 整体替换，保存响应含
+  `revoked_sessions` 失权撤销会话数；候选走 `account-options/`）、编辑密码卡
+  （仅持 config 码渲染表单，否则只读说明）。授权清单/账号候选失败在卡片内
+  展示错误+重试（skipErrorNotification，不与拦截器重复弹错）。
+- **负责人候选=持本手册编制资格的启用账号**（`assignment-owners/`，
+  2026-10-31 起口径）：分工弹窗与新增文件负责人下拉的唯一来源，禁止改拉
+  账号管理清单 `/api/account/user/`。
 
 ## 三、草稿工作台约定（2026-10-29 多文件版；2026-10-30 交互改造）
 
+- **编辑区放大/还原（2026-10-30）**：编辑器正上方「放大/还原」按钮（图标+
+  Tooltip，还原态 Tooltip 注明 Esc），实现拆在 `draft/EditorArea.js`（编辑区
+  四态+按钮）与 `draft/ExpandedBar.js`（放大态精简顶栏）、
+  `draft/SaveStatusTag.js`（保存状态，状态条与顶栏共用）。放大以 fixed 浮层
+  （`EXPANDED_ROOT_STYLE`，zIndex 900：盖过布局头部、低于 antd Modal/Message）
+  承载：**切换放大只改容器样式与 OnlyOfficeEditor 的 height prop
+  （72vh↔100%），编辑器元素在 React 树中的位置与 key 不变——绝不重新拉
+  editor-config、轮换 document key 或销毁重建实例**；浮层内显隐一律
+  display:none 或同类型 div 分支（兄弟结构位移会导致编辑器 remount，禁止）。
+  放大态收起 文件导航/文件头部/元数据/流程与文件管理行/编辑器下方说明，
+  顶栏保留 返回/文件名/修订号/独立保存状态/提交状态/「保存并结束编辑」，
+  finishingError 时顶栏呈现 重试保存/不保存并退出（保存确认与未保存保护
+  流程在放大态不中断）。Esc 还原（window keydown 随放大态挂/摘，iframe 内
+  按键不冒泡）；切换文件/返回详情/结束编辑/不保存退出 显式 exitExpanded；
+  编辑器不可用（会话退出等）时 CDU 兜底自动退出放大。行为测试钉死在
+  `__tests__/draft.workspace.expand.test.js`（含实例不重建/不重拉配置/
+  DOM 节点同一）。
 - **2026-10-30 布局**：多文件制度=左侧文件导航（`draft/FileNav.js`：名称
   ellipsis+负责人/修订号/编辑占用/提交状态 Tag，行内 flexWrap 折行防窄屏
   重叠，底部新增文件入口）+ 右侧编辑区主体（Row/Col 响应式，窄屏导航
@@ -96,6 +161,12 @@ pages/institution/
   的新增文件入口在次级行，多文件在导航底部）。**负责人持有该文件编辑
   会话（含本账号其他页签）时提交编制按钮禁用**，Tooltip 明确提示先
   「保存并结束编辑」；后端 submit 仍独立校验活跃会话拒绝。
+  **2026-10-31 授权模型门控拆分**：「开始编辑」（及会话入口）仅
+  负责人独占（my_roles.edit + `assignment.is_mine`）渲染，非负责人
+  （含持编制授权未指派者）显示「编辑仅限文件负责人，请先由手册所有者
+  指派」；文件管理次级行拆分——下载草稿/预览草稿=负责人（与编辑入口
+  同域），改名/上移/下移/移除/新增文件=手册所有者或制度管理员（AuthButton
+  页面码原样）。
 - **落盘确认链路 = `_confirmForcesave`（2026-10-30 保存确认改造，唯一实现，
   最重要）**：循环"forcesave 受理 → 以响应修订号为基线轮询 `files/<fid>/draft/`
   修订号推进 → **推进后再次 forcesave 复核**"，直到 DS 报告 `no_changes`
@@ -103,6 +174,18 @@ pages/institution/
   **不得冒充本次回调落盘**；轮询超时后做一次最终 forcesave 复核，
   no_changes 仍算确认（回调内容幂等跳过、修订号不推进的情形），仍受理
   即失败。轮询每次响应就地更新清单条目 draft（服务端修订号/保存人/时间）。
+  **no_changes 沉降复核（2026-10-31 竞态修复，最重要）**：DS 的
+  no_changes 应答只反映命令处理瞬间的缓冲状态，与命令几乎同拍敲入的
+  修改可能经事件通道晚于命令注册（dev 实测：DS 误答 no_changes → 前端
+  轮换 key 销毁编辑器 → 在途修改随收尾回调被 409 丢弃）。因此 no_changes
+  经 `_settleNoChanges` 沉降复核干净才采信：编辑器实时脏态
+  （`store.editorLiveState`，onDocumentStateChange 的原始上报 true/false
+  都记录，**不受 markSaveConfirmed 清除影响**——确认收尾同拍到达的脏
+  事件只有它读得到；editorDirty 闩锁语义不变，仍只服务 UI 保存状态）
+  已报脏即判在途；短沉降窗（`confirmSettleMs` 默认 1.2s，一次性复核
+  **不属于固定周期轮询**）后再次 forcesave，仍 no_changes 且编辑器不报脏
+  才确认；复核改报受理或脏态仍在则重走确认循环。no_changes=确认成功的
+  规则不变，只是从"即时采信"收紧为"复核干净才采信"。
 - **「保存并结束编辑」**：`store.finishEditing(fileId)` = `_confirmForcesave`
   确认成功后才 exitFileSession 并提示成功。**失败/超时一律保留会话与
   编辑器**（`finishingErrorFileId/finishingError` 只标记归属文件），状态条
@@ -126,6 +209,51 @@ pages/institution/
   按 requestedFileId 定向），目标不存在→`deeplinkNotice`"不存在或已
   移除，未建立任何编辑会话"且不验证；目标无草稿→密码门禁用+明确
   提示；绝不静默改开另一份文件的会话。被他人占用由后端验证拒绝。
+- **编辑方式切换与本机编辑（2026-10-31 恢复/完善，最重要）**：在线编辑与
+  「下载草稿 → 本机 Word/WPS 编辑 → 上传保存」按文件切换（EditorArea
+  顶部 Segmented，仅在线编辑真实可用时渲染）；服务未配置/配置加载失败/
+  编辑器加载失败恒为本机方式，**本机入口不依赖任何失败上报的可靠性**
+  （OnlyOfficeEditor 经 onUnavailable 上报 `store.editorLoadFailed`，
+  工作台据此呈现显式「切换到本机编辑」入口；onReady 清除标记；即使
+  上报不可靠，Segmented 也独立于它始终渲染）。切换唯一实现
+  `store.switchEditMode`：在线切本机先 confirmFileSave（'切换到本机
+  编辑'；失败留下重试，`finishingErrorKind='switch_local'` 重试按钮=
+  重试切换），确认成功后过**轮换闸门**（2026-10-31 竞态修复：确认返回
+  与轮换之间编辑器实时脏态翻 true——确认链最后一次复核之后的敲入——
+  必须重走一次确认，干净后才轮换；闸门读 `editorLiveState` 而非已被
+  markSaveConfirmed 清除的 `editorDirty` 闩锁，绝不带着脏信号轮换），
+  然后才 `rotateEditorKey`——重取 editor-config 即
+  轮换 document key（旧编辑实例回调服务端 409），**响应不缓存不渲染**，
+  请求失败阻止切换（旧 key 仍有效时切走即留下"迟到回调覆盖本机上传"
+  的窗口）；再清 editorConfigs（编辑器随渲染分支卸载销毁）。**会话全程
+  保留**——本机上传依赖有效会话。切回在线重新取配置（旧配置 token
+  绑定旧修订号，不得复用渲染）。切换文件/返回详情不需要闸门：不轮换
+  key，编辑器销毁时 DS 的收尾回调（会话活跃 + key 现行）照常落盘。
+  - **下载草稿（handleDownloadDraft，文件管理行与本机面板共用入口）**：
+    在线编辑中先走确认链路（kind='download_draft'，确认失败不下载，
+    重试按钮=重试下载）；下载前 refreshFiles 读取服务端修订号，
+    downloadFile 真实完成后 `recordLocalBaseline` 记录**基线修订号**；
+    无会话的查看者仅下载不记录基线。
+  - **本机上传（EditorArea 本机面板 → uploadLocalDraft）**：必须携带
+    基线修订号（**绝不改用上传前刷新得到的较新修订号**，服务端草稿已
+    推进时后端拒绝覆盖、提示重新下载）；.docx 客户端先行校验（.doc
+    拒绝，后端独立校验）；成功提示只在真实成功响应后，成功清基线并
+    refreshFiles；"草稿已被其他会话更新"=基线过期，清基线要求重新下载，
+    **会话保留**（该文案含"会话"一词，uploadLocalDraft 特判不走
+    handleSessionRelatedError 清会话规则）；其余错误沿用既有分类
+    （会话类清会话、密码类回密码门）。无基线时上传以 message.warning
+    阻止并提示先下载。
+  - **重试语境**：`finishingShared.js` 的
+    finishingErrorTitleOf/finishingRetryLabelOf + `store.finishingErrorKind`
+    （''=重试保存（原语义不变）/'switch_local'/'download_draft'），
+    工作台文件头部 Alert 与放大态 ExpandedBar 共用，重试分发在
+    工作台 handleFinishingRetry。
+  - 行为测试：`draft.store.localEdit.test.js`（effectiveEditMode 三态/
+    切换=确认→轮换→清配置/确认失败不轮换/轮换失败阻止/基线上传契约/
+    状态清理）、`draft.workspace.localEdit.test.js`（Segmented 主动切换/
+    未确认阻止与重试切换/未配置直接本机无切换控件/加载失败入口/
+    下载基线/上传成功-失败-拒绝）；后端行为钉死在
+    test_manual_local_upload.py。
 - **一切内容接口按文件走**：`/files/`（有序清单，条目内嵌
   draft+active_session+submission）、
   `files/<fid>/draft/{create,session,save,download,preview-url,editor-config,forcesave}/`、
@@ -173,12 +301,41 @@ pages/institution/
 
 ## 四、详情页约定（2026-10-29 交互优化版）
 
-- **四、文件清单页签（FileListTab，默认，2026-10-30 修订状态版）**：
-  - **制度以当前生效版本为主**：页签顶部保留 当前生效版本 区块（版本号/
-    发布人/变更说明/废止入口）；日常清单列=顺序/文件名/大小/负责人/状态/
-    编制提交/操作，**不再渲染 生效版本、当前草稿(rN)、草稿 vs 生效版本、
-    基于版本、编辑占用 等主列**——修订号、工作副本来源与关系原文放草稿
-    工作台详情与「变更记录」。
+- **四、文件清单页签（FileListTab，默认，2026-10-30 双视图版）**：
+  - **页签内两个内容视图（antd Segmented 切换，不新增顶层页签）**：
+    「当前生效版本 vN」=最近一次发布的不可变快照清单（行=versions/<vid>/
+    files/ 的 items；预览/下载始终打开发布快照，按钮文案「预览当前生效版」、
+    预览标题「预览当前生效版 vN：文件名」、下载 Tooltip 均注明版本来源；
+    已从待发布移除的文件以行内「已从待发布移除」Tag+顶部提示呈现——取代
+    旧独立已移除分区；已移除条目不在 /files/ 中、负责人未知，显示「-」
+    绝不显示误导性「未分配」）与「修订草稿」=待发布工作内容（行=/files/；
+    列=顺序/文件名/大小/草稿修订 rN/负责人/状态/编制提交/操作；预览/
+    下载明确打开待发布草稿「预览草稿 rN」，预览标题「预览待发布草稿
+    rN：文件名」，仅持编制角色者渲染——后端草稿预览/下载要求
+    draft_edit+can_edit_draft，前端不扩权）。**默认视图**：有生效版本→
+    当前生效版本；首次发布前→修订草稿；仅查看角色只有生效视图（无切换
+    控件、不请求 draft-status）。**切换视图**：保留「只看我负责的文件」
+    筛选并清空行勾选（批量分工属草稿视图操作）；生效视图无 草稿修订/
+    状态/编制提交 列（断言列是否存在以 th 文本为准——页签说明文案会
+    提到这些词，不能用整页文本 contain/not-contain 判定）。
+  - **负责人=责任归属、提交=交接状态（视图说明与 Tooltip 必须表达）**：
+    负责人不因负责身份获得或失去编辑权限（编辑=draft_edit+编制角色+
+    单写会话，同一文件同一时间仅一人）；「编制提交」是交接标记不代表
+    已发布——提交有效=提交时修订号与当前草稿一致（预览草稿即为提交时
+    内容），草稿变更后=「提交已失效」；**系统不保存提交时刻的文件副本
+    （无历史快照机制）**，该限制必须在说明文案与 Tooltip 中明确，
+    绝不把最新草稿冒充"已提交版本"、绝不提供"已提交版本"预览。
+    2026-10-31 起生效视图不展示负责人（修订分工属修订草稿视图，分工
+    入口保留在草稿视图负责人列；生效视图行的 assignment 关联仅为
+    「只看我负责的文件」筛选保留，不得移除）。
+  - **版本来源全模块持续明确（2026-10-30）**：PreviewModal 增加可选
+    title 属性（缺省回退通用标题），各预览入口必须传说明来源的标题——
+    FileListTab 生效视图=预览当前生效版 vN / 草稿视图=预览待发布草稿
+    rN；VersionsTab=预览历史版本 vN（版本行/清单 Modal/已移除行按
+    previous_version_id+fm.previousVersionNo）；FileChangeTab=预览历史
+    版本 vN（r.version_no）；OriginalsTab=预览初始原稿/预览后续来源
+    原稿；草稿工作台=预览待发布草稿 rN。不能仅凭颜色、修订号或位置
+    暗示来源。
   - **状态列（唯一合并呈现）**：`draftStatusShared.buildFileState(file,
     relation)` 把 服务端内容关系（draft-status 行）+ 修订进行中（
     `file.revision_open`）+ 编辑占用 合成一句可懂短语：修订中 · 有未发布
@@ -194,26 +351,30 @@ pages/institution/
     提交编制（is_mine）与「变更记录」不变；**操作列不再有「文件分工」
     链接（入口在负责人列）**。
   - **文件分工入口在负责人列**：有分工权限者点击姓名/「未分配」直接打开
-    FileAssignmentModal；无权限者只读。**权限判定是两层与（2026-10-30
-    修正，与后端写接口完全一致）**：`institution.manual.draft_edit` 页面
-    权限 **且**（管理权限 edit/config 或手册编制角色 `my_roles.edit`）——
-    缺 draft_edit 时保存必然"权限拒绝"，入口必须只读，不得出现可点击
-    但保存必然被拒的链接/批量栏/勾选列。**批量分工（2026-10-30）**：勾选
-    多份文件（仅活动行可勾选）出现批量分工栏（已选数量+文件名清单），
-    「批量指定负责人」开批量弹窗（明确作用范围、不预填现有负责人）、
-    「清空负责人」需确认；提交经 `store.batchAssignFiles`（后端全成功或
-    全失败），成功后清空勾选；**筛选（只看我负责的文件）切换、刷新、
-    「清除选择」都清空勾选——不得对筛选后不可见的文件误操作**。
-  - **负责人候选唯一来源（2026-10-30 修正，最重要）**：分工弹窗与草稿
-    工作台新增文件的负责人下拉一律走
+    FileAssignmentModal；无权限者只读。**权限判定是两层与（2026-10-31
+    授权模型修订，与后端写接口完全一致）**：`institution.manual.draft_edit`
+    页面权限 **且**（手册所有者 `is_owner` 或制度管理员 `is_admin`）——
+    缺 draft_edit 或非所有者/管理员时保存必然"权限拒绝"，入口必须只读，
+    不得出现可点击但保存必然被拒的链接/批量栏/勾选列。**批量分工
+    （2026-10-30）**：勾选多份文件（仅活动行可勾选）出现批量分工栏
+    （已选数量+文件名清单），「批量指定负责人」开批量弹窗（明确作用
+    范围、不预填现有负责人）、「清空负责人」需确认；提交经
+    `store.batchAssignFiles`（后端全成功或全失败），成功后清空勾选；
+    **筛选（只看我负责的文件）切换、刷新、「清除选择」都清空勾选——
+    不得对筛选后不可见的文件误操作**。
+  - **负责人候选唯一来源（2026-10-31 口径修订，最重要）**：分工弹窗与
+    草稿工作台新增文件的负责人下拉一律走
     `GET manuals/<pk>/assignment-owners/`（仅 `id+name` 最小字段，权限与
-    分工写路径一致）；**禁止改回账号管理列表 `/api/account/user/`**（要求
+    分工写路径一致；**候选=持本手册 can_edit 编制授权的启用账号**，
+    负责人独占编辑要求被指派账号具备编制资格，无资格指派后端拒绝）；
+    **禁止改回账号管理列表 `/api/account/user/`**（要求
     `system.account.view`，无账号查看权的分工用户即"权限拒绝"，候选还被
     吞成空列表——本接口为修复该缺陷而设）。候选请求带
     `skipErrorNotification: true`，**失败在弹窗内展示明确错误与「重试」
     按钮**（错误只展示一次，不得与 HTTP 拦截器重复弹窗），绝不把失败
     静默表现为空候选列表。
-  - 行来源/已移除分区/已清理快照/错误重试口径与 2026-10-29 版一致。
+  - 行来源/已清理快照/错误重试口径与 2026-10-29 版一致（"已移除"自
+    双视图版起在生效视图行内 Tag 呈现，独立分区已取消）。
   - 「只看我负责的文件」继续按服务端 `assignment.is_mine` 过滤。
 - **发布（PublishButton，头部整套状态旁）**：点击先拉 `publish-preview/`
   分组预检；确认窗口**重点展示实际变化文件（新增/修改/移除/受阻），未修改
@@ -325,22 +486,39 @@ pages/institution/
 ## 五、测试
 
 - `__tests__/` 十余个套件：ManualForm 载荷/渲染、Table 渲染（含 work_status
-  工作状态列八态（含 revising）与仅查看不下发）、draft store（会话
+  工作状态列八态（含 revising）与仅查看不下发；2026-10-31 增 归属 org_* 与
+  所有者列/未指定提示）、draft store（会话
   按 (manualId,fileId)；含 开始修订/批量分工 的 store 行为；落盘确认
   核心与离开保护拆分至 draft.store.confirm.test.js：复核轮防他处推进
   误判/超时最终复核/confirmFileSave 不撤销会话/editorDirty 闩锁）、
   draft workspace 组件行为（含 新增文件分工弹窗携带 owner_id/note、清单行
   负责人/未分配、is_mine 提交编制；切换/返回离开保护与独立保存状态
   显示拆分至 draft.workspace.leaveGuard.test.js）、draft recovery（无草稿恢复入口三态/
-  已有草稿不自动替换/失败不假成功）、detail store（含 版本错误态/
+  已有草稿不自动替换/失败不假成功；恢复面板 2026-10-31 拆出
+  RecoveryPanel 组件，行为断言不变）、本机编辑（编辑方式切换/确认-轮换/
+  基线上传契约/上传成功失败与重试拆分至 draft.store.localEdit.test.js 与
+  draft.workspace.localEdit.test.js；OnlyOfficeEditor 失败上报
+  onUnavailable/onReady 在 draft.editor.test.js）、detail store（含 版本错误态/
   refreshAfterLifecycle 生命周期统一刷新/originals-overview 聚合与错误态/
-  startRevision 携带 confirm_repair/batchAssignFiles 就地更新与失败不动清单）、
+  startRevision 携带 confirm_repair/batchAssignFiles 就地更新与失败不动清单；
+  2026-10-31 增 逐本账号授权与所有者：fetchAuthorizations/saveAuthorizations
+  （PUT 全量 items+editor_can_view_published，透传 revoked_sessions）/
+  account-options·owner-candidates skipErrorNotification/owner POST 与回退
+  刷新/reset 清理）、ConfigTab.authorization（2026-10-31 授权模型：所有者卡
+  admin 指定/移交与 owner 只读、授权行三布尔与删除/添加账号候选过滤/
+  保存载荷与 revoked_sessions 提示/清单与候选失败卡片内重试/config-only
+  只读说明/密码卡按 config 码收窄；页签可见性钉死在 detail.index.tabs）、
   FileListTab（修订状态版：状态列合并短语/旧主列不出现/开始修订与继续编辑
   分叉/needs_repair 确认修复/批量分工勾选与清空/筛选清空勾选/行合并/新增
-  与已移除呈现/清理快照/深链/废止）、fileAssignment（文件清单分工：负责人列
+  与已移除呈现/清理快照/深链/废止；2026-10-31 增 负责人独占：负责人行
+  编辑入口与非负责人「编辑限负责人」占位/仅发布角色无编辑入口）、
+  fileAssignment（文件清单分工：负责人列
   点击弹窗/无「文件分工」按钮/编制提交三态、只看我负责的筛选、批量弹窗
   数量与范围/勾选清空、提交编制 is_mine 行、旧章节只读过渡面板；
-  2026-10-30 增补：无 draft_edit 只读无批量入口/draft_edit+编制角色可点击）、
+  2026-10-30 增补：无 draft_edit 只读无批量入口/2026-10-31 起
+  draft_edit+所有者或管理员可点击）、draft.workspace（2026-10-31 增
+  负责人独占与文件管理门控拆分：非负责人无开始编辑/下载预览仅负责人/
+  改名移除新增限所有者或管理员/密码门未指派提示）、
   FileAssignmentModal（分工回填与 owner_id 显式提交/未分配=null/批量模式
   数量范围不预填；2026-10-30 增补：候选走 assignment-owners 且抑制拦截器
   弹错/候选失败弹窗内错误+重试成功）、draft.workspace（2026-10-30 增补
@@ -348,7 +526,8 @@ pages/institution/
   无变化禁用确认/负责人与提交状态行/受阻处理入口+确认禁用/失败不清数据/
   角色可见性+无待发布变化弱化入口）、originals.upload（聚合清单
   无下拉/批量新增逐文件建项/更换来源受控确认/已清理记录不可用按钮/展开历史最初
-  与后续区分/高级恢复确认链）、FileChangeTab（originals-overview 全集下拉含已移除/
+  与后续区分/高级恢复确认链；2026-10-31 增 更换来源/新增限所有者或管理员、
+  重建草稿=文件负责人独占）、FileChangeTab（originals-overview 全集下拉含已移除/
   清理快照仅元数据/预选 fileChangeTarget/失败重试/**页签保持挂载时再次跳转
   A→B→A 与同文件稳定/全集加载中保留目标/目标缺失回退首文件/操作记录翻页传
   file_id**）、detail.fileChange.jump（真实 detail/index+FileListTab+

@@ -6,7 +6,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { history } from 'libs';
 import { AuthButton, TableCard, Action } from 'components';
-import { Table, Tag, Modal, message } from 'antd';
+import { Table, Tag, Modal, Tooltip, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { http } from 'libs';
 import store from './store';
@@ -114,7 +114,13 @@ class ComTable extends React.Component {
         <Table.Column title="类别" dataIndex="category_name" width={110}
           render={v => v || '-'}/>
         <Table.Column title="归属" width={180}
-          render={(_, record) => `${record.owner_type_display} · ${record.owner_name || '-'}`}/>
+          render={(_, record) => `${record.org_type_display || '-'} · ${record.org_name || '-'}`}/>
+        <Table.Column title="所有者" width={110}
+          render={(_, record) => record.owner_name
+            ? <Tag color="purple" style={{marginRight: 0}}>{record.owner_name}</Tag>
+            : <Tooltip title="尚未指定手册所有者：所有者负责账号授权与文件分工，请联系制度管理员指定">
+                <Tag color="orange" style={{marginRight: 0}}>未指定</Tag>
+              </Tooltip>}/>
         <Table.Column title="状态" dataIndex="status" width={80}
           render={v => <Tag color={STATUS_COLORS[v]}>{v === 'active' ? '启用' : '归档'}</Tag>}/>
         <Table.Column title="当前生效版本" width={150}

@@ -1,21 +1,20 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""制度管理视图：类别、手册、角色配置、密码、原稿、旧章节（只读）、操作记录
+"""制度管理视图：类别、手册、密码、原稿、旧章节（只读）、操作记录
 
 接口约定（nginx 对外前缀 /api/institution/）：
   GET    /categories/                        查看类别（institution.manual.view）
   POST   /categories/                        新建类别（institution.manual.config）
   PUT    /categories/<pk>/                   编辑类别（institution.manual.config）
   DELETE /categories/<pk>/                   删除类别（institution.manual.config）
-  GET    /manuals/                           手册列表（角色授权过滤）
-  POST   /manuals/create/                    新建手册（institution.manual.add）
+  GET    /manuals/                           手册列表（所有者/逐本授权过滤）
+  POST   /manuals/create/                    新建手册（institution.manual.add；创建人=所有者）
   GET    /manuals/<pk>/                      手册详情
   PUT    /manuals/<pk>/                      编辑手册元数据/状态（institution.manual.edit）
   DELETE /manuals/<pk>/                      删除手册（institution.manual.delete）
-  PUT    /manuals/<pk>/roles/                配置手册角色关联（institution.manual.config）
   PUT    /manuals/<pk>/password/             设置/重置编辑密码（institution.manual.config）
   GET    /manuals/<pk>/originals/            原稿列表
-  POST   /manuals/<pk>/originals/upload/     上传原稿（institution.manual.upload）
+  POST   /manuals/<pk>/originals/upload/     上传原稿（institution.manual.upload；所有者/管理员）
   GET    /manuals/<pk>/originals/<oid>/download/   下载原稿（institution.manual.download）
   GET    /manuals/<pk>/originals/<oid>/preview-url/ 预览原稿
   GET    /manuals/<pk>/chapters/             旧章节分工清单（遗留只读，供人工核对）
@@ -27,32 +26,50 @@
   POST   /manuals/<pk>/files/<fid>/submit/      提交编制（记录草稿修订号与时间）
   GET    /manuals/<pk>/operation-logs/       操作记录
 
-草稿、会话、发布、版本与 preview-file 见 views_draft.py。
+逐本账号授权与所有者管理端点见 views_authorization.py；草稿、会话、
+发布、版本与 preview-file 见 views_draft.py。
 """
 import logging
 import os
 
 from django.db import transaction
+from django.db.models import Prefetch
 from django.views.generic import View
 from urllib.parse import quote
 
-from apps.account.models import Role
 from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, auth, json_response
 from libs.idempotency import check_recent_duplicate
 from libs.pagination import paginate
 
-from . import serializers, services, storage, version_compare
-from .models import (Manual, ManualCategory, ManualOriginal)
+from . import authorization_services, serializers, services, storage, \
+    version_compare
+from .models import Manual, ManualAuthorization, ManualCategory, \
+    ManualOriginal
 
 logger = logging.getLogger(__name__)
 
 PAGE_PERM_PREFIX = 'institution.manual'
 
 
+def _request_grant(manual, user):
+    """当前账号在该手册的授权行（列表/详情序列化用；预取缓存优先）"""
+    cached = getattr(manual, '_user_grants', None)
+    if cached is not None:
+        return cached[0] if cached else None
+    return authorization_services.get_manual_grant(manual, user)
+
+
+def _workspace_visible_with_grant(user, manual, grant, is_admin):
+    """工作区可见判定（列表批量口径）：管理员/所有者/编制或发布授权"""
+    if is_admin or authorization_services.is_manual_owner(user, manual):
+        return True
+    return bool(grant and (grant.can_edit or grant.can_publish))
+
+
 def _manual_from_request(request, pk, require_visible=True):
     """取手册并做可见性校验；失败返回 (None, 响应)"""
-    manual, err = services.get_manual_for_user(pk, request.user)
+    manual, err = authorization_services.get_manual_for_user(pk, request.user)
     if err:
         return None, json_response(error=err)
     return manual, None
@@ -63,9 +80,10 @@ def _get_manage_manual(request, pk):
     return _manual_from_request(request, pk)
 
 
-def _check_manage_or_edit_role(manual, user):
-    """章节分工/原稿上传等维护操作：管理者或手册编制角色"""
-    if services.can_manage_manual(user) or services.can_edit_draft(user, manual):
+def _check_owner_or_admin(manual, user):
+    """文件条目/原稿/分工等维护操作：手册所有者或制度管理员"""
+    if (authorization_services.is_manual_owner(user, manual) or
+            authorization_services.is_institution_admin(user)):
         return None
     return json_response(error='手册不存在或无权限访问')
 
@@ -88,7 +106,7 @@ class CategoryView(View):
     @auth('institution.manual.view')
     def get(self, request):
         qs = ManualCategory.objects.all()
-        with_inactive = request.GET.get('with_inactive') == '1' and services.can_manage_manual(request.user)
+        with_inactive = request.GET.get('with_inactive') == '1' and authorization_services.can_manage_manual(request.user)
         if not with_inactive:
             qs = qs.filter(is_active=True)
         return json_response(data=[
@@ -172,69 +190,40 @@ class CategoryDetailView(View):
 # 手册
 
 
-def _parse_role_ids(form, operator):
-    """校验并返回 (view_ids, edit_ids, publish_ids) 或错误"""
-    result = []
-    for key in ('view_role_ids', 'edit_role_ids', 'publish_role_ids'):
-        ids = getattr(form, key, None) or []
-        if not isinstance(ids, list) or any(not str(x).isdigit() for x in ids):
-            return None, f'{key} 参数格式错误'
-        ids = [int(x) for x in ids]
-        found = Role.objects.filter(pk__in=ids).count()
-        if found != len(set(ids)):
-            return None, '存在无效的角色'
-        result.append(ids)
-    from apps.account.role_permissions import get_assignable_roles
-
-    requested_ids = set().union(*map(set, result))
-    allowed_ids = set(get_assignable_roles(operator).filter(
-        pk__in=requested_ids).values_list('pk', flat=True))
-    if requested_ids != allowed_ids:
-        return None, '无权分配所选角色'
-    return tuple(result), None
-
-
-def _apply_manual_roles(manual, view_ids, edit_ids, publish_ids):
-    manual.view_roles.set(view_ids)
-    manual.edit_roles.set(edit_ids)
-    manual.publish_roles.set(publish_ids)
-
-
-def _validate_owner_fields(form):
-    if form.owner_type not in (Manual.OWNER_DEPARTMENT, Manual.OWNER_SECTION):
+def _validate_org_fields(form):
+    if form.org_type not in (Manual.OWNER_DEPARTMENT, Manual.OWNER_SECTION):
         return '归属类型必须是 department 或 section'
     return None
 
 
-class RoleOptionsView(View):
-    """手册角色配置可选项（复用 account 平台级角色授权规则）
-
-    制度管理员未必持有 system.account.view，不能直接调 /account/role/；
-    此端点以 institution.manual.config 权限门控，返回当前操作者可分配的角色。
-    """
-
-    @auth('institution.manual.config')
-    def get(self, request):
-        from apps.account.role_permissions import get_assignable_roles
-        roles = list(get_assignable_roles(request.user)[:500])
-        return json_response(data=[
-            {'id': r.id, 'name': r.name, 'tenant_id': r.tenant_id,
-             'is_global_admin': r.is_global_admin} for r in roles])
+def _serialize_manual(request, manual, include_draft):
+    """手册 dict 组装（授权行/所有者/管理员标志统一在这里算）"""
+    user = request.user
+    return serializers.to_manual_detail(
+        manual,
+        grant=_request_grant(manual, user),
+        is_owner=authorization_services.is_manual_owner(user, manual),
+        is_admin=authorization_services.is_institution_admin(user),
+        include_draft=include_draft)
 
 
 class ManualListView(View):
     @auth('institution.manual.view')
     def get(self, request):
         from django.db.models import Count, Q
+        user = request.user
         qs = Manual.objects.all().select_related(
             'category', 'current_version', 'created_by',
-        ).prefetch_related('view_roles', 'edit_roles', 'publish_roles') \
-            .annotate(_active_file_count=Count(
-                'files', filter=Q(files__is_removed=False), distinct=True))
+        ).prefetch_related(Prefetch(
+            'account_grants',
+            queryset=ManualAuthorization.objects.filter(account=user),
+            to_attr='_user_grants',
+        )).annotate(_active_file_count=Count(
+            'files', filter=Q(files__is_removed=False), distinct=True))
         form, error = JsonParser(
             Argument('keyword', type=str, required=False, default=''),
             Argument('category_id', type=int, required=False, default=None),
-            Argument('owner_type', type=str, required=False, default=''),
+            Argument('org_type', type=str, required=False, default=''),
             Argument('status', type=str, required=False, default=''),
         ).parse(request.GET, clear=False)
         if error:
@@ -242,29 +231,28 @@ class ManualListView(View):
         if form.keyword:
             qs = qs.filter(name__icontains=form.keyword) | \
                 qs.filter(code__icontains=form.keyword) | \
-                qs.filter(owner_name__icontains=form.keyword)
+                qs.filter(org_name__icontains=form.keyword)
         if form.category_id:
             qs = qs.filter(category_id=form.category_id)
-        if form.owner_type:
-            qs = qs.filter(owner_type=form.owner_type)
+        if form.org_type:
+            qs = qs.filter(org_type=form.org_type)
         if form.status:
             qs = qs.filter(status=form.status)
-        qs = services.filter_visible_manuals(qs.distinct(), request.user)
+        qs = authorization_services.filter_visible_manuals(
+            qs.distinct(), user)
         page, page_size = paginate(request, default_page_size=20, max_page_size=100)
         total = qs.count()
         page_items = list(qs[(page - 1) * page_size: page * page_size])
-        include_draft = services.can_manage_manual(request.user)
-        user_role_ids = services.get_user_role_ids(request.user)
+        is_admin = authorization_services.is_institution_admin(user)
+        include_draft = is_admin
         # 整套工作状态（列表页"打开即知下一步"）：仅对具备草稿访问权的
-        # 账号逐手册下发（工作区可见口径 = 管理权限或持有该手册编制/
-        # 发布角色；M2M 已 prefetch，角色 id 从缓存对象就地取值，无额外
-        # 查询）；仅查看角色行内 work_status 为 None，不得经列表泄漏
-        # 草稿信息
+        # 账号逐手册下发（工作区可见口径 = 管理员/所有者/编制或发布授权；
+        # 授权行已 prefetch，就地取值无额外查询）；仅查看授权行内
+        # work_status 为 None，不得经列表泄漏草稿信息
         workspace_manuals = [
             m for m in page_items
-            if services.can_manage_manual(request.user) or
-            (user_role_ids & ({r.id for r in m.edit_roles.all()} |
-                              {r.id for r in m.publish_roles.all()}))
+            if _workspace_visible_with_grant(
+                user, m, _request_grant(m, user), is_admin)
         ]
         work_status_map = version_compare.build_manuals_work_status(
             workspace_manuals) if workspace_manuals else {}
@@ -272,7 +260,11 @@ class ManualListView(View):
             'total': total, 'page': page, 'page_size': page_size,
             'items': [
                 serializers.to_manual_list_item(
-                    m, user_role_ids, include_draft,
+                    m,
+                    grant=_request_grant(m, user),
+                    is_owner=authorization_services.is_manual_owner(user, m),
+                    is_admin=is_admin,
+                    include_draft=include_draft,
                     work_status=work_status_map.get(m.id))
                 for m in page_items
             ],
@@ -287,19 +279,16 @@ class ManualCreateView(View):
             Argument('name', type=str, required=True, help='手册名称不能为空'),
             Argument('code', type=str, required=False, default=''),
             Argument('category_id', type=int, required=False, default=None),
-            Argument('owner_type', type=str, default=Manual.OWNER_DEPARTMENT),
-            Argument('owner_name', type=str, required=False, default=''),
+            Argument('org_type', type=str, default=Manual.OWNER_DEPARTMENT),
+            Argument('org_name', type=str, required=False, default=''),
             Argument('editor_can_view_published', type=bool, default=True),
-            Argument('view_role_ids', type=list, required=False, default=None),
-            Argument('edit_role_ids', type=list, required=False, default=None),
-            Argument('publish_role_ids', type=list, required=False, default=None),
         ).parse(request.body)
         if error:
             return json_response(error=error)
         name = form.name.strip()
         if not name:
             return json_response(error='手册名称不能为空')
-        err = _validate_owner_fields(form)
+        err = _validate_org_fields(form)
         if err:
             return json_response(error=err)
         if check_recent_duplicate(Manual, {'name': name}):
@@ -310,24 +299,21 @@ class ManualCreateView(View):
                 pk=form.category_id, is_active=True).first()
             if not category:
                 return json_response(error='所选类别不存在或已停用')
-        role_ids, err = _parse_role_ids(form, request.user)
-        if err:
-            return json_response(error=err)
+        # 创建人即所有者：持 add 权限码者创建手册后负责其账号授权与分工
         manual = Manual.objects.create(
             name=name, code=(form.code or '').strip(),
-            category=category, owner_type=form.owner_type,
-            owner_name=(form.owner_name or '').strip(),
+            category=category, org_type=form.org_type,
+            org_name=(form.org_name or '').strip(),
             editor_can_view_published=form.editor_can_view_published,
+            owner=request.user,
             created_by=request.user,
         )
-        _apply_manual_roles(manual, *role_ids)
         services.log_operation(manual, request.user, services.ACTION_CREATE)
         record_audit_event(
             request, 'create', services.AUDIT_TARGET_TYPE,
             target_id=manual.id, target_name=manual.name,
             detail={'action_kind': services.ACTION_CREATE, 'module': 'institution'})
-        user_role_ids = services.get_user_role_ids(request.user)
-        return json_response(data=serializers.to_manual_detail(manual, user_role_ids))
+        return json_response(data=_serialize_manual(request, manual, True))
 
 
 class ManualDetailView(View):
@@ -340,13 +326,10 @@ class ManualDetailView(View):
         manual = Manual.objects.filter(pk=manual.pk).annotate(
             _active_file_count=Count(
                 'files', filter=Q(files__is_removed=False), distinct=True),
-        ).select_related('category', 'current_version', 'created_by').get(
+        ).select_related('category', 'current_version', 'created_by', 'owner').get(
             pk=manual.pk)
-        include_draft = services.can_edit_draft(request.user, manual) or \
-            services.can_manage_manual(request.user)
-        user_role_ids = services.get_user_role_ids(request.user)
-        return json_response(data=serializers.to_manual_detail(
-            manual, user_role_ids, include_draft=include_draft))
+        include_draft = authorization_services.can_view_workspace(request.user, manual)
+        return json_response(data=_serialize_manual(request, manual, include_draft))
 
     @auth('institution.manual.edit')
     @transaction.atomic
@@ -358,8 +341,8 @@ class ManualDetailView(View):
             Argument('name', type=str, required=True, help='手册名称不能为空'),
             Argument('code', type=str, required=False, default=''),
             Argument('category_id', type=int, required=False, default=None),
-            Argument('owner_type', type=str, default=manual.owner_type),
-            Argument('owner_name', type=str, required=False, default=''),
+            Argument('org_type', type=str, default=manual.org_type),
+            Argument('org_name', type=str, required=False, default=''),
             Argument('status', type=str, default=manual.status),
             Argument('editor_can_view_published', type=bool,
                      default=manual.editor_can_view_published),
@@ -371,7 +354,7 @@ class ManualDetailView(View):
             return json_response(error='手册名称不能为空')
         if form.status not in (Manual.STATUS_ACTIVE, Manual.STATUS_ARCHIVED):
             return json_response(error='状态必须是 active 或 archived')
-        err = _validate_owner_fields(form)
+        err = _validate_org_fields(form)
         if err:
             return json_response(error=err)
         category = None
@@ -381,30 +364,29 @@ class ManualDetailView(View):
                 return json_response(error='所选类别不存在')
         before = {
             'name': manual.name, 'code': manual.code,
-            'category_id': manual.category_id, 'owner_type': manual.owner_type,
-            'owner_name': manual.owner_name, 'status': manual.status,
+            'category_id': manual.category_id, 'org_type': manual.org_type,
+            'org_name': manual.org_name, 'status': manual.status,
             'editor_can_view_published': manual.editor_can_view_published,
         }
         manual.name = name
         manual.code = (form.code or '').strip()
         manual.category = category
-        manual.owner_type = form.owner_type
-        manual.owner_name = (form.owner_name or '').strip()
+        manual.org_type = form.org_type
+        manual.org_name = (form.org_name or '').strip()
         manual.status = form.status
         manual.editor_can_view_published = form.editor_can_view_published
         manual.save()
         _log_and_audit(request, manual, services.ACTION_CONFIG_CHANGE,
-                       detail={'fields': ['name', 'code', 'category', 'owner',
+                       detail={'fields': ['name', 'code', 'category', 'org',
                                           'status', 'editor_can_view_published']},
                        before=before, after=before | {
                            'name': manual.name, 'code': manual.code,
                            'category_id': manual.category_id,
-                           'owner_type': manual.owner_type,
-                           'owner_name': manual.owner_name,
+                           'org_type': manual.org_type,
+                           'org_name': manual.org_name,
                            'status': manual.status,
                            'editor_can_view_published': manual.editor_can_view_published})
-        user_role_ids = services.get_user_role_ids(request.user)
-        return json_response(data=serializers.to_manual_detail(manual, user_role_ids))
+        return json_response(data=_serialize_manual(request, manual, True))
 
     @auth('institution.manual.delete')
     @transaction.atomic
@@ -429,43 +411,6 @@ class ManualDetailView(View):
             target_id=manual_id, target_name=manual_name,
             detail={'action_kind': services.ACTION_DELETE, 'module': 'institution'})
         return json_response()
-
-
-class ManualRolesView(View):
-    """手册角色关联配置（查看/编制/发布）"""
-
-    @auth('institution.manual.config')
-    @transaction.atomic
-    def put(self, request, pk):
-        manual, resp = _get_manage_manual(request, pk)
-        if resp:
-            return resp
-        form, error = JsonParser(
-            Argument('view_role_ids', type=list, required=False, default=None),
-            Argument('edit_role_ids', type=list, required=False, default=None),
-            Argument('publish_role_ids', type=list, required=False, default=None),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
-        role_ids, err = _parse_role_ids(form, request.user)
-        if err:
-            return json_response(error=err)
-        before = {
-            'view': sorted(manual.view_roles.values_list('id', flat=True)),
-            'edit': sorted(manual.edit_roles.values_list('id', flat=True)),
-            'publish': sorted(manual.publish_roles.values_list('id', flat=True)),
-        }
-        _apply_manual_roles(manual, *role_ids)
-        after = {
-            'view': sorted(manual.view_roles.values_list('id', flat=True)),
-            'edit': sorted(manual.edit_roles.values_list('id', flat=True)),
-            'publish': sorted(manual.publish_roles.values_list('id', flat=True)),
-        }
-        _log_and_audit(request, manual, services.ACTION_CONFIG_CHANGE,
-                       detail={'fields': ['view_roles', 'edit_roles', 'publish_roles']},
-                       before=before, after=after)
-        user_role_ids = services.get_user_role_ids(request.user)
-        return json_response(data=serializers.to_manual_detail(manual, user_role_ids))
 
 
 class ManualPasswordView(View):
@@ -524,7 +469,7 @@ class OriginalUploadView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, err = services.get_single_active_file(manual)

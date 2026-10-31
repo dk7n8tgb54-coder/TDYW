@@ -23,13 +23,14 @@ from unittest import mock
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, TransactionTestCase, override_settings
 
-from apps.equipment_lifecycle import ledger_period_services
+from apps.equipment_lifecycle import ledger_period_services, ledger_services
 from apps.equipment_lifecycle.excel_models import (
     OperationLedgerExcelRecord,
     OperationLedgerExcelTemplateVersion,
 )
 from apps.equipment_lifecycle.excel_sample_template import build_acceptance_sample_xlsx
 from apps.equipment_lifecycle.models import (
+    LEDGER_STATUS_VOID,
     LEDGER_TYPE_SEASONAL,
     LEDGER_TYPE_WEEK_MONTH,
     OperationLedger,
@@ -398,6 +399,42 @@ class DedupAndConflictTests(PeriodGenerateTestBase):
         result = self.generate(today=(2026, 10, 14))
         self.assertEqual(result['created'], [])
         self.assertEqual(len(result['failed']), 1)
+
+    def test_rebuild_rejects_unvoided_manual_shell(self):
+        # 上线前审查（2026-10-31）：同系统同期次存在未作废历史手工台账（手工壳）
+        # 时，补建与生成预览"需人工处理"判定同口径拒绝创建；手工壳作废后
+        # 槽位仅剩作废占用，补建仍可正常重建（作废台账保留、新旧并存）
+        shell = OperationLedger.objects.create(
+            tenant_id=self.user.tenant_id,
+            ledger_no='EL-WM-20261001-9002',
+            ledger_type=LEDGER_TYPE_WEEK_MONTH,
+            status='draft',
+            entry_channel='web',
+            created_from='manual',
+            system=self.system_a,
+            maintenance_period='2026-10',
+            created_by=self.user,
+        )
+        with fake_today(2026, 10, 14):
+            row, error = ledger_period_services.period_generate_rebuild(
+                self.user, self.template['id'])
+            self.assertIsNone(row)
+            self.assertIsNotNone(error)
+            self.assertIn('历史草稿', error)
+        self.assertEqual(OperationLedger.objects.filter(
+            created_from='excel_template').count(), 0)
+        voided, void_error = ledger_services.void_ledger(self.user, shell.id, '误补录')
+        self.assertIsNone(void_error)
+        with fake_today(2026, 10, 14):
+            row, error = ledger_period_services.period_generate_rebuild(
+                self.user, self.template['id'])
+            self.assertIsNone(error)
+            self.assertEqual(row['template_kind'], 'excel')
+            self.assertEqual(row['maintenance_period'], '2026-10')
+        self.assertTrue(OperationLedger.objects.filter(
+            pk=shell.id, status=LEDGER_STATUS_VOID).exists())
+        self.assertEqual(OperationLedger.objects.filter(
+            created_from='excel_template', status='draft').count(), 1)
 
     def test_preview_matches_actual_generation(self):
         other = self.publish_template(

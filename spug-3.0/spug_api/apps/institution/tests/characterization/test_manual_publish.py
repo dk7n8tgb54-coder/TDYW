@@ -18,7 +18,7 @@ from apps.institution import storage
 from apps.institution.models import Manual, ManualDraft, ManualVersion
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW,
-    delete_json, get_data, has_error, make_client, make_role, make_user,
+    delete_json, get_data, has_error, make_client, make_grant, make_user,
     post_json, put_json, setup_test_env,
 )
 
@@ -38,20 +38,14 @@ class PublishWorkflowBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='部门应急救援手册', code='YJ-001',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='某部门',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.publish_role = make_role()
-        self.view_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
-        self.manual.publish_roles.add(self.publish_role)
-        self.manual.view_roles.add(self.view_role)
+            org_type=Manual.OWNER_DEPARTMENT, org_name='某部门',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.publisher = make_user('pub', tenant_id='deptC',
-                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW],
-                                   roles=[self.publish_role])
+                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.publisher, can_view=True, can_publish=True)
         self.editor_client = make_client(self.editor)
         self.publisher_client = make_client(self.publisher)
         self._setup_draft(content=b'PK\x03\x04 v-draft-1')
@@ -60,7 +54,8 @@ class PublishWorkflowBase(TestCase):
         upload = SimpleUploadedFile(name, content)
         resp = self.manager_client.post(
             f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': upload})
+            # 会话/保存等写路径负责人独占：指派 editor 为文件负责人
+            {'file': upload, 'owner_id': str(self.editor.id)})
         self.assertFalse(has_error(resp), resp.content)
         data = get_data(resp)
         self.main_file_id = data['id']
@@ -164,25 +159,24 @@ class PublishTests(PublishWorkflowBase):
         self.assertTrue(has_error(resp))
         self.assertIn('变更说明', resp.json()['error'])
 
-    def test_publish_requires_publish_role(self):
-        """有编制无发布角色者不能发布；同租户无角色者亦不能"""
+    def test_publish_requires_publish_grant(self):
+        """有编制授权无发布授权者不能发布；页面权限满足但无授权亦不能"""
         resp = self._publish(client=self.editor_client)
         self.assertTrue(has_error(resp))
         insider = make_user('in', tenant_id='deptA', perms=[PERM_PUBLISH])
         resp = self._publish(client=make_client(insider))
         self.assertTrue(has_error(resp))
-
-    def test_publish_requires_module_perm(self):
-        role_holder = make_user('p2', tenant_id='deptC',
-                                roles=[self.publish_role], perms=[PERM_VIEW])
-        resp = self._publish(client=make_client(role_holder))
+        # 仅页面权限（无 can_publish 授权行）不能发布
+        perm_only = make_user('p2', tenant_id='deptC', perms=[PERM_PUBLISH])
+        make_grant(self.manual, perm_only, can_view=True)
+        resp = self._publish(client=make_client(perm_only))
         self.assertTrue(has_error(resp))
 
     def test_publish_without_draft_rejected(self):
         empty = Manual.objects.create(
-            name='空手册', code='K-002', owner_type=Manual.OWNER_SECTION,
-            owner_name='乙科室', tenant_id='deptA')
-        empty.publish_roles.add(self.publish_role)
+            name='空手册', code='K-002', org_type=Manual.OWNER_SECTION,
+            org_name='乙科室', tenant_id='deptA')
+        make_grant(empty, self.publisher, can_publish=True)
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{empty.id}/publish/',
                          {'change_note': 'x'})
@@ -218,9 +212,9 @@ class PublishTests(PublishWorkflowBase):
 
     def test_version_list_visibility(self):
         self._publish()
-        # 查看角色（跨租户）可见版本列表
-        viewer = make_user('v', tenant_id='deptZ',
-                           perms=[PERM_VIEW], roles=[self.view_role])
+        # 仅查看授权（跨租户）可见版本列表
+        viewer = make_user('v', tenant_id='deptZ', perms=[PERM_VIEW])
+        make_grant(self.manual, viewer, can_view=True)
         resp = make_client(viewer).get(
             f'/institution/manuals/{self.manual.id}/versions/')
         self.assertFalse(has_error(resp), resp.content)
@@ -239,7 +233,8 @@ class PublishTests(PublishWorkflowBase):
         self._publish()
         version = ManualVersion.objects.filter(manual=self.manual).first()
         viewer = make_user('v', tenant_id='deptZ',
-                           perms=[PERM_VIEW, PERM_DOWNLOAD], roles=[self.view_role])
+                           perms=[PERM_VIEW, PERM_DOWNLOAD])
+        make_grant(self.manual, viewer, can_view=True)
         resp = make_client(viewer).get(
             f'/institution/manuals/{self.manual.id}/versions/{version.id}/download/')
         self.assertEqual(resp.status_code, 200)
@@ -281,8 +276,8 @@ class PublishTests(PublishWorkflowBase):
         self._save(session['session_key'], session['revision'],
                    b'PK\x03\x04 drifted-2')
         rev_before = self._main_draft().revision
-        # 整套回退到 v1
-        resp = post_json(self.editor_client,
+        # 整套回退到 v1（所有者执行）
+        resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/draft/from-version/',
                          {'version_id': v1.id})
         self.assertFalse(has_error(resp), resp.content)

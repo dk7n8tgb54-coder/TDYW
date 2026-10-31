@@ -7,6 +7,10 @@
 - 编辑器文件下载地址（editor_token 自认证通道，见 views_draft.EditorFileView）
 - 回调载荷校验（JWT + 手册/会话/角色/修订序号）
 - 回调保存状态机：status 2/6 落盘，1/4 心跳静默吸收，2 幂等
+- 收尾回调放行：discard=false 撤销的同一编辑实例（同 current_doc_key）
+  的收尾 status-2/6 回调在撤销后仍允许落盘（DS 关闭编辑器时补发的
+  收尾回调可能晚于"保存并结束编辑"的会话撤销到达，拒绝即丢失最后
+  一次修改）；缺省撤销与批量失效一律照旧拒绝
 
 安全边界：
 - document.key 是"编辑器会话缓存键"，与草稿修订序号一一对应：
@@ -36,10 +40,11 @@ from django.utils import timezone
 from apps.account.models import User
 
 from . import storage
+from .authorization_services import can_edit_file
 from .models import ManualDraft, ManualEditSession
 from .onlyoffice_jwt import sign_payload, verify_token
-from .services import (ACTION_SAVE_DRAFT, can_edit_draft, log_operation,
-                       save_file_draft, touch_session)
+from .services import (ACTION_SAVE_DRAFT, log_operation, save_file_draft,
+                       touch_session)
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +177,9 @@ def build_editor_config(request, manual, file_entry, draft, session):
 
 
 def _unwrap_ds_header_payload(payload):
-    """按签名为准解包 DS 8.x Authorization 头令牌的 {"payload": {...}} 包裹
+    """按签名为准解包 DS Authorization 头令牌的 {"payload": {...}} 包裹
 
-    DS 8.x 的头令牌把回调内容包一层 payload 并附 iat/exp（body.token 才是
+    DS（10.0 延续此形态）的头令牌把回调内容包一层 payload 并附 iat/exp（body.token 才是
     平铺签名）。两种格式均为 DS 对回调内容的签名；不含 status 且不满足
     包裹格式的签名（如编辑配置 token 重放）原样返回、由调用方拒绝。
     """
@@ -344,11 +349,51 @@ class _CallbackFileWrapper:
                 yield chunk
 
 
+def _resolve_final_callback_session(file_entry, payload, user_ids):
+    """撤销后收尾回调的受控放行（discard=false 撤销的同一编辑实例）
+
+    DS 在编辑器关闭时会补发一次收尾回调（status 2/6）；当它晚于
+    "保存并结束编辑"确认成功后的会话撤销到达（实测约 1 秒）时，
+    若撤销时声明 discard=False，允许该回调落盘——否则用户在 forcesave
+    复核之后、编辑器销毁之前的最后一次修改将丢失（重开后 document key
+    已轮换，丢失不可恢复）。防线全部保留：
+
+    - 仅收尾状态 status 2/6（调用方状态机已筛，此处防御性复核）；
+    - 回调 key == 该已撤销会话的 current_doc_key（同一编辑实例；
+      会话最终签发的 key，多标签轮换后的旧 key 不放行）；
+    - 该会话仍是本文件最新一条会话记录（撤销后本人/他人重开产生新
+      会话则旧回调照旧拒绝，防陈旧实例覆盖）；
+    - 会话归属账号在回调 users 载荷内且当前有效（is_active）。
+
+    批量失效（密码重置/整套回退/草稿恢复）不置 final_callback_allowed，
+    收尾回调照旧拒绝。
+    Returns:
+        tuple: (user, session) 或 (None, None)
+    """
+    if str(payload.get('status')) not in (str(CB_STATUS_FORCE_SAVE),
+                                          str(CB_STATUS_SAVE)):
+        return None, None
+    callback_key = str(payload.get('key') or '')
+    if not callback_key:
+        return None, None
+    latest = ManualEditSession.objects.filter(
+        file=file_entry).order_by('-id').first()
+    if (not latest or latest.revoked_at is None
+            or not latest.final_callback_allowed
+            or latest.current_doc_key != callback_key
+            or latest.user_id not in user_ids):
+        return None, None
+    return User.objects.filter(
+        pk=latest.user_id, is_active=True).first(), latest
+
+
 def _resolve_callback_writer(manual, file_entry, payload):
     """回调归属与会话/角色/归档/key 防护校验（全部以 JWT 载荷为准）
 
     会话按 制度+文件+账号 定位：同一制度不同文件的会话互不干扰，
-    同一文件同时仅一个活跃会话。
+    同一文件同时仅一个活跃会话。无活跃会话时尝试收尾回调放行
+    （discard=false 撤销的同一编辑实例，见
+    _resolve_final_callback_session）。
     Returns:
         tuple: (user, session, 错误 JsonResponse 或 None)
     """
@@ -368,13 +413,19 @@ def _resolve_callback_writer(manual, file_entry, payload):
             user, session = candidate, found
             break
     if not user:
+        # 收尾回调放行：discard=false 撤销的同一编辑实例（同 key）的
+        # 收尾 status-2/6 回调仍允许落盘；其余情况照旧拒绝
+        user, session = _resolve_final_callback_session(
+            file_entry, payload, user_ids)
+    if not user:
         logger.warning('[InstitutionEditor] callback without active session '
                        'manual=%s file=%s users=%s',
                        manual.id, file_entry.id, user_ids)
         return None, None, JsonResponse({'error': 1}, status=403)
-    if not can_edit_draft(user, manual):
-        logger.warning('[InstitutionEditor] callback user %s lost edit role '
-                       'on manual %s', user.id, manual.id)
+    if not can_edit_file(user, manual, file_entry):
+        logger.warning('[InstitutionEditor] callback user %s lost edit '
+                       'grant or file ownership on manual %s file %s',
+                       user.id, manual.id, file_entry.id)
         return None, None, JsonResponse({'error': 1}, status=403)
     if manual.status != 'active':
         logger.warning('[InstitutionEditor] callback on archived manual %s',
@@ -393,6 +444,25 @@ def _resolve_callback_writer(manual, file_entry, payload):
                        session.current_doc_key[:40])
         return None, None, JsonResponse({'error': 1}, status=409)
     return user, session, None
+
+
+def _warn_notmodified_hash_mismatch(body, draft, new_hash):
+    """notmodified:true 但交付字节哈希不等的观测告警（缺陷 B，纯日志）
+
+    DS 自我声明无新修改（notmodified:true）但交付字节哈希与已落盘草稿
+    不等——DS 侧组装不确定性的直接信号（dev 实测该形态被当新内容虚增
+    修订号）。记录 key/修订号/双哈希前 12 位供根因定位；落盘判定仍以
+    内容哈希为唯一权威，是否保存与修订号行为不受本日志影响。
+    """
+    if body.get('notmodified') is not True:
+        return
+    logger.warning(
+        '[InstitutionEditor] callback bytes differ despite '
+        'notmodified=true: key=%s revision=%s landed_hash=%s '
+        'incoming_hash=%s notmodified=%s',
+        body.get('key'), draft.revision,
+        str(draft.file_hash or '')[:12], str(new_hash or '')[:12],
+        body.get('notmodified'))
 
 
 def process_editor_callback(manual, file_entry, payload, body):
@@ -441,6 +511,8 @@ def process_editor_callback(manual, file_entry, payload, body):
         if new_hash and new_hash == draft.file_hash:
             touch_session(session)
             return JsonResponse({'error': 0})
+        # 缺陷 B 观测增强（2026-10-31，纯日志零行为变化）：见助手 docstring
+        _warn_notmodified_hash_mismatch(body, draft, new_hash)
         # expected_revision 在此处读取，save_file_draft 内 select_for_update
         # 行锁下二次复核修订号，并发回调不会交错覆盖
         draft, save_err = save_file_draft(
@@ -470,10 +542,10 @@ def process_editor_callback(manual, file_entry, payload, body):
 # ---------------------------------------------------------------------------
 # Command Service forcesave（"保存并结束编辑"的落盘确认起点）
 
-# DS Command Service 端点：8.2+ 为 /command；旧版（含 8.1）为
-# /coauthoring/CommandService.ashx。探测成功后缓存，避免每次请求都 404 一次。
-COMMAND_ENDPOINTS = ('/command', '/coauthoring/CommandService.ashx')
-_command_endpoint_cache = None
+# DS Command Service 端点（2026-10-31 起 10.0 专用）：DS 8.2+ 为 /command。
+# 应用层不再兼容 8.1 等旧版的 /coauthoring/CommandService.ashx——回退到
+# 8.1 需连同后端代码一起回退（旧数据卷仍保留，仅作数据保险）。
+COMMAND_PATH = '/command'
 COMMAND_TIMEOUT_SECONDS = 10
 
 # Command Service 响应错误码（官方协议）
@@ -505,12 +577,12 @@ def command_base_url():
 
 
 def _post_command(base_url, payload):
-    """POST Command Service 请求（自动适配 /command 与旧版 ashx 端点）
+    """POST Command Service /command 请求（DS 8.2+/10.x 端点）
 
-    返回 (data dict 或 None, 错误消息或 None)。网络失败/非 200/非 JSON
-    一律视为失败，由调用方决定降级文案。
+    返回 (data dict 或 None, 错误消息或 None)。网络失败/非 JSON 响应
+    一律视为失败，由调用方决定降级文案；应答语义以 JSON 内 error 码
+    为准（HTTP 状态不冒充成功）。
     """
-    global _command_endpoint_cache
     body = dict(payload)
     try:
         token = sign_payload(
@@ -520,31 +592,19 @@ def _post_command(base_url, payload):
         return None, '文档服务签名失败，请检查 ONLYOFFICE_JWT_SECRET 配置'
     body['token'] = token
     headers = {'Authorization': f'Bearer {token}'}
-    candidates = ((_command_endpoint_cache,) if _command_endpoint_cache
-                  else COMMAND_ENDPOINTS)
-    last_resp = None
-    for path in candidates:
-        try:
-            resp = requests_lib.post(
-                f'{base_url}{path}', json=body, headers=headers,
-                timeout=COMMAND_TIMEOUT_SECONDS)
-        except requests_lib.RequestException as e:
-            logger.warning('[InstitutionEditor] command request failed %s: %s',
-                           path, e)
-            return None, '文档服务保存请求失败，请检查文档服务后重试'
-        if resp.status_code == 404:
-            # 端点不存在（DS 版本差异）：换下一个候选
-            last_resp = resp
-            continue
-        _command_endpoint_cache = path
-        try:
-            return resp.json(), None
-        except ValueError:
-            return None, '文档服务保存请求响应异常，请稍后重试'
-    if last_resp is not None:
-        logger.warning('[InstitutionEditor] command endpoint not found on %s',
-                       base_url)
-    return None, '文档服务保存请求失败（命令端点不可用）'
+    try:
+        resp = requests_lib.post(
+            f'{base_url}{COMMAND_PATH}', json=body, headers=headers,
+            timeout=COMMAND_TIMEOUT_SECONDS)
+    except requests_lib.RequestException as e:
+        logger.warning('[InstitutionEditor] command request failed: %s', e)
+        return None, '文档服务保存请求失败，请检查文档服务后重试'
+    try:
+        return resp.json(), None
+    except ValueError:
+        logger.warning('[InstitutionEditor] command response not JSON '
+                       'status=%s', resp.status_code)
+        return None, '文档服务保存请求响应异常，请稍后重试'
 
 
 def request_forcesave(session):

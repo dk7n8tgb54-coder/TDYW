@@ -88,6 +88,30 @@ docker exec -it spug-db mysql -uroot -p
 - `80`: HTTP 访问端口
 - `3306`: MySQL 端口（仅用于备份恢复，生产环境建议不映射）
 
+## ONLYOFFICE Docs 在线编辑（10.0）
+
+制度管理 Word 手册在线编辑，由三个容器协同提供（与 kkFileView 只读预览相互独立）：
+
+| 服务 | 镜像 | 说明 |
+|---|---|---|
+| onlyoffice | onlyoffice/documentserver:10.0 | DS 文档服务（dev 已验证版本 10.0.0 Build 169） |
+| onlyoffice-db | postgres:16-alpine | DS 专用数据库（10.0 社区版无内置 PG） |
+| onlyoffice-mq | rabbitmq:4-alpine | DS 专用消息队列（10.0 社区版无内置 MQ） |
+
+- 浏览器经 tdyw nginx 的 `/onlyoffice/` 同源代理访问；DS 回源应用走 `http://tdyw`。
+- `.env` 键清单见 `.env.example` 的 ONLYOFFICE 段（JWT_SECRET、DB/MQ 密码等全套，
+  密码独立生成不入 Git）；留空 `ONLYOFFICE_JWT_SECRET` 时应用侧自动降级为
+  "下载→本机编辑→上传保存"，不影响其余功能。
+- 字体：宿主机 `onlyoffice-fonts/` 放置授权中文字体（字体清单见
+  `dev/onlyoffice-fonts/README.md`；字体文件因授权不入 Git），同时只读挂进
+  tdyw 与 onlyoffice 容器。
+- 首次启用顺序与回退路径见 `onlyoffice-main/README.md`：先
+  `up -d onlyoffice-db onlyoffice-mq`，再 `up -d onlyoffice`
+  （首次启动自动建表 + 重建字体索引）。
+- 健康检查：`curl http://<host>/onlyoffice/healthcheck` 经 nginx 返回 `true`。
+- 回退：8.1 旧卷（tdyw-onlyoffice-data / tdyw-onlyoffice-log）保留不删，
+  还原 docker-compose.yml 中 onlyoffice 服务改动后 `up -d onlyoffice` 即回 8.1。
+
 ## 备份恢复
 
 ### 备份

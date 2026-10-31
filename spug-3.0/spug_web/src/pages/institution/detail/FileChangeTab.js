@@ -106,11 +106,13 @@ class FileChangeTab extends React.Component {
     store.fetchFileLogs(store.id, fileId, 1);
   };
 
-  showPreview = (versionId, snapshotId, fileName) => {
+  showPreview = (versionId, snapshotId, fileName, title) => {
     http.get(
       `/api/institution/manuals/${store.id}/versions/${versionId}/files/${snapshotId}/preview-url/`)
       .then(data => {
-        this.setState({preview: {url: data.preview_url, fileName: data.file_name || fileName}});
+        this.setState({preview: {
+          url: data.preview_url, fileName: data.file_name || fileName, title,
+        }});
       });
   };
 
@@ -123,10 +125,12 @@ class FileChangeTab extends React.Component {
         </Tooltip>
       );
     }
+    const name = fileName || '该版本文件';
     return (
       <span>
         <AuthButton auth="institution.manual.view" type="link" size="small"
-          onClick={() => this.showPreview(r.version_id, r.snapshot_id, '该版本文件')}>预览</AuthButton>
+          onClick={() => this.showPreview(r.version_id, r.snapshot_id, name,
+            `预览历史版本 v${r.version_no}：${name}`)}>预览</AuthButton>
         <AuthButton auth="institution.manual.download" type="link" size="small"
           onClick={() => downloadFile(
             `/api/institution/manuals/${store.id}/versions/${r.version_id}/files/${r.snapshot_id}/download/`,
@@ -259,6 +263,7 @@ class FileChangeTab extends React.Component {
         )}
         <PreviewModal visible={!!this.state.preview} url={this.state.preview && this.state.preview.url}
           fileName={this.state.preview && this.state.preview.fileName}
+          title={this.state.preview && this.state.preview.title}
           onClose={() => this.setState({preview: null})}/>
       </div>
     );

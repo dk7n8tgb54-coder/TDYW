@@ -53,7 +53,7 @@ services:
   spug:
     # 使用本地镜像（含 Celery）
     # 阶段2升级：Django 3.2.25 -> 4.2.30
-    image: tdyw:django42-stage2
+    image: tdyw:1024
     # 容器名称
     container_name: tdyw-test
     # 特权模式：容器可以访问宿主机所有设备
@@ -227,33 +227,51 @@ services:
 
   # ==================== ONLYOFFICE Docs 文档服务 ====================
   # 制度管理 Word 手册在线编辑（2026-10-28 dev 联调）
+  # 2026-10-30 主实例升级 8.1 -> 10.0（经 oo-10 隔离对照实例全链路验证通过）：
+  # - 10.0 社区版不再内置 PostgreSQL/RabbitMQ，新增 onlyoffice-db/onlyoffice-mq
+  #   两个外部服务；数据全部落在 *-10 新卷。2026-10-31 起应用层（后端
+  #   editor_services forcesave 仅 /command 直连）不再兼容 8.1，回退到 8.1 需
+  #   连同后端代码一起回退并补跑 documentserver-generate-allfonts.sh；8.1 旧
+  #   数据卷（onlyoffice-postgresql/rabbitmq/data/logs）已不在本文件声明，
+  #   卷数据仍保留在 docker 卷存储中作数据保险，未经确认绝不手动删除。
+  # - 入口包装与 local.json 见 dev/onlyoffice-main/（10.0 社区版忽略 DB_*/AMQP_URI
+  #   环境变量，且 local.json 不可直接 bind-mount，见 ds-entrypoint.sh 注释）。
+  # - 中文字体仍挂载 dev/onlyoffice-fonts/（与 8.1 同目录）；10.0 启动时自动
+  #   重建字体索引（GENERATE_FONTS 默认 true）。
   # 不映射宿主机端口：浏览器经 tdyw-test 内 Nginx /onlyoffice/ 子路径代理访问，
   # spug 容器经 PUBLIC_BASE_URL=http://tdyw-test 回源通道与 DS 互通。
   onlyoffice:
-    image: onlyoffice/documentserver:8.1
+    image: onlyoffice/documentserver:10.0
     container_name: tdyw-onlyoffice-test
     restart: always
+    # 入口包装：先放入 DB/队列覆盖配置再交回官方入口（详见
+    # dev/onlyoffice-main/ds-entrypoint.sh 注释）
+    entrypoint: ["/bin/bash", "/custom-ds-config/ds-entrypoint.sh"]
+    depends_on:
+      onlyoffice-db:
+        condition: service_healthy
+      onlyoffice-mq:
+        condition: service_started
     environment:
       # JWT 双向签名：与 spug 的 ONLYOFFICE_JWT_SECRET 必须一致（dev/.env 注入）
       - JWT_ENABLED=true
       - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
       - JWT_HEADER=Authorization
       - JWT_IN_BODY=true
-      # document.url / callbackUrl 均为 Compose 网络私有地址（tdyw-test），
-      # 放开 DS 出站私网过滤（spug 侧仍有回调 URL 白名单，不受影响）
+      # 10.0 中该变量仅保留 rejectUnauthorized=false 语义；私网回源由
+      # JWT 签名 URL 绕过过滤兜底（directIfIn.jwtToken 默认 true，已实测）
       - USE_UNAUTHORIZED_STORAGE=true
       - TZ=Asia/Shanghai
     volumes:
-      - onlyoffice-logs:/var/log/onlyoffice
-      - onlyoffice-data:/var/lib/onlyoffice      # 文档缓存与字体
-      - onlyoffice-postgresql:/var/lib/postgresql # DS 内置数据库（重启用免重建）
-      - onlyoffice-rabbitmq:/var/lib/rabbitmq     # DS 内置消息队列
-      # 中文字体补充（WPS/Word 常用：楷体/微软雅黑/等线/华文楷体/Times/Arial）。
-      # 镜像自带仅 宋体/仿宋/黑体/幼圆，缺楷体与微软雅黑会导致编辑视图与
-      # WPS 渲染不一致。字体文件不入 Git，目录内 README.md 有补齐方法；
-      # 增删字体后须执行：
+      - onlyoffice-logs-10:/var/log/onlyoffice
+      - onlyoffice-data-10:/var/lib/onlyoffice   # 文档缓存（10.0 新卷）
+      # 中文字体补充（与 8.1 同一目录，17 个中英文字体；增删字体后须执行
       #   docker exec tdyw-onlyoffice-test documentserver-generate-allfonts.sh
+      # 10.0 启动时也会自动重建索引）
       - ./onlyoffice-fonts:/usr/share/fonts/custom:ro
+      # DB/队列配置目录（local.json + 入口包装，只读；不能直接挂 local.json
+      # 单文件——官方入口 json -I 原地重写会 EBUSY）
+      - ./onlyoffice-main:/custom-ds-config:ro
     deploy:
       resources:
         limits:
@@ -267,7 +285,38 @@ services:
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 180s    # 首次启动需初始化内置 postgres，给3分钟
+      start_period: 180s
+
+  # ONLYOFFICE 10.0 专用外部 PostgreSQL（社区版镜像无内置数据库；
+  # 表结构由 dev/onlyoffice-main/createdb.sql 首次初始化）
+  onlyoffice-db:
+    image: postgres:16-alpine
+    container_name: tdyw-onlyoffice-db
+    restart: always
+    environment:
+      - POSTGRES_DB=onlyoffice
+      - POSTGRES_USER=onlyoffice
+      - POSTGRES_PASSWORD=onlyoffice
+    volumes:
+      - onlyoffice-postgresql-10:/var/lib/postgresql/data
+      - ./onlyoffice-main/createdb.sql:/docker-entrypoint-initdb.d/10-createdb.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onlyoffice -d onlyoffice"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # ONLYOFFICE 10.0 专用外部 RabbitMQ（guest 仅限 localhost，用独立账号）
+  onlyoffice-mq:
+    image: rabbitmq:4-alpine
+    container_name: tdyw-onlyoffice-mq
+    restart: always
+    environment:
+      - RABBITMQ_DEFAULT_USER=oomain
+      - RABBITMQ_DEFAULT_PASS=oomaindevpass
+    volumes:
+      - onlyoffice-rabbitmq-10:/var/lib/rabbitmq
 
 # 注意事项：
 # 1. 当前配置使用绝对路径，适用于 Windows 开发环境
@@ -287,11 +336,16 @@ volumes:
     driver: local
   tdyw-health-probe-test-logs:
     driver: local
-  onlyoffice-logs:
+  # ---- 8.1 时代旧卷不在本文件声明（2026-10-31 清理）----
+  # onlyoffice-logs/data/postgresql/rabbitmq 四个 8.1 卷的数据仍保留在
+  # docker 卷存储中（dev_onlyoffice-* 前缀）作数据保险；应用层已不兼容 8.1，
+  # 回退需连同后端代码一起回退。未经确认绝不手动删除卷数据。
+  # ---- ONLYOFFICE 10.0 主实例新卷（2026-10-30） ----
+  onlyoffice-logs-10:
     driver: local
-  onlyoffice-data:
+  onlyoffice-data-10:
     driver: local
-  onlyoffice-postgresql:
+  onlyoffice-postgresql-10:
     driver: local
-  onlyoffice-rabbitmq:
+  onlyoffice-rabbitmq-10:
     driver: local

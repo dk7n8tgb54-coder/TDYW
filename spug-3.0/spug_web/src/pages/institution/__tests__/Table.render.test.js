@@ -42,7 +42,7 @@ jest.mock('../store', () => {
     @observable categories = [];
     @observable f_keyword;
     @observable f_category_id;
-    @observable f_owner_type;
+    @observable f_org_type;
     @observable f_status;
     @action.bound fetchRecords() { return Promise.resolve(); }
     @action.bound fetchCategories() { return Promise.resolve(); }
@@ -69,7 +69,11 @@ function grantManager() {
 function makeRecord(over = {}) {
   return Object.assign({
     id: 1, name: '部门管理手册', code: 'GL-001', category_name: '部门手册',
-    owner_type_display: '部门', owner_name: '某部门', status: 'active',
+    // 2026-10-31 授权模型：归属字段 org_*（原 owner_* 更名），
+    // 所有者账号字段 owner_name + is_owner/is_admin 同时下发
+    org_type: 'department', org_type_display: '部门', org_name: '某部门',
+    owner_id: 5, owner_name: '王五', is_owner: false, is_admin: false,
+    status: 'active',
     status_display: '启用', my_roles: ['view'], current_version: {
       id: 9, version_no: 2, published_at: '2026-10-27T10:00:00', published_by_name: '张',
     },
@@ -101,14 +105,31 @@ describe('institution Table', () => {
     });
   }
 
-  it('渲染行数据：名称/编号/归属/当前生效版本', () => {
+  it('渲染行数据：名称/编号/归属/所有者/当前生效版本', () => {
     store.records = [makeRecord()];
     renderTable();
     const text = container.textContent;
     expect(text).toContain('部门管理手册');
     expect(text).toContain('GL-001');
     expect(text).toContain('v2');
-    expect(text).toContain('某部门');
+    // 归属列 = org_type_display · org_name（原 owner_* 更名）
+    expect(text).toContain('部门 · 某部门');
+    // 所有者列 = 手册所有者账号名
+    expect(text).toContain('王五');
+  });
+
+  it('所有者列：未指定时以橙色 Tag 提示（便于管理员发现无主手册）', () => {
+    store.records = [
+      makeRecord({id: 41, name: '甲册', owner_id: null, owner_name: ''}),
+      makeRecord({id: 42, name: '乙册'}),
+    ];
+    renderTable();
+    const rows = Array.from(container.querySelectorAll('.ant-table-row'));
+    expect(rows.length).toBe(2);
+    expect(rows[0].textContent).toContain('未指定');
+    expect(rows[0].textContent).not.toContain('王五');
+    expect(rows[1].textContent).toContain('王五');
+    expect(rows[0].querySelector('.ant-tag-orange')).not.toBeNull();
   });
 
   it('已发布手册删除禁用（提示用归档），未发布可删除', () => {

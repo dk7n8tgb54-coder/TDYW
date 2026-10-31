@@ -116,6 +116,17 @@ def display_name(raw_name, fallback_stem='manual_file'):
     return basename or fallback_stem
 
 
+def stored_filename(relative_path):
+    """kkFileView fullfilename 用的物理存储文件名（basename，含唯一后缀）
+
+    kkFileView 以 fullfilename 作为回源下载文件名与转换缓存键（缓存目录
+    直接以该名存放源文件与转换产物，同名即命中同一条目）：必须传与物理
+    文件唯一对应的存储名（build_stored_name 生成），显示名绝不能作为
+    fullfilename，否则同显示名的两份不同文件会串用转换缓存（预览串版）。
+    """
+    return os.path.basename(str(relative_path or '').replace('\\', '/'))
+
+
 def build_relative_path(file_kind, manual_id, stored_name):
     """生成相对路径：{subdir}/manual_{id}/{yyyy}{mm}/{stored_name}
 

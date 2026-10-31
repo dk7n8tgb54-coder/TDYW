@@ -27,8 +27,9 @@ from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 
 from apps.institution import storage
-from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
-                                     ManualFile, ManualOperationLog)
+from apps.institution.models import (Manual, ManualAuthorization, ManualDraft,
+                                     ManualEditSession, ManualFile,
+                                     ManualOperationLog)
 from apps.institution.onlyoffice_jwt import sign_payload, verify_token
 from apps.institution.tests.base import (
     PERM_DRAFT, delete_json, get_data, has_error, make_client, make_user,
@@ -52,7 +53,7 @@ def _bare_client():
 def _bare_manual():
     return Manual.objects.create(
         name='另一本手册', code='OT-001',
-        owner_type=Manual.OWNER_SECTION, owner_name='乙科室', tenant_id='deptA')
+        org_type=Manual.OWNER_SECTION, org_name='乙科室', tenant_id='deptA')
 
 
 class _StubDocServer:
@@ -510,10 +511,11 @@ class OoEditorCallbackTests(DraftWorkflowBase):
         resp = self._post_callback(self._save_body(doc_key, url))
         self.assertEqual(resp.status_code, 403)
 
-    def test_callback_role_revoked_rejected(self):
+    def test_callback_grant_revoked_rejected(self):
         stub = self._start_stub()
         doc_key = self._issue_config()
-        self.manual.edit_roles.clear()
+        ManualAuthorization.objects.filter(
+            manual=self.manual, account=self.editor).update(can_edit=False)
         url = f'{stub.base_url}/docs/{doc_key}.docx'
         resp = self._post_callback(self._save_body(doc_key, url))
         self.assertEqual(resp.status_code, 403)

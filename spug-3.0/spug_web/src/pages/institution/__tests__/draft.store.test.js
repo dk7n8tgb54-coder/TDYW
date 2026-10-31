@@ -516,6 +516,7 @@ describe('draft store（保存并结束编辑：落盘确认后才撤销会话�
     store.selectedFileId = 7;
     store.passwordVerified = true;
     store.pollIntervalMs = 1;
+    store.confirmSettleMs = 0;
   });
 
   it('降级路径（无在线编辑器）：直接撤销会话，不发 forcesave', async () => {
@@ -525,9 +526,11 @@ describe('draft store（保存并结束编辑：落盘确认后才撤销会话�
     const ok = await store.finishEditing(7);
     expect(ok).toBe(true);
     expect(http.post).not.toHaveBeenCalled();
+    // 保存意图的撤销：finishEditing 的 revoke 一律显式 discard=false
+    //（降级路径无 DS 实例，该参数不会被任何回调使用）
     expect(http.delete).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/7/draft/session/',
-      {data: {session_key: 'sess-7'}});
+      {data: {session_key: 'sess-7', discard: false}});
     expect(store.sessionKeyOf(7)).toBe('');
     expect(store.finishingError).toBe('');
   });
@@ -556,7 +559,9 @@ describe('draft store（保存并结束编辑：落盘确认后才撤销会话�
     http.delete.mockResolvedValue({});
     const ok = await store.finishEditing(7);
     expect(ok).toBe(true);
-    expect(fsCalls()).toHaveLength(2);
+    // 3 次：受理 → 复核轮 no_changes → 沉降复核仍 no_changes（竞态
+    // 防线：no_changes 不即时采信，须复核干净才确认）
+    expect(fsCalls()).toHaveLength(3);
     expect(http.post).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/7/draft/forcesave/',
       {session_key: 'sess-7'});
@@ -568,15 +573,16 @@ describe('draft store（保存并结束编辑：落盘确认后才撤销会话�
     expect(store.editorDirty[7]).toBeUndefined();
   });
 
-  it('在线路径 no_changes：DS 无修改时无需轮询直接结束', async () => {
+  it('在线路径 no_changes：无轮询，沉降复核干净后直接结束', async () => {
     store.saveSession(7, 'sess-7', '2099-01-01T00:00:00');
     store.editorConfigs[7] = {editor_available: true, document_key: 'k1'};
     http.post.mockResolvedValue({forcesave: 'no_changes', revision: 7});
     http.delete.mockResolvedValue({});
     const ok = await store.finishEditing(7);
     expect(ok).toBe(true);
-    // 只有一次 forcesave POST；无 draft/ 轮询 GET（成功收尾的 refreshFiles 除外）
-    expect(http.post).toHaveBeenCalledTimes(1);
+    // 2 次 forcesave：首次 no_changes + 沉降复核 no_changes（no_changes
+    // 不即时采信）；仍无 draft/ 轮询 GET（成功收尾的 refreshFiles 除外）
+    expect(http.post).toHaveBeenCalledTimes(2);
     const pollGets = http.get.mock.calls.filter(([url]) => url.endsWith('/draft/'));
     expect(pollGets).toHaveLength(0);
     expect(store.sessionKeyOf(7)).toBe('');
@@ -596,6 +602,7 @@ describe('draft store（保存并结束编辑：失败保护与 quiet forcesave�
     store.selectedFileId = 7;
     store.passwordVerified = true;
     store.pollIntervalMs = 1;
+    store.confirmSettleMs = 0;
   });
 
   it('在线路径超时未确认：返回 false、保留会话、finishingError 指向该文件', async () => {

@@ -18,11 +18,11 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.institution import storage
-from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
-                                     ManualOriginal)
+from apps.institution.models import (Manual, ManualAuthorization, ManualDraft,
+                                     ManualEditSession, ManualOriginal)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_CONFIG, PERM_DOWNLOAD, PERM_DRAFT, PERM_VIEW,
-    delete_json, get_data, has_error, make_client, make_role, make_user,
+    delete_json, get_data, has_error, make_client, make_grant, make_user,
     post_json, put_json, setup_test_env,
 )
 
@@ -31,7 +31,11 @@ RTF_AS_DOC = (b'{\\rtf1\\ansi\\deff0 {\\fonttbl {\\f0 Times;}}'
 
 
 class DraftWorkflowBase(TestCase):
-    """公共流程：管理者建手册 -> 新增制度文件（条目+原稿+草稿一步就绪）"""
+    """公共流程：管理者（=手册所有者）建手册 -> 新增制度文件并指派编制者
+
+    授权夹具（2026-10-31）：manager 为手册所有者；editor 持 can_edit
+    授权且为文件负责人（负责人独占编辑）。
+    """
 
     def setUp(self):
         setup_test_env()
@@ -45,22 +49,25 @@ class DraftWorkflowBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='科室操作手册', code='CZ-001',
-            owner_type=Manual.OWNER_SECTION, owner_name='甲科室',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
+            org_type=Manual.OWNER_SECTION, org_name='甲科室',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.editor_client = make_client(self.editor)
         self.file_id = None
 
-    def _add_file(self, name='原稿.docx', content=b'PK\x03\x04 draft-base'):
-        """新增制度文件：条目+原稿+草稿一次创建（草稿修订号从 1 起）"""
+    def _add_file(self, name='原稿.docx', content=b'PK\x03\x04 draft-base',
+                  owner=None):
+        """新增制度文件：条目+原稿+草稿一次创建（草稿修订号从 1 起）
+
+        默认指派 editor 为文件负责人（会话/保存等写路径要求负责人独占）。
+        """
         upload = SimpleUploadedFile(name, content)
+        payload = {'file': upload,
+                   'owner_id': str((owner or self.editor).id)}
         resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': upload})
+            f'/institution/manuals/{self.manual.id}/files/create/', payload)
         self.assertFalse(has_error(resp), resp.content)
         data = get_data(resp)
         self.file_id = data['id']
@@ -168,7 +175,8 @@ class EditSessionTests(DraftWorkflowBase):
         self._set_password()
         self._add_file()
 
-    def test_session_requires_edit_role(self):
+    def test_session_requires_edit_grant_and_ownership(self):
+        """无授权者不能开会话（页面权限满足也不行）"""
         outsider = make_user('o', tenant_id='deptA', perms=[PERM_DRAFT])
         resp = self._start_session(make_client(outsider))
         self.assertTrue(has_error(resp))
@@ -179,14 +187,14 @@ class EditSessionTests(DraftWorkflowBase):
         self.assertTrue(has_error(resp))
 
     def test_single_writer_other_user_rejected(self):
+        """负责人独占编辑：同手册其他持编制授权账号不能开该文件的会话"""
         resp = self._start_session()
         self.assertFalse(has_error(resp), resp.content)
-        other_role = self.manual.edit_roles.first()
-        editor2 = make_user('editor2', tenant_id='deptC',
-                            perms=[PERM_DRAFT], roles=[other_role])
+        editor2 = make_user('editor2', tenant_id='deptC', perms=[PERM_DRAFT])
+        make_grant(self.manual, editor2, can_edit=True)
         resp = self._start_session(make_client(editor2))
         self.assertTrue(has_error(resp))
-        self.assertIn('进行中的编辑会话', resp.json()['error'])
+        self.assertIn('无权限', resp.json()['error'])
 
     def test_same_user_resumes_same_session(self):
         resp1 = self._start_session()
@@ -195,16 +203,14 @@ class EditSessionTests(DraftWorkflowBase):
         key2 = get_data(resp2)['session_key']
         self.assertEqual(key1, key2)
 
-    def test_release_session_allows_next_user(self):
+    def test_release_session_allows_owner_to_restart(self):
         resp = self._start_session()
         key = get_data(resp)['session_key']
         resp = delete_json(self.editor_client,
                            f'/institution/manuals/{self.manual.id}/draft/session/',
                            {'session_key': key})
         self.assertFalse(has_error(resp), resp.content)
-        editor2 = make_user('editor2', tenant_id='deptC', perms=[PERM_DRAFT],
-                            roles=[self.manual.edit_roles.first()])
-        resp = self._start_session(make_client(editor2))
+        resp = self._start_session()
         self.assertFalse(has_error(resp), resp.content)
 
     def test_expired_session_rejected(self):
@@ -216,11 +222,12 @@ class EditSessionTests(DraftWorkflowBase):
         self.assertTrue(has_error(resp))
         self.assertIn('过期', resp.json()['error'])
 
-    def test_role_revoked_mid_session_save_denied(self):
-        """角色撤销后既有会话不能再保存（仅移除手册编制角色，保留页面权限）"""
+    def test_grant_revoked_mid_session_save_denied(self):
+        """编制授权撤销后既有会话不能再保存（页面权限保留）"""
         resp = self._start_session()
         key = get_data(resp)['session_key']
-        self.manual.edit_roles.remove(self.edit_role)
+        ManualAuthorization.objects.filter(
+            manual=self.manual, account=self.editor).update(can_edit=False)
         resp = self._save_draft(key, 1)
         self.assertTrue(has_error(resp))
         self.assertIn('无权限', resp.json()['error'])
@@ -254,8 +261,8 @@ class DraftSaveTests(DraftWorkflowBase):
 
     def test_create_draft_requires_original(self):
         empty = Manual.objects.create(
-            name='空手册', code='K-001', owner_type=Manual.OWNER_SECTION,
-            owner_name='乙科室', tenant_id='deptA')
+            name='空手册', code='K-001', org_type=Manual.OWNER_SECTION,
+            org_name='乙科室', owner=self.manager, tenant_id='deptA')
         resp = post_json(self.manager_client,
                          f'/institution/manuals/{empty.id}/draft/create/', {})
         self.assertTrue(has_error(resp))

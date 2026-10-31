@@ -21,7 +21,7 @@ from django.views.generic import View
 from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, auth, json_response
 
-from . import retention_services, serializers, services
+from . import authorization_services, retention_services, serializers, services
 from .models import ManualVersion
 from .views import _manual_from_request
 
@@ -78,7 +78,7 @@ class VersionProtectView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_publish(request.user, manual):
+        if not authorization_services.can_publish(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         version = ManualVersion.objects.filter(pk=vid, manual=manual).first()
         if not version:

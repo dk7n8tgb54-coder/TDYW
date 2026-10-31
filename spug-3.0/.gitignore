@@ -96,3 +96,6 @@ images/
 .mutmut-cache
 .coverage
 .coverage.*
+
+# Mimosa 安全扫描插件工作数据（会话基线快照/扫描历史与台账，均为生成物）
+.mimosa/

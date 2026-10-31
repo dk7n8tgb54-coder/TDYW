@@ -2,8 +2,9 @@
 # Released under the AGPL-3.0 License.
 """原稿上传/下载/预览与越权拒绝的真实行为测试
 
-授权语义：上传需要模块 upload 权限且（管理者或编制角色）；
-下载/预览按手册角色判定，tenant_id 不参与判定。
+授权语义（2026-10-31 授权模型改造）：上传原稿（新增/更换来源）业务
+门禁=手册所有者或制度管理员（页面 upload 权限码门控入口）；下载/预览
+按手册授权行判定，tenant_id 不参与判定。
 """
 import os
 import tempfile
@@ -15,9 +16,10 @@ from django.test import TestCase
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualFile,
                                      ManualOperationLog, ManualOriginal)
+from apps.institution.models import ManualAuthorization
 from apps.institution.tests.base import (
-    ALL_PERMS, PERM_DOWNLOAD, PERM_EDIT, PERM_UPLOAD, PERM_VIEW, get_data,
-    has_error, make_client, make_role, make_user, setup_test_env,
+    ALL_PERMS, PERM_ADMIN, PERM_DOWNLOAD, PERM_EDIT, PERM_UPLOAD, PERM_VIEW,
+    get_data, has_error, make_client, make_grant, make_user, setup_test_env,
 )
 
 DOCX_BYTES = b'PK\x03\x04 minimal docx'
@@ -39,8 +41,8 @@ class OriginalUploadTests(TestCase):
     def _make_manual(self):
         manual = Manual.objects.create(
             name='科室操作手册', code='CZ-001',
-            owner_type=Manual.OWNER_SECTION, owner_name='甲科室',
-            tenant_id='deptA')
+            org_type=Manual.OWNER_SECTION, org_name='甲科室',
+            owner=self.manager, tenant_id='deptA')
         # 原稿归属制度文件：先建主文件条目（无草稿，不影响上传语义）
         self.file_entry = ManualFile.objects.create(
             manual=manual, display_name='主文件.docx', sort_order=0)
@@ -78,20 +80,22 @@ class OriginalUploadTests(TestCase):
             f'/institution/manuals/{manual.id}/files/{self.file_entry.id}/originals/upload/', {})
         self.assertTrue(has_error(resp))
 
-    def test_upload_needs_role_or_manage(self):
-        """同租户无角色不能上传；跨租户持编制角色可以上传"""
-        edit_role = make_role()
+    def test_upload_requires_owner_or_admin(self):
+        """上传原稿业务门禁=手册所有者/制度管理员：编制授权与页面权限
+        均不足以放行（2026-10-31 授权模型改造）"""
         manual = self._make_manual()
-        manual.edit_roles.add(edit_role)
-        insider = make_user('in', tenant_id='deptA', perms=[PERM_UPLOAD])
-        outsider_with_role = make_user('out', tenant_id='deptB',
-                                       perms=[PERM_UPLOAD], roles=[edit_role])
+        editor = make_user('editor', tenant_id='deptB', perms=[PERM_UPLOAD])
+        make_grant(manual, editor, can_edit=True)
         upload = SimpleUploadedFile('a.docx', DOCX_BYTES)
-        resp = make_client(insider).post(
+        resp = make_client(editor).post(
             f'/institution/manuals/{manual.id}/files/{self.file_entry.id}/originals/upload/', {'file': upload})
         self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
+        # 制度管理员可以上传
+        admin = make_user('admin', tenant_id='deptA',
+                          perms=[PERM_UPLOAD, PERM_ADMIN])
         upload.seek(0)
-        resp = make_client(outsider_with_role).post(
+        resp = make_client(admin).post(
             f'/institution/manuals/{manual.id}/files/{self.file_entry.id}/originals/upload/', {'file': upload})
         self.assertFalse(has_error(resp))
 
@@ -132,7 +136,8 @@ class OriginalDownloadTests(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='科室操作手册', code='CZ-001',
-            owner_type=Manual.OWNER_SECTION, owner_name='甲科室', tenant_id='deptA')
+            org_type=Manual.OWNER_SECTION, org_name='甲科室',
+            owner=self.manager, tenant_id='deptA')
         rel = storage.build_relative_path('original', self.manual.id, 'a.docx')
         abs_path = storage.resolve_absolute_path(rel)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -145,17 +150,15 @@ class OriginalDownloadTests(TestCase):
             original_name='a.docx', ext='.docx', file_size=len(DOCX_BYTES),
             uploaded_by=self.manager)
 
-    def test_download_by_view_role_holder_cross_tenant(self):
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW, PERM_DOWNLOAD],
-                           roles=[view_role])
+    def test_download_by_view_grant_holder_cross_tenant(self):
+        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW, PERM_DOWNLOAD])
+        make_grant(self.manual, holder, can_view=True)
         resp = make_client(holder).get(
             f'/institution/manuals/{self.manual.id}/originals/{self.original.id}/download/')
         self.assertEqual(resp.status_code, 200)
         self.assertTrue(resp.streaming)
 
-    def test_download_denied_without_role(self):
+    def test_download_denied_without_grant(self):
         insider = make_user('in', tenant_id='deptA',
                             perms=[PERM_VIEW, PERM_DOWNLOAD])
         resp = make_client(insider).get(
@@ -163,19 +166,15 @@ class OriginalDownloadTests(TestCase):
         self.assertTrue(has_error(resp))
 
     def test_download_denied_without_module_perm(self):
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW],
-                           roles=[view_role])
+        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW])
+        make_grant(self.manual, holder, can_view=True)
         resp = make_client(holder).get(
             f'/institution/manuals/{self.manual.id}/originals/{self.original.id}/download/')
         self.assertTrue(has_error(resp))
 
-    def test_preview_url_by_role_holder(self):
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW],
-                           roles=[view_role])
+    def test_preview_url_by_grant_holder(self):
+        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW])
+        make_grant(self.manual, holder, can_view=True)
         resp = make_client(holder).get(
             f'/institution/manuals/{self.manual.id}/originals/{self.original.id}/preview-url/')
         self.assertFalse(has_error(resp))
@@ -184,11 +183,9 @@ class OriginalDownloadTests(TestCase):
         self.assertIn('onlinePreview?url=', data['preview_url'])
 
     def test_preview_file_stream_via_token(self):
-        """preview_token 回源文件流：令牌无效/角色不符拒绝，有效则返回文件"""
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW],
-                           roles=[view_role])
+        """preview_token 回源文件流：令牌无效/授权不符拒绝，有效则返回文件"""
+        holder = make_user('h', tenant_id='deptB', perms=[PERM_VIEW])
+        make_grant(self.manual, holder, can_view=True)
         resp = make_client(holder).get(
             f'/institution/manuals/{self.manual.id}/originals/{self.original.id}/preview-url/')
         self.assertFalse(has_error(resp))
@@ -208,8 +205,8 @@ class OriginalDownloadTests(TestCase):
         # 无令牌拒绝
         no_token = client.get(stream_path)
         self.assertTrue(has_error(no_token))
-        # 令牌签发后撤销角色：文件流二次校验拒绝（防角色撤销后凭旧令牌取文件）
-        holder.roles.clear()
-        holder.set_perms_cache(None)
+        # 令牌签发后撤销授权：文件流二次校验拒绝（防撤权后凭旧令牌取文件）
+        ManualAuthorization.objects.filter(
+            manual=self.manual, account=holder).delete()
         revoked_resp = client.get(f'{stream_path}?preview_token={token}')
         self.assertTrue(has_error(revoked_resp))

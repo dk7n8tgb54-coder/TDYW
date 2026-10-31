@@ -120,12 +120,12 @@ class PublishButton extends React.Component {
     if (row.reason === 'no_draft') {
       return canEdit
         ? <a onClick={() => history.push(deepLink)}>去恢复草稿</a>
-        : <span style={{color: '#999'}}>需持有编制角色的账号建立草稿</span>;
+        : <span style={{color: '#999'}}>需该文件负责人（持编制资格）建立草稿</span>;
     }
     if (row.reason === 'draft_missing') {
       return canEdit
         ? <a onClick={() => history.push(deepLink)}>去重新编辑该文件</a>
-        : <span style={{color: '#999'}}>需持有编制角色的账号处理</span>;
+        : <span style={{color: '#999'}}>需该文件负责人（持编制资格）处理</span>;
     }
     return null;
   };

@@ -120,6 +120,7 @@ function setupOnlineEditing(fileIds) {
     store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
     store.editorConfigs[1] = {editor_available: true, document_key: 'k1'};
     store.pollIntervalMs = 1;
+    store.confirmSettleMs = 0;
     return flush().then(() => container);
   });
 }

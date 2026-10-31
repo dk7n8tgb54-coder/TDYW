@@ -12,7 +12,9 @@
  * - 参数定义 Modal 新增提交真实 payload（含分类/枚举选项）；
  * - 记录配置变更 Modal 提交真实 payload（由只读页签迁入本入口）；
  * - 变更详情抽屉（非只读）动作：验证/回退端点真实调用、业务错误不提示成功；
- * - 无 baseline 权限用户看不到"建立初始配置"按钮（后端独立校验权限码）。
+ * - 无 baseline 权限用户看不到"建立初始配置"按钮（后端独立校验权限码）；
+ * - 快速切换系统/卸载后的迟到响应不覆盖当前页面状态（2026-10-31 上线前审查）；
+ * - 参数定义服务端分页：第 201 条参数可查看和编辑（2026-10-31 上线前审查）。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -490,4 +492,311 @@ describe('系统配置维护入口 · 变更详情动作', () => {
       '/api/equipment-lifecycle/config-changes/31/rollback/');
     expect(document.body.textContent).not.toContain('已回退并生成反向变更');
   });
+});
+
+/** 可控响应：手动决定何时 resolve，构造逆序/迟到时序（deferred 模式）。 */
+function deferred() {
+  let resolve;
+  const promise = new Promise(res => {
+    resolve = res;
+  });
+  return {promise, resolve};
+}
+
+const BASELINE_A = {
+  baseline: {source: 'A建档来源', established_by_name: 'A员',
+    established_at: '2026-10-01 08:00:00', items: [{}, {}]},
+  can_establish: false, block_reason: '',
+};
+const BASELINE_B = {
+  baseline: {source: 'B建档来源', established_by_name: 'B员',
+    established_at: '2026-10-02 08:00:00', items: [{}, {}]},
+  can_establish: false, block_reason: '',
+};
+
+function configPayload(systemId, name, paramCode) {
+  return {
+    system: {id: systemId, name, system_code: 'SYS-00' + systemId},
+    baseline: null,
+    items: [{
+      param: systemId * 10, param_code: paramCode, param_name: name + '参数',
+      category: 'runtime_param', category_text: '运行参数', data_type: 'number',
+      data_type_text: '数字', unit: '', is_required: false, options: [],
+      value_text: '', value_number: '9', value_bool: null, value_date: null,
+      value_choice: '', display_value: '9', effective_at: null,
+      last_change_id: null, last_change_no: '', last_changed_by_name: '', source_text: '',
+    }],
+  };
+}
+
+function changesPayload(systemId, name, changeNo) {
+  return {
+    total: 1, page: 1, page_size: 10,
+    items: [{
+      id: systemId * 100, change_no: changeNo, system: systemId, system_name: name,
+      reason: name + '变更', status: 'applied', status_text: '已生效',
+      applied_at: '2026-10-02 08:30:00', verify_status: '', verify_status_text: '未验证',
+      verified_at: null, verified_by_name: '',
+      created_by_name: 'admin', created_at: '2026-10-02 08:00:00',
+    }],
+  };
+}
+
+/** 系统候选/参数走即时响应；建档/当前配置/变更按系统挂 deferred（缺省即时）。 */
+function deferSystemRequests(d) {
+  mockHttpGet.mockImplementation(url => {
+    const u = String(url);
+    if (u.includes('/config/system-options/')) return Promise.resolve(OPTIONS_RESPONSE);
+    if (u.includes('/config-params')) return Promise.resolve(PARAMS_RESPONSE);
+    if (u.includes('/systems/7/config/baseline/')) {
+      return d.base7 ? d.base7.promise : Promise.resolve(BASELINE_A);
+    }
+    if (u.includes('/systems/8/config/baseline/')) {
+      return d.base8 ? d.base8.promise : Promise.resolve(BASELINE_B);
+    }
+    if (u.includes('/systems/7/config/changes/')) {
+      return d.chg7 ? d.chg7.promise
+        : Promise.resolve(changesPayload(7, 'DVOR系统', 'PZ-A-0001'));
+    }
+    if (u.includes('/systems/8/config/changes/')) {
+      return d.chg8 ? d.chg8.promise
+        : Promise.resolve(changesPayload(8, 'DME系统', 'PZ-B-0001'));
+    }
+    if (u.endsWith('/systems/7/config/')) {
+      return d.cfg7 ? d.cfg7.promise
+        : Promise.resolve(configPayload(7, 'DVOR系统', 'a_param'));
+    }
+    if (u.endsWith('/systems/8/config/')) {
+      return d.cfg8 ? d.cfg8.promise
+        : Promise.resolve(configPayload(8, 'DME系统', 'b_param'));
+    }
+    return Promise.resolve({});
+  });
+}
+
+describe('系统配置维护入口 · 快速切换系统竞态防护（2026-10-31）', () => {
+  it('A → B 逆序响应：迟到的 A 建档/当前配置/变更响应不得覆盖 B 的展示', async () => {
+    const SystemConfigMaintain = require('../index').default;
+    const maintainStore = require('../store').default;
+    const sharedStore = require('../../systemConfig/store').default;
+    const d = {
+      base7: deferred(), base8: deferred(),
+      cfg7: deferred(), cfg8: deferred(),
+      chg7: deferred(), chg8: deferred(),
+    };
+    deferSystemRequests(d);
+    act(() => {
+      ReactDOM.render(<SystemConfigMaintain location={{search: ''}}/>, container);
+    });
+    await flush();
+    // 快速 A → B 切换：两次选择都发出请求，响应都被挂起
+    await act(async () => {
+      maintainStore.selectSystem(7);
+      await flush();
+      maintainStore.selectSystem(8);
+      await flush();
+    });
+    expect(container.textContent).not.toContain('A建档来源');
+    // B 的响应先到
+    await act(async () => {
+      d.base8.resolve(BASELINE_B);
+      d.cfg8.resolve(configPayload(8, 'DME系统', 'b_param'));
+      d.chg8.resolve(changesPayload(8, 'DME系统', 'PZ-B-0001'));
+      await flush();
+      await flush();
+    });
+    expect(container.textContent).toContain('B建档来源');
+    // A 的响应迟到：不得覆盖 B 的页面状态
+    await act(async () => {
+      d.base7.resolve(BASELINE_A);
+      d.cfg7.resolve(configPayload(7, 'DVOR系统', 'a_param'));
+      d.chg7.resolve(changesPayload(7, 'DVOR系统', 'PZ-A-0001'));
+      await flush();
+      await flush();
+    });
+    expect(container.textContent).toContain('B建档来源');
+    expect(container.textContent).not.toContain('A建档来源');
+    expect(container.textContent).not.toContain('a_param');
+    expect(container.textContent).not.toContain('PZ-A-0001');
+    expect(maintainStore.baseline.source).toBe('B建档来源');
+    expect(sharedStore.configSystem.id).toBe(8);
+    expect(sharedStore.configItems[0].param_code).toBe('b_param');
+    expect(sharedStore.changes[0].change_no).toBe('PZ-B-0001');
+  });
+
+  it('Store：建档状态逆序响应只接受最后一次（先发起的迟到响应被丢弃）', async () => {
+    const maintainStore = require('../store').default;
+    const d7 = deferred();
+    const d8 = deferred();
+    mockHttpGet.mockImplementation(url => {
+      const u = String(url);
+      if (u.includes('/systems/7/config/baseline/')) return d7.promise;
+      if (u.includes('/systems/8/config/baseline/')) return d8.promise;
+      return Promise.resolve({});
+    });
+    await act(async () => {
+      maintainStore.fetchBaseline(7);
+      await flush();
+      maintainStore.fetchBaseline(8);
+      await flush();
+    });
+    await act(async () => {
+      d8.resolve({baseline: null, can_establish: true, block_reason: ''});
+      await flush();
+      await flush();
+    });
+    expect(maintainStore.canEstablish).toBe(true);
+    expect(maintainStore.blockReason).toBe('');
+    await act(async () => {
+      d7.resolve({baseline: null, can_establish: false,
+        block_reason: '旧系统的拦截原因'});
+      await flush();
+      await flush();
+    });
+    expect(maintainStore.canEstablish).toBe(true);
+    expect(maintainStore.blockReason).toBe('');
+  });
+});
+
+describe('系统配置维护入口 · 卸载后响应防护（2026-10-31）', () => {
+  it('卸载后到达的系统候选/建档/当前配置/变更响应不得回写（Store 保持清空）', async () => {
+    const SystemConfigMaintain = require('../index').default;
+    const maintainStore = require('../store').default;
+    const sharedStore = require('../../systemConfig/store').default;
+    const d = {base7: deferred(), cfg7: deferred(), chg7: deferred()};
+    deferSystemRequests(d);
+    act(() => {
+      ReactDOM.render(<SystemConfigMaintain location={{search: ''}}/>, container);
+    });
+    await flush();
+    await act(async () => {
+      maintainStore.selectSystem(7);
+      await flush();
+    });
+    // 卸载页面（componentWillUnmount → reset → clearView）
+    act(() => {
+      ReactDOM.unmountComponentAtNode(container);
+    });
+    // 卸载后全部迟到响应到达
+    await act(async () => {
+      d.base7.resolve(BASELINE_A);
+      d.cfg7.resolve(configPayload(7, 'DVOR系统', 'a_param'));
+      d.chg7.resolve(changesPayload(7, 'DVOR系统', 'PZ-A-0001'));
+      await flush();
+      await flush();
+    });
+    expect(maintainStore.systemOptions).toEqual([]);
+    expect(maintainStore.currentSystem).toBeNull();
+    expect(maintainStore.baseline).toBeNull();
+    expect(maintainStore.canEstablish).toBe(false);
+    expect(maintainStore.blockReason).toBe('');
+    expect(sharedStore.configItems).toEqual([]);
+    expect(sharedStore.configSystem).toEqual({});
+    expect(sharedStore.changes).toEqual([]);
+    expect(sharedStore.total).toBe(0);
+  });
+});
+
+describe('系统配置维护入口 · 参数定义服务端分页（2026-10-31）', () => {
+  function paramFixture(n) {
+    return {
+      id: n, param_code: 'p' + String(n).padStart(3, '0'),
+      param_name: '参数' + n, category: 'runtime_param',
+      category_text: '运行参数', data_type: 'text', data_type_text: '文本',
+      unit: '', scope_type: 'all', scope_type_text: '全部系统',
+      is_required: false, options: [], is_enabled: true, remark: '',
+    };
+  }
+
+  /**
+   * 挂载维护入口（参数定义共 250 条）并翻到第 2 页，返回 store。
+   * 渲染 200 行表格较慢，jest 默认 5s 超时不够，调用方需传入更长超时。
+   */
+  async function openParamsPageTwo() {
+    const SystemConfigMaintain = require('../index').default;
+    const page1Items = Array.from({length: 200}, (_, i) => paramFixture(i + 1));
+    const page2Items = Array.from({length: 50}, (_, i) => paramFixture(201 + i));
+    let servedPage = 1;
+    mockHttpGet.mockImplementation(url => {
+      const u = String(url);
+      if (u.includes('/config/system-options/')) return Promise.resolve(OPTIONS_RESPONSE);
+      if (u.includes('/config-params')) {
+        return Promise.resolve({
+          total: 250, page: servedPage, page_size: 200,
+          items: servedPage === 1 ? page1Items : page2Items,
+        });
+      }
+      return defaultGet(url);
+    });
+    let store = null;
+    act(() => {
+      ReactDOM.render(<SystemConfigMaintain location={{search: ''}}/>, container);
+      store = require('../store').default;
+    });
+    await flush();
+    await flush();
+    await selectSystem(store);
+    // 第 1 页 200 条 + 总数 250：分页可进入第 2 页，第 201 条不在第 1 页
+    expect(container.textContent).toContain('共 250 条');
+    expect(container.textContent).toContain('p001');
+    expect(container.textContent).not.toContain('p201');
+    servedPage = 2;
+    const page2Btn = container.querySelector('.ant-pagination-item-2');
+    expect(page2Btn).toBeTruthy();
+    await act(async () => {
+      const link = page2Btn.querySelector('a') || page2Btn;
+      link.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
+      await flush();
+    });
+    return store;
+  }
+
+  it('超过 200 条时提供分页：翻页请求携带 page=2，第 201 条可查看', async () => {
+    await openParamsPageTwo();
+    const paramsCalls = mockHttpGet.mock.calls.filter(
+      c => String(c[0]).includes('/config-params'));
+    expect(paramsCalls[paramsCalls.length - 1][1].params)
+      .toEqual({page: 2, page_size: 200});
+    expect(container.textContent).toContain('p201');
+    const row = Array.from(container.querySelectorAll('tr'))
+      .find(tr => tr.textContent.includes('p201'));
+    expect(row).toBeTruthy();
+  }, 20000);
+
+  it('第 201 条参数可编辑：Modal 回显编码并提交 PUT 携带真实 id', async () => {
+    await openParamsPageTwo();
+    const row = Array.from(container.querySelectorAll('tr'))
+      .find(tr => tr.textContent.includes('p201'));
+    const editBtn = Array.from(row.querySelectorAll('button'))
+      .find(b => b.textContent.includes('编辑'));
+    await act(async () => {
+      editBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
+      await flush();
+    });
+    const modal = Array.from(document.querySelectorAll('.ant-modal'))
+      .find(m => m.textContent.includes('编辑参数定义'));
+    expect(modal).toBeTruthy();
+    expect(Array.from(modal.querySelectorAll('input')).some(i => i.value === 'p201'))
+      .toBe(true);
+    mockHttpPut.mockResolvedValue({...paramFixture(201), param_name: '改名参数'});
+    const nameInput = modal.querySelector('input[placeholder="如 系统额定功率"]');
+    act(() => {
+      const nativeSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value').set;
+      nativeSetter.call(nameInput, '改名参数');
+      nameInput.dispatchEvent(new Event('input', {bubbles: true}));
+    });
+    const okBtn = Array.from(modal.querySelectorAll('.ant-modal-footer button'))
+      .find(b => b.textContent.replace(/\s/g, '') === '保存');
+    await act(async () => {
+      okBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+      await flush();
+      await flush();
+    });
+    const putCall = mockHttpPut.mock.calls.find(c => c[0].includes('/config-params'));
+    expect(putCall[0]).toBe('/api/equipment-lifecycle/config-params/201/');
+    expect(putCall[1].param_name).toBe('改名参数');
+  }, 20000);
 });

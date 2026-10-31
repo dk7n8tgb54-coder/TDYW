@@ -3,7 +3,8 @@
 from django.db import transaction
 from django.urls import path, re_path
 
-from . import views, views_draft, views_editor, views_files, views_retention
+from . import views, views_authorization, views_draft, views_editor, \
+    views_files, views_retention
 
 urlpatterns = [
     # 类别字典
@@ -16,12 +17,21 @@ urlpatterns = [
     path('cleanup/execute/', views_retention.CleanupExecuteView.as_view()),
 
     # 手册
-    path('roles/', views.RoleOptionsView.as_view()),
     path('manuals/', views.ManualListView.as_view()),
     path('manuals/create/', views.ManualCreateView.as_view()),
     re_path(r'^manuals/(?P<pk>\d+)/$', views.ManualDetailView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/roles/$', views.ManualRolesView.as_view()),
     re_path(r'^manuals/(?P<pk>\d+)/password/$', views.ManualPasswordView.as_view()),
+    # 逐本账号授权与所有者管理（2026-10-31 授权模型改造，替代旧
+    # roles/ 角色关联配置端点）
+    re_path(r'^manuals/(?P<pk>\d+)/authorizations/$',
+            views_authorization.ManualAuthorizationsView.as_view()),
+    re_path(r'^manuals/(?P<pk>\d+)/owner-candidates/$',
+            views_authorization.OwnerCandidatesView.as_view()),
+    # 授权界面账号候选（所有者/制度管理员；全部启用账号最小清单）
+    re_path(r'^manuals/(?P<pk>\d+)/account-options/$',
+            views_authorization.AccountOptionsView.as_view()),
+    re_path(r'^manuals/(?P<pk>\d+)/owner/$',
+            views_authorization.ManualOwnerView.as_view()),
 
     # 制度文件（多文件；每个请求先校验文件确属当前制度）
     re_path(r'^manuals/(?P<pk>\d+)/files/$', views_files.ManualFileListView.as_view()),

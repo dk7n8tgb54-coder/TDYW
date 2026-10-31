@@ -66,7 +66,10 @@ class Store {
   showPagePerm = (info) => {
     this.record = info;
     this.pagePermVisible = true;
-    // 使用 mergeWith 实现深度合并，确保合并所有模块的权限
+    // 使用 mergeWith 实现深度合并，确保合并所有模块的权限；
+    // page_perms 必须先深拷贝再合并（customizer 会按引用返回数组），
+    // 否则勾选时 push/splice 会原地污染列表里的 record.page_perms，
+    // 点「取消」后重新打开会显示未保存的勾选状态
     const result = lds.cloneDeep(this.initPerms);
     const customizer = (objValue, srcValue, key) => {
       // 如果是数组，直接使用 srcValue（后端返回的权限数组）
@@ -74,7 +77,8 @@ class Store {
         return srcValue;
       }
     };
-    this.permissions = lds.mergeWith(result, info.page_perms || {}, customizer);
+    this.permissions = lds.mergeWith(
+      result, lds.cloneDeep(info.page_perms || {}), customizer);
   };
 }
 

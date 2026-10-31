@@ -30,7 +30,7 @@ from apps.institution.models import (Manual, ManualDraft, ManualFile,
                                      ManualVersion)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW, get_data,
-    has_error, make_client, make_role, make_user, post_json, put_json,
+    has_error, make_client, make_grant, make_user, post_json, put_json,
     setup_test_env,
 )
 
@@ -56,32 +56,30 @@ class DraftRecoveryBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='恢复规则手册', code='HF-001',
-            owner_type=Manual.OWNER_SECTION, owner_name='甲科室',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.publish_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
-        self.manual.publish_roles.add(self.publish_role)
+            org_type=Manual.OWNER_SECTION, org_name='甲科室',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.editor_client = make_client(self.editor)
         self.publisher = make_user('pub', tenant_id='deptZ',
-                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW],
-                                   roles=[self.publish_role])
+                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.publisher, can_view=True, can_publish=True)
         self.publisher_client = make_client(self.publisher)
         put_json(self.manager_client,
                  f'/institution/manuals/{self.manual.id}/password/',
                  {'password': 'edit-pass-1'})
         self.file_seq = 0
 
-    def _add_file(self, name=None, content=DOCX_A):
-        """新增制度文件（files/create 一步建条目+原稿+草稿）"""
+    def _add_file(self, name=None, content=DOCX_A, owner=None):
+        """新增制度文件（files/create 一步建条目+原稿+草稿）；默认负责人
+        =editor（草稿建立/重建/恢复与编辑均要求负责人独占）"""
         self.file_seq += 1
         name = name or f'文件{self.file_seq}.docx'
+        payload = {'file': SimpleUploadedFile(name, content),
+                   'owner_id': str((owner or self.editor).id)}
         resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': SimpleUploadedFile(name, content)})
+            f'/institution/manuals/{self.manual.id}/files/create/', payload)
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
@@ -101,9 +99,10 @@ class DraftRecoveryBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return ManualVersion.objects.get(pk=get_data(resp)['id'])
 
-    def _create_draft(self, file_id, body=None):
+    def _create_draft(self, file_id, body=None, client=None):
+        # 草稿建立/重建/恢复属内容写路径：负责人独占编辑（编制者执行）
         return post_json(
-            self.manager_client,
+            client or self.editor_client,
             f'/institution/manuals/{self.manual.id}/files/{file_id}/draft/create/',
             body or {})
 
@@ -272,8 +271,9 @@ class RestoreFromCurrentVersionTests(DraftRecoveryBase):
         file_id, v1 = self._prepare_published()
         self._save_then_release(file_id, content=DOCX_B)
         self._publish('第二版')
+        # 整套回退是整册管理动作：手册所有者执行（2026-10-31 授权模型）
         resp = post_json(
-            self.editor_client,
+            self.manager_client,
             f'/institution/manuals/{self.manual.id}/draft/from-version/',
             {'version_id': v1.id})
         self.assertFalse(has_error(resp), resp.content)
@@ -402,7 +402,8 @@ class ExplicitRebuildTests(DraftRecoveryBase):
         self.assertEqual(detail['previous_revision'], 1)
         self.assertEqual(detail['current_version_no'], version.version_no)
         self.assertEqual(detail['file_revision'], 2)
-        self.assertEqual(log.user_name, self.manager.username)
+        # 重建由文件负责人（编制授权）执行：操作人=editor
+        self.assertEqual(log.user_name, self.editor.username)
 
     def test_rebuild_without_password_configured_needs_confirm_only(self):
         """未配置编辑密码的手册：confirm 即可（无密码可校验）"""
@@ -534,7 +535,8 @@ class RestoreAuditAndImmutabilityTests(DraftRecoveryBase):
             manual=self.manual, action='restore_draft').latest('id')
         self.assertEqual(log.version_id, version.id)
         self.assertEqual(log.file_id, file_id)
-        self.assertEqual(log.user_name, self.manager.username)
+        # 恢复由文件负责人（编制授权）执行：操作人=editor
+        self.assertEqual(log.user_name, self.editor.username)
         detail = json.loads(log.detail or '{}')
         self.assertEqual(detail['from_version_no'], version.version_no)
         self.assertEqual(detail['file_revision'], draft.revision)

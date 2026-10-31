@@ -29,7 +29,7 @@ class InstitutionIndex extends React.Component {
               options: () => (store.categories || [])
                 .filter(c => c.is_active)
                 .map(c => ({value: c.id, label: c.name}))},
-            {key: 'f_owner_type', label: '归属类型', type: 'select', span: 5,
+            {key: 'f_org_type', label: '归属类型', type: 'select', span: 5,
               options: [
                 {value: 'department', label: '部门'},
                 {value: 'section', label: '科室'},

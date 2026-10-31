@@ -17,7 +17,7 @@ from apps.institution.models import (Manual, ManualDraft, ManualFile,
                                      ManualVersion)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW, get_data,
-    has_error, make_client, make_role, make_user, post_json, put_json,
+    has_error, make_client, make_grant, make_user, post_json, put_json,
     setup_test_env,
 )
 
@@ -43,25 +43,19 @@ class FileHistoryBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='文件变更手册', code='WJ-001',
-            owner_type=Manual.OWNER_SECTION, owner_name='甲科室',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.publish_role = make_role()
-        self.view_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
-        self.manual.publish_roles.add(self.publish_role)
-        self.manual.view_roles.add(self.view_role)
+            org_type=Manual.OWNER_SECTION, org_name='甲科室',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.editor_client = make_client(self.editor)
         self.publisher = make_user('pub', tenant_id='deptZ',
-                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW],
-                                   roles=[self.publish_role])
+                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.publisher, can_view=True, can_publish=True)
         self.publisher_client = make_client(self.publisher)
         self.viewer = make_user('viewer', tenant_id='deptY',
-                                perms=[PERM_VIEW, PERM_DOWNLOAD],
-                                roles=[self.view_role])
+                                perms=[PERM_VIEW, PERM_DOWNLOAD])
+        make_grant(self.manual, self.viewer, can_view=True)
         self.viewer_client = make_client(self.viewer)
         put_json(self.manager_client,
                  f'/institution/manuals/{self.manual.id}/password/',
@@ -71,7 +65,8 @@ class FileHistoryBase(TestCase):
         from django.core.files.uploadedfile import SimpleUploadedFile
         resp = self.manager_client.post(
             f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': SimpleUploadedFile(name, content)})
+            {'file': SimpleUploadedFile(name, content),
+             'owner_id': str(self.editor.id)})
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
@@ -169,11 +164,14 @@ class FileVersionHistoryTests(FileHistoryBase):
         self.assertEqual(get_data(resp)['items'], [])
 
     def test_permission_requires_view_published(self):
-        """编制角色但手册关闭"编制者可查看发布版"：拒绝"""
+        """仅编制授权（无 can_view）且手册关闭"编制者可查看发布版"：拒绝"""
+        edit_only = make_user('edit-only', tenant_id='deptB',
+                              perms=[PERM_VIEW])
+        make_grant(self.manual, edit_only, can_edit=True)
         self.manual.editor_can_view_published = False
         self.manual.save(update_fields=['editor_can_view_published'])
         resp = self._version_history(self.file_a['id'],
-                                     client=self.editor_client)
+                                     client=make_client(edit_only))
         self.assertTrue(has_error(resp))
         # 查看角色照常
         resp = self._version_history(self.file_a['id'])
@@ -182,8 +180,8 @@ class FileVersionHistoryTests(FileHistoryBase):
     def test_cross_manual_file_rejected(self):
         other = Manual.objects.create(
             name='别家手册', code='OT-300',
-            owner_type=Manual.OWNER_SECTION, owner_name='乙科室',
-            tenant_id='deptA')
+            org_type=Manual.OWNER_SECTION, org_name='乙科室',
+            owner=self.manager, tenant_id='deptA')
         foreign_file = ManualFile.objects.create(
             manual=other, display_name='别家.docx')
         resp = self._version_history(foreign_file.id)

@@ -41,7 +41,10 @@ const MANUAL = {id: 7, name: '跳转验证手册', status: 'active',
   my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
   current_version: {id: 9, version_no: 3,
     published_at: '2026-03-01T09:00:00', published_by_name: '张三'},
-  files_count: 2, owner_type_display: '部门', owner_name: '运行部'};
+  files_count: 2,
+  // 2026-10-31 授权模型：归属字段为 org_*（owner_name=所有者账号名）
+  org_type_display: '部门', org_name: '运行部',
+  owner_id: 5, owner_name: '王五', is_owner: false, is_admin: false};
 
 const FILES = [
   {id: 11, manual_id: 7, name: '甲文件.docx', sort_order: 0,

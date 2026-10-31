@@ -45,6 +45,8 @@ jest.mock('../detail/store', () => {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
       my_roles: ['view', 'edit', 'publish'],
+      // 2026-10-31 授权模型：整套回退业务门=所有者/制度管理员
+      is_owner: true, is_admin: false,
       current_version: {id: 9, version_no: 3, published_at: '2026-01-01T10:00:00',
         published_by_name: '张三'}};
     @observable versions = [];
@@ -299,6 +301,17 @@ describe('从历史版本回退（整套回退语义）', () => {
     // 生命周期刷新统一入口
     expect(store.refreshAfterLifecycle).toHaveBeenCalledWith(7);
   });
+
+  it('非所有者/管理员的编制授权账号不渲染整套回退（2026-10-31 业务门收窄）', () => {
+    const savedManual = store.manual;
+    store.versions = [makeVersion()];
+    store.manual = {...savedManual, is_owner: false, is_admin: false};
+    container = renderTab();
+    expect(findButton(container, '从历史版本回退')).toBeUndefined();
+    // 发布授权仍可见（长期保留是发布域操作）
+    expect(container.textContent).not.toContain('从历史版本回退');
+    store.manual = savedManual;
+  });
 });
 
 describe('版本保留策略状态与长期保留标记', () => {
@@ -376,5 +389,25 @@ describe('版本保留策略状态与长期保留标记', () => {
     const previews = Array.from(modal.querySelectorAll('button'))
       .filter(b => b.textContent === '预览');
     expect(previews.length).toBe(1);
+  });
+});
+
+describe('无 can_view_published 口径权限的版本页签', () => {
+  it('展示无权说明而非空版本表冒充，且不发版本请求', () => {
+    // 2026-10-31 授权模型：仅持编制授权且手册关闭"编制者可查看发布版"
+    // 的账号（含手册所有者本人）不自动可见发布版；版本历史对齐后端
+    // VersionListView 的 can_view_published 门禁
+    const original = store.manual;
+    store.manual = Object.assign({}, original,
+      {my_roles: ['edit'], editor_can_view_published: false, is_owner: true});
+    try {
+      const container = renderTab();
+      expect(container.textContent)
+        .toContain('当前账号无可查看发布版本的授权');
+      expect(container.querySelectorAll('.ant-table').length).toBe(0);
+      expect(store.fetchVersions).not.toHaveBeenCalled();
+    } finally {
+      store.manual = original;
+    }
   });
 });

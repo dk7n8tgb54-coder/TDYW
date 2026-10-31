@@ -10,10 +10,12 @@
  *   在「当前生效文件」，日常编辑在「草稿工作区」）。
  * - 「新增制度文件」（批量，每个上传文件各建一份制度文件）与
  *   「为已有文件更换来源」（按行受控操作，确认目标文件与草稿影响）
- *   严格分开，互不混用。
+ *   严格分开，互不混用。两者业务门=手册所有者或制度管理员
+ *   （2026-10-31 授权模型；页面权限码 upload 不变，后端独立校验）。
  * - 「从原始上传文件重建草稿」是明确的高级操作：未发布过版本可直接
  *   确认；已发布过版本收进"高级恢复操作"，带风险提示 + confirm=true
  *   + 编辑密码（后端独立校验）；原稿已按保留策略清理时禁用并解释。
+ *   重建按文件负责人独占判定（编制授权 + assignment.is_mine）。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -45,16 +47,21 @@ class OriginalsTab extends React.Component {
     this.unmounted = true;
   }
 
-  showPreview = (request, fileName) => {
+  showPreview = (request, fileName, title) => {
     request.then(data => {
-      this.setState({preview: {url: data.preview_url, fileName: data.file_name || fileName}});
+      this.setState({preview: {
+        url: data.preview_url, fileName: data.file_name || fileName, title,
+      }});
     });
   };
 
   previewOriginal = (row, o) => {
+    const name = o.file_name || row.name;
+    // 版本来源明确：初始原稿与后续来源原稿在标题中分开
+    const isFirst = row.first_original && row.first_original.id === o.id;
     this.showPreview(
       http.get(`/api/institution/manuals/${store.id}/originals/${o.id}/preview-url/`),
-      o.file_name || row.name);
+      name, `${isFirst ? '预览初始原稿' : '预览后续来源原稿'}：${name}`);
   };
 
   downloadOriginal = (row, o) => {
@@ -235,7 +242,7 @@ class OriginalsTab extends React.Component {
         <AuthButton auth="institution.manual.download" type="link" size="small"
           onClick={() => this.downloadOriginal(row, o)}>下载</AuthButton>
         {/* 已发布过版本：重建按钮收进"高级恢复操作"，默认不显示 */}
-        {this.canRebuild() && (
+        {this.canRebuild(row) && (
           <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
             danger={!!(store.manual && store.manual.has_versions)}
             onClick={() => this.createDraft(row, o)}>从原始上传文件重建草稿</AuthButton>
@@ -244,9 +251,21 @@ class OriginalsTab extends React.Component {
     );
   };
 
-  canRebuild() {
+  /**
+   * 「重建草稿」门控（2026-10-31 负责人独占）：编制授权（my_roles.edit）
+   * 且该文件负责人（assignment.is_mine）。row 为 originals-overview 行，
+   * 负责人信息按 file_id 从 /files/ 清单（store.files）就地取；查不到
+   * （已移除条目等）一律视为非负责人，不渲染入口。
+   */
+  isFileAssignee(row) {
+    const entry = (store.files || []).find(f => f.id === row.file_id);
+    return !!(entry && entry.assignment && entry.assignment.is_mine);
+  }
+
+  canRebuild(row) {
     const manual = store.manual || {};
     if (!(manual.my_roles || []).includes('edit')) return false;
+    if (!this.isFileAssignee(row)) return false;
     return !manual.has_versions || this.state.advancedRecovery;
   }
 
@@ -270,9 +289,83 @@ class OriginalsTab extends React.Component {
     </Table>
   );
 
+  /** 初始来源总览表：制度文件行 + 最初原稿/首次发布/来源记录/操作列 */
+  renderOverviewTable(manual, canManageFiles, rows) {
+    return (
+      <Table rowKey="file_id" size="middle"
+        loading={store.isFetchingOriginalsOverview}
+        dataSource={rows} pagination={false}
+        expandedRowRender={this.renderExpandedRow}
+        locale={{emptyText: (
+          <Empty description="该制度还没有制度文件；点击上方按钮上传第一份文件"/>)}}>
+        <Table.Column title="制度文件" dataIndex="name" ellipsis
+          render={(v, row) => (
+            <span>
+              {v}
+              {row.is_removed && <Tag style={{marginLeft: 8}}>已移除</Tag>}
+            </span>
+          )}/>
+        <Table.Column title="最初原稿" key="first" ellipsis
+          render={(_, row) => {
+            const first = row.first_original;
+            if (!first) return '-';
+            return (
+              <span>
+                {first.file_name}
+                <span style={{color: '#888', marginLeft: 8}}>
+                  {first.uploaded_by_name || '-'} · {formatDateTime(first.uploaded_at)}
+                </span>
+                {first.is_cleaned && CLEANED_TAG}
+              </span>
+            );
+          }}/>
+        <Table.Column title="首次发布" dataIndex="first_published_version_no" width={95}
+          render={v => (v != null ? `v${v}` : '未发布')}/>
+        <Table.Column title="来源记录" key="count" width={110}
+          render={(_, row) => `${row.originals_count} 条（展开历史）`}/>
+        <Table.Column title="操作" width={280}
+          render={(_, row) => {
+            const first = row.first_original;
+            return (
+              <span>
+                {first && !first.is_cleaned && (
+                  <span>
+                    <AuthButton auth="institution.manual.view" type="link" size="small"
+                      onClick={() => this.previewOriginal(row, first)}>预览</AuthButton>
+                    <AuthButton auth="institution.manual.download" type="link" size="small"
+                      onClick={() => this.downloadOriginal(row, first)}>下载</AuthButton>
+                  </span>
+                )}
+                {first && first.is_cleaned && CLEANED_TAG}
+                <Tooltip title={canManageFiles
+                  ? '为该文件上传一条新的初始来源记录（不改动当前草稿）'
+                  : '更换来源仅限手册所有者或制度管理员'}>
+                  <AuthButton auth="institution.manual.upload" type="link" size="small"
+                    disabled={this.state.uploading || !canManageFiles}
+                    onClick={() => this.pickReplaceSource(row)}>更换来源</AuthButton>
+                </Tooltip>
+                {/* 主行重建入口基于最初原稿；后续来源记录的重建在展开历史内 */}
+                {first && !first.is_cleaned && this.canRebuild(row) && (
+                  <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                    danger={!!manual.has_versions}
+                    onClick={() => this.createDraft(row, first)}>重建草稿</AuthButton>
+                )}
+              </span>
+            );
+          }}/>
+      </Table>
+    );
+  }
+
   render() {
     const manual = store.manual || {};
-    const canManage = (manual.my_roles || []).includes('edit');
+    // 「更换来源/上传原稿（新增制度文件）」业务门=手册所有者或制度管理员
+    // （后端 files/create 与 originals/upload 同口径，2026-10-31 起）；
+    // 「重建草稿」另按文件负责人独占判定（canRebuild(row)）
+    const canManageFiles = !!manual.is_owner || !!manual.is_admin;
+    const canEditRole = (manual.my_roles || []).includes('edit');
+    const canRebuildAnywhere = canEditRole &&
+      (store.originalsOverview || []).some(row => this.isFileAssignee(row));
     const rows = store.originalsOverview || [];
     return (
       <div>
@@ -292,13 +385,19 @@ class OriginalsTab extends React.Component {
             onChange={this.handleInputChange}/>
           <AuthButton auth="institution.manual.upload" type="primary" size="small"
             loading={this.state.uploading}
+            disabled={!canManageFiles}
             onClick={() => this.fileInput && this.fileInput.click()}>
             {rows.length
               ? '新增制度文件（.doc/.docx，可多选，每份各建一个制度文件）'
               : '上传文件（.doc/.docx，可多选，每份各建一个制度文件与草稿）'}
           </AuthButton>
+          {!canManageFiles && (
+            <span style={{color: '#999', fontSize: 12}}>
+              新增制度文件与更换来源仅限手册所有者或制度管理员
+            </span>
+          )}
         </div>
-        {canManage && manual.has_versions && rows.length > 0 && (
+        {canRebuildAnywhere && manual.has_versions && rows.length > 0 && (
           <div style={{marginBottom: 8}}>
             {this.state.advancedRecovery && (
               <Alert type="warning" showIcon style={{marginBottom: 8}} message={
@@ -319,66 +418,10 @@ class OriginalsTab extends React.Component {
             action={<Button size="small" type="primary"
               onClick={() => store.fetchOriginalsOverview(store.id)}>重试</Button>}/>
         )}
-        <Table rowKey="file_id" size="middle"
-          loading={store.isFetchingOriginalsOverview}
-          dataSource={rows} pagination={false}
-          expandedRowRender={this.renderExpandedRow}
-          locale={{emptyText: (
-            <Empty description="该制度还没有制度文件；点击上方按钮上传第一份文件"/>)}}>
-          <Table.Column title="制度文件" dataIndex="name" ellipsis
-            render={(v, row) => (
-              <span>
-                {v}
-                {row.is_removed && <Tag style={{marginLeft: 8}}>已移除</Tag>}
-              </span>
-            )}/>
-          <Table.Column title="最初原稿" key="first" ellipsis
-            render={(_, row) => {
-              const first = row.first_original;
-              if (!first) return '-';
-              return (
-                <span>
-                  {first.file_name}
-                  <span style={{color: '#888', marginLeft: 8}}>
-                    {first.uploaded_by_name || '-'} · {formatDateTime(first.uploaded_at)}
-                  </span>
-                  {first.is_cleaned && CLEANED_TAG}
-                </span>
-              );
-            }}/>
-          <Table.Column title="首次发布" dataIndex="first_published_version_no" width={95}
-            render={v => (v != null ? `v${v}` : '未发布')}/>
-          <Table.Column title="来源记录" key="count" width={110}
-            render={(_, row) => `${row.originals_count} 条（展开历史）`}/>
-          <Table.Column title="操作" width={280}
-            render={(_, row) => {
-              const first = row.first_original;
-              return (
-                <span>
-                  {first && !first.is_cleaned && (
-                    <span>
-                      <AuthButton auth="institution.manual.view" type="link" size="small"
-                        onClick={() => this.previewOriginal(row, first)}>预览</AuthButton>
-                      <AuthButton auth="institution.manual.download" type="link" size="small"
-                        onClick={() => this.downloadOriginal(row, first)}>下载</AuthButton>
-                    </span>
-                  )}
-                  {first && first.is_cleaned && CLEANED_TAG}
-                  <AuthButton auth="institution.manual.upload" type="link" size="small"
-                    disabled={this.state.uploading}
-                    onClick={() => this.pickReplaceSource(row)}>更换来源</AuthButton>
-                  {/* 主行重建入口基于最初原稿；后续来源记录的重建在展开历史内 */}
-                  {first && !first.is_cleaned && this.canRebuild() && (
-                    <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-                      danger={!!manual.has_versions}
-                      onClick={() => this.createDraft(row, first)}>重建草稿</AuthButton>
-                  )}
-                </span>
-              );
-            }}/>
-        </Table>
+        {this.renderOverviewTable(manual, canManageFiles, rows)}
         <PreviewModal visible={!!this.state.preview} url={this.state.preview && this.state.preview.url}
           fileName={this.state.preview && this.state.preview.fileName}
+          title={this.state.preview && this.state.preview.title}
           onClose={() => this.setState({preview: null})}/>
       </div>
     );

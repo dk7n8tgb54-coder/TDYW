@@ -43,6 +43,10 @@ class SystemConfigStore {
   @observable isDetailFetching = false;
   // 详情可能被多个入口并发刷新；只接受最后一次响应。
   detailRequestSeq = 0;
+  // 当前配置/变更历史会被快速切换系统、卸载/重挂载并发触发；只接受
+  // 最后一次响应，迟到的旧系统/卸载后响应不得回写（2026-10-31 上线前审查）。
+  configRequestSeq = 0;
+  changesRequestSeq = 0;
 
   // ========== 动作执行中（应用/验证/回退/取消/附件） ==========
   @observable isActionSubmitting = false;
@@ -54,31 +58,39 @@ class SystemConfigStore {
     this.page = 1;
   };
 
-  // 清空视图数据：页签/维护页卸载时调用，避免其他系统展示被残留数据污染
+  // 清空视图数据：页签/维护页卸载时调用，避免其他系统展示被残留数据污染；
+  // 同时递增序号使卸载后到达的迟响应作废，不再回写已清空的视图数据
   @action clearView = () => {
+    this.configRequestSeq += 1;
+    this.changesRequestSeq += 1;
     this.configItems = [];
     this.configSystem = {};
     this.configBaseline = null;
     this.changes = [];
     this.total = 0;
     this.page = 1;
+    this.isConfigFetching = false;
+    this.isChangesFetching = false;
   };
 
   fetchConfig = (systemId) => {
+    const seq = ++this.configRequestSeq;
     this.isConfigFetching = true;
     return http.get(`${API_PREFIX}/systems/${systemId}/config/`)
       .then(action(res => {
+        if (seq !== this.configRequestSeq) return;
         this.configItems = res.items || [];
         this.configSystem = res.system || {};
         this.configBaseline = res.baseline || null;
       }))
       .catch(action(() => {}))
       .finally(action(() => {
-        this.isConfigFetching = false;
+        if (seq === this.configRequestSeq) this.isConfigFetching = false;
       }));
   };
 
   fetchChanges = (systemId) => {
+    const seq = ++this.changesRequestSeq;
     this.isChangesFetching = true;
     const params = {page: this.page, page_size: this.pageSize};
     if (this.f_status) params.status = this.f_status;
@@ -89,12 +101,13 @@ class SystemConfigStore {
     }
     return http.get(`${API_PREFIX}/systems/${systemId}/config/changes/`, {params})
       .then(action(res => {
+        if (seq !== this.changesRequestSeq) return;
         this.changes = res.items || [];
         this.total = res.total;
       }))
       .catch(action(() => {}))
       .finally(action(() => {
-        this.isChangesFetching = false;
+        if (seq === this.changesRequestSeq) this.isChangesFetching = false;
       }));
   };
 

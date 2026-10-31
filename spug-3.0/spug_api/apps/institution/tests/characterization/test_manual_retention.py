@@ -30,7 +30,7 @@ from apps.institution.models import (Manual, ManualDraft, ManualFile,
                                      ManualVersion, ManualVersionFile)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DOWNLOAD, PERM_VIEW, get_data, has_error, make_client,
-    make_role, make_user, post_json)
+    make_grant, make_user, post_json)
 from apps.institution.tests.characterization.test_manual_draft_recovery import (
     DOCX_A, DOCX_B, DraftRecoveryBase)
 
@@ -160,11 +160,9 @@ class OriginalsOverviewTests(RetentionBase):
         resp = make_client(outsider).get(
             f'/institution/manuals/{self.manual.id}/originals-overview/')
         self.assertTrue(has_error(resp))
-        # 授予手册查看角色：可见，但草稿来源信息不下发（与 files/ 口径一致）
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        viewer = make_user('viewer', tenant_id='deptC', perms=[PERM_VIEW],
-                           roles=[view_role])
+        # 授予手册查看授权：可见，但草稿来源信息不下发（与 files/ 口径一致）
+        viewer = make_user('viewer', tenant_id='deptC', perms=[PERM_VIEW])
+        make_grant(self.manual, viewer, can_view=True)
         resp = make_client(viewer).get(
             f'/institution/manuals/{self.manual.id}/originals-overview/')
         self.assertFalse(has_error(resp), resp.content)
@@ -251,9 +249,9 @@ class OriginalRetentionTests(RetentionBase):
         row = self._original_preview_row()
         self.assertTrue(row['candidate'])
         # 以初始原稿重建草稿（高级恢复：confirm+密码）后，草稿重新引用
-        # 原稿 -> 重新阻止清理
+        # 原稿 -> 重新阻止清理（重建属内容写路径：负责人独占，编制者执行）
         resp = post_json(
-            self.manager_client,
+            self.editor_client,
             f'/institution/manuals/{self.manual.id}/files/'
             f'{self.data["id"]}/draft/create/',
             {'original_id': self.original.id, 'confirm': True,
@@ -318,9 +316,9 @@ class OriginalRetentionTests(RetentionBase):
             resp = self.manager_client.get(path)
             self.assertTrue(has_error(resp))
             self.assertIn('保留策略清理', resp.json()['error'])
-        # 重建（confirm+密码路径防线之前即拒绝）
+        # 重建（confirm+密码路径防线之前即拒绝；负责人独占：编制者执行）
         resp = post_json(
-            self.manager_client,
+            self.editor_client,
             f'{base}/files/{self.data["id"]}/draft/create/',
             {'original_id': self.original.id, 'confirm': True,
              'password': 'edit-pass-1'})
@@ -332,11 +330,11 @@ class OriginalRetentionTests(RetentionBase):
         _age_version(version, 40)
         self._save_then_release(self.data['id'])
         self._execute()
-        # 更换来源（上传新原稿）后重建入口恢复可用
+        # 更换来源（上传新原稿）后重建入口恢复可用（负责人独占：编制者执行）
         new_original = self._upload_original(self.data['id'], '新来源.docx')
         self.assertFalse(new_original['is_cleaned'])
         resp = post_json(
-            self.manager_client,
+            self.editor_client,
             f'/institution/manuals/{self.manual.id}/files/{self.data["id"]}/draft/create/',
             {'original_id': new_original['id'], 'confirm': True,
              'password': 'edit-pass-1'})
@@ -430,13 +428,14 @@ class VersionRetentionTests(RetentionBase):
         self.assertIsNotNone(self.v1.files_cleaned_at)
         self.assertEqual(self.v1.version_no, 1)
         self.assertEqual(self.v1.change_note, '第一版')
-        # 清理后快照下载/预览被拒绝；整套回退被拒绝
+        # 清理后快照下载/预览被拒绝（发布域 can_view_published：持
+        # can_view 授权的发布者查询）；整套回退被拒绝（所有者执行）
         base = f'/institution/manuals/{self.manual.id}'
-        resp = self.manager_client.get(
+        resp = self.publisher_client.get(
             f'{base}/versions/{self.v1.id}/files/{first_snap.id}/download/')
         self.assertTrue(has_error(resp))
         self.assertIn('保留策略清理', resp.json()['error'])
-        resp = self.manager_client.get(
+        resp = self.publisher_client.get(
             f'{base}/versions/{self.v1.id}/files/{first_snap.id}/preview-url/')
         self.assertTrue(has_error(resp))
         resp = post_json(self.manager_client,
@@ -444,7 +443,7 @@ class VersionRetentionTests(RetentionBase):
         self.assertTrue(has_error(resp))
         self.assertIn('保留策略清理', resp.json()['error'])
         # 版本列表序列化携带清理状态与快照清理标记
-        resp = self.manager_client.get(f'{base}/versions/')
+        resp = self.publisher_client.get(f'{base}/versions/')
         versions = {v['id']: v for v in get_data(resp)['items']}
         self.assertEqual(versions[self.v1.id]['files_clean_status'], 'cleaned')
         self.assertTrue(all(f['is_cleaned'] for f in versions[self.v1.id]['files']))
@@ -594,8 +593,7 @@ class CleanupPermissionTests(RetentionBase):
 
     def test_preview_and_execute_require_config_permission(self):
         editor_only = make_user('ed', tenant_id='deptB',
-                                perms=[PERM_VIEW, PERM_DOWNLOAD],
-                                roles=[self.edit_role])
+                                perms=[PERM_VIEW, PERM_DOWNLOAD])
         client = make_client(editor_only)
         resp = client.get('/institution/cleanup/preview/')
         self.assertTrue(has_error(resp))

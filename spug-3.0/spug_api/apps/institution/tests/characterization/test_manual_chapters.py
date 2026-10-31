@@ -21,7 +21,7 @@ from apps.institution.models import (Manual, ManualChapter, ManualOperationLog,
                                      ManualOriginal)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_VIEW, delete_json, get_data, has_error,
-    make_client, make_role, make_user, post_json, put_json, setup_test_env,
+    make_client, make_grant, make_user, post_json, put_json, setup_test_env,
 )
 
 
@@ -38,18 +38,15 @@ class ChapterTestsBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='SMS手册', code='SMS-001',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='某部门',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
+            org_type=Manual.OWNER_DEPARTMENT, org_name='某部门',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.editor_client = make_client(self.editor)
-        self.view_role = make_role()
-        self.manual.view_roles.add(self.view_role)
         self.viewer = make_user('viewer', tenant_id='deptZ',
-                                perms=[PERM_VIEW], roles=[self.view_role])
+                                perms=[PERM_VIEW])
+        make_grant(self.manual, self.viewer, can_view=True)
         self.viewer_client = make_client(self.viewer)
 
 
@@ -59,7 +56,7 @@ class LegacyChapterReadonlyTests(ChapterTestsBase):
     def _seed(self, title='第一章'):
         return ManualChapter.objects.create(manual=self.manual, title=title)
 
-    def test_list_visible_to_view_role(self):
+    def test_list_visible_to_view_grant(self):
         self._seed('第一章')
         self._seed('第二章')
         resp = self.viewer_client.get(
@@ -99,16 +96,17 @@ class LegacyChapterReadonlyTests(ChapterTestsBase):
         self.assertFalse(ManualOperationLog.objects.filter(
             manual=self.manual, action='chapter_update').exists())
 
-    def test_chapter_owner_without_edit_role_cannot_save_draft(self):
-        """负责人身份不授予草稿编辑权（文件分工沿用同一不变量）"""
+    def test_chapter_owner_without_edit_grant_cannot_save_draft(self):
+        """负责人身份不授予草稿编辑权（文件分工沿用同一不变量：还须
+        持手册 can_edit 授权）"""
         owner = make_user('owner', tenant_id='deptC',
                           perms=['institution.manual.draft_edit'])
         ManualChapter.objects.create(
             manual=self.manual, title='第五章', owner=owner)
-        upload = SimpleUploadedFile('orig.docx', b'PK docx')
+        upload = SimpleUploadedFile('orig.docx', b'PK\x03\x04 docx')
         resp = self.manager_client.post(
             f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': upload})
+            {'file': upload, 'owner_id': str(self.editor.id)})
         self.assertFalse(has_error(resp), resp.content)
         put_json(self.manager_client,
                  f'/institution/manuals/{self.manual.id}/password/',
@@ -125,7 +123,7 @@ class OperationLogTests(ChapterTestsBase):
         upload = SimpleUploadedFile('orig.docx', b'PK\x03\x04 docx')
         resp = self.manager_client.post(
             f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': upload})
+            {'file': upload, 'owner_id': str(self.editor.id)})
         self.assertFalse(has_error(resp), resp.content)
         put_json(self.manager_client,
                  f'/institution/manuals/{self.manual.id}/password/',
@@ -144,11 +142,9 @@ class OperationLogTests(ChapterTestsBase):
         delete_json(self.editor_client,
                     f'/institution/manuals/{self.manual.id}/draft/session/',
                     {'session_key': session['session_key']})
-        publisher_role = make_role()
-        self.manual.publish_roles.add(publisher_role)
         publisher = make_user('pub', tenant_id='deptC',
-                              perms=['institution.manual.publish'],
-                              roles=[publisher_role])
+                              perms=['institution.manual.publish'])
+        make_grant(self.manual, publisher, can_publish=True)
         resp = post_json(make_client(publisher),
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': '首版发布'})

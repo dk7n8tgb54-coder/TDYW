@@ -2,9 +2,10 @@
 # Released under the AGPL-3.0 License.
 """制度管理业务服务层
 
-职责：手册级授权判定、编辑密码与会话、草稿/发布/回退的文件与
-数据库编排、操作记录。业务授权完全依据账号角色与手册关联角色；
-tenant_id 不参与任何判定（仅作为数据模型约定保留）。
+职责：手册级授权判定（所有者 + 逐本账号授权）、编辑密码与会话、
+草稿/发布/回退的文件与数据库编排、操作记录。业务授权完全依据
+页面权限码（功能资格）+ 手册所有者/逐本账号授权；tenant_id 不参与
+任何判定（仅作为数据模型约定保留）。
 
 页面级权限（module.page.perm）由视图层 @auth 装饰器校验；本层
 负责手册级（对象级）授权，两条校验在所有入口独立生效。
@@ -20,7 +21,7 @@ import uuid
 from pathlib import Path
 
 from django.contrib.auth.hashers import check_password, make_password
-from django.db import transaction, models
+from django.db import transaction
 from django.utils import timezone
 
 from . import storage
@@ -65,116 +66,12 @@ ACTION_FILE_REMOVE = 'file_remove'
 ACTION_REVISION_START = 'revision_start'
 # 修复工作副本（从当前生效版本快照恢复缺失/损坏/基线不一致的工作副本）
 ACTION_REPAIR_DRAFT = 'repair_draft'
+# 手册所有者指定/移交（制度管理员，2026-10-31；实现见 authorization_services）
+ACTION_OWNER_CHANGE = 'owner_change'
+# 逐本账号授权整体替换（所有者/制度管理员，2026-10-31；实现见
+# authorization_services）
+ACTION_AUTHORIZATION_CHANGE = 'authorization_change'
 ACTION_DELETE = 'delete'
-
-ROLE_VIEW = 'view'
-ROLE_EDIT = 'edit'
-ROLE_PUBLISH = 'publish'
-
-_ROLE_FIELD = {
-    ROLE_VIEW: 'view_roles',
-    ROLE_EDIT: 'edit_roles',
-    ROLE_PUBLISH: 'publish_roles',
-}
-
-
-# ---------------------------------------------------------------------------
-# 手册级授权（tenant_id 不参与判定）
-
-def get_user_role_ids(user):
-    """账号当前所持角色 ID 集合（实时查询，不做长缓存）"""
-    return set(user.roles.values_list('id', flat=True))
-
-
-def _manual_role_ids(manual, kind):
-    """手册某类关联角色的 ID 集合"""
-    return set(getattr(manual, _ROLE_FIELD[kind]).values_list('id', flat=True))
-
-
-def has_manual_role(user, manual, kinds):
-    """账号是否持有手册的任一关联角色
-
-    kinds: 角色类别元组，如 (ROLE_VIEW,) 或 (ROLE_VIEW, ROLE_EDIT)
-    """
-    if user.is_supper:
-        return True
-    user_role_ids = get_user_role_ids(user)
-    for kind in kinds:
-        if user_role_ids & _manual_role_ids(manual, kind):
-            return True
-    return False
-
-
-def can_manage_manual(user):
-    """是否可管理手册元数据（编辑/配置模块权限）"""
-    if user.is_supper:
-        return True
-    return user.has_perms({'institution.manual.edit'}) or \
-        user.has_perms({'institution.manual.config'})
-
-
-def can_view_manual(user, manual):
-    """可见手册元数据与详情入口：管理权限或持有该手册任一关联角色"""
-    if user.is_supper or can_manage_manual(user):
-        return True
-    return has_manual_role(user, manual, (ROLE_VIEW, ROLE_EDIT, ROLE_PUBLISH))
-
-
-def can_view_published(user, manual):
-    """可见已发布版本：查看角色；或编制角色且本手册允许编制者查看发布版"""
-    if user.is_supper or can_manage_manual(user):
-        return True
-    user_role_ids = get_user_role_ids(user)
-    if user_role_ids & _manual_role_ids(manual, ROLE_VIEW):
-        return True
-    if manual.editor_can_view_published and user_role_ids & _manual_role_ids(manual, ROLE_EDIT):
-        return True
-    return False
-
-
-def can_edit_draft(user, manual):
-    """可编辑草稿：持有编制角色（页面权限与会话由视图层另行校验）"""
-    return has_manual_role(user, manual, (ROLE_EDIT,))
-
-
-def can_publish(user, manual):
-    """可发布：持有发布角色"""
-    return has_manual_role(user, manual, (ROLE_PUBLISH,))
-
-
-def filter_visible_manuals(queryset, user):
-    """按手册关联角色过滤可见手册；管理权限可见全部"""
-    if user.is_supper or can_manage_manual(user):
-        return queryset
-    user_role_ids = get_user_role_ids(user)
-    if not user_role_ids:
-        return queryset.none()
-    return queryset.filter(
-        models_q_any_role(user_role_ids)
-    ).distinct()
-
-
-def models_q_any_role(user_role_ids):
-    """构造"任一关联角色命中"的 OR 条件"""
-    return (
-        models.Q(view_roles__in=user_role_ids) |
-        models.Q(edit_roles__in=user_role_ids) |
-        models.Q(publish_roles__in=user_role_ids)
-    )
-
-
-def get_manual_for_user(manual_id, user):
-    """取手册并做可见性校验
-
-    Returns:
-        tuple: (manual 或 None, 错误消息或 None)
-    """
-    manual = Manual.objects.filter(pk=manual_id).first()
-    if not manual:
-        return None, '手册不存在或无权限访问'
-    if not can_view_manual(user, manual):
-        return None, '手册不存在或无权限访问'
-    return manual, None
 
 
 def get_manual_file(manual, file_id):
@@ -635,14 +532,16 @@ def remove_manual_file(file_entry, user):
 def assign_file_owner(file_entry, owner, note, operator, batch=False):
     """指定/改派/清空文件负责人（分工单位=整份文件，每文件至多一名）
 
-    owner=None 表示清空为"未分配"。分工只记录责任，不改变任何授权
-    （编辑仍要求模块权限与手册编制角色）。字段就在文件条目上，结构上
-    不存在同一文件多条互相冲突的"当前分工"。
+    owner=None 表示清空为"未分配"。被指派账号必须持有该手册 can_edit
+    编制授权（视图层经 authorization_services.validate_assignee_for_manual
+    校验）；此后仅负责人可编辑该文件（负责人独占，编辑密码只是附加验证）。
 
-    改派或清空负责人（owner 变化）时同步清除"提交编制"记录：提交是
-    负责人向发布者的一次交接，负责人已变更则旧交接不再有效（提交状态
-    由 file_submission_state 按落库记录计算，置空即回到"未提交"）；
-    历史交接保留在操作记录中。负责人未变（仅修改分工说明）时保留提交。
+    改派或清空负责人（owner 变化）时同步：
+    - 清除"提交编制"记录：提交是负责人向发布者的一次交接，负责人已
+      变更则旧交接不再有效（提交状态由 file_submission_state 按落库
+      记录计算，置空即回到"未提交"）；历史交接保留在操作记录中。
+    - 撤销该文件的活跃编辑会话（未落盘内容显式丢弃，撤销原因留痕）。
+    负责人未变（仅修改分工说明）时保留提交与会话。
     batch=True 时在操作记录中标记批量来源（批量接口逐文件复用本函数）。
     """
     owner_changed = file_entry.owner_id != (owner.pk if owner else None)
@@ -659,10 +558,15 @@ def assign_file_owner(file_entry, owner, note, operator, batch=False):
         file_entry.submitted_by = None
         update_fields += ['submission_revision', 'submitted_at', 'submitted_by']
     file_entry.save(update_fields=update_fields)
+    revoked_sessions = 0
+    if owner_changed:
+        revoked_sessions = revoke_file_sessions(
+            file_entry, reason='文件负责人变更，编辑会话撤销')
     detail = {
         'file_id': file_entry.id, 'file_name': file_entry.display_name,
         'owner_id': file_entry.owner_id, 'owner_name': file_entry.owner_name,
         'note': file_entry.assign_note, 'submission_reset': owner_changed,
+        'revoked_sessions': revoked_sessions,
     }
     if batch:
         detail['batch'] = True

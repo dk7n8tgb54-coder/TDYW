@@ -222,6 +222,47 @@ class FormPeriodGenerateTests(FormRouteTestBase):
             self.assertEqual(entry['status'], 'manual_needed')
             self.assertIn('历史草稿台账', entry['reason'])
 
+    def test_rebuild_rejects_unvoided_manual_shell(self):
+        """补建与预览"需人工处理"同口径：未作废手工壳占用时拒绝（form 路线）。
+
+        上线前审查（2026-10-31）：补建此前只拦截有效路线台账，未作废手工壳
+        占位时会绕过创建重复台账；修复后拒绝，手工壳作废后仍可正常补建。
+        """
+        template, version = self._publish_form_template(generation_period='weekly')
+        from apps.equipment_lifecycle.models import LEDGER_TYPE_WEEK_MONTH
+        shell = OperationLedger.objects.create(
+            tenant_id=self.owner.tenant_id,
+            ledger_no='EL-WM-20261019-9902',
+            ledger_type=LEDGER_TYPE_WEEK_MONTH,
+            status='draft',
+            entry_channel='web',
+            created_from='manual',
+            system=self.system,
+            maintenance_period='2026-10-19',
+            created_by=self.owner,
+        )
+        with fake_today(2026, 10, 21):
+            row, error = ledger_period_services.period_generate_rebuild(
+                self.owner, template['id'], 'form')
+            self.assertIsNone(row)
+            self.assertIsNotNone(error)
+            self.assertIn('历史草稿台账', error)
+        self.assertFalse(OperationLedger.objects.filter(
+            created_from='form_template').exists())
+        voided, void_error = ledger_services.void_ledger(
+            self.owner, shell.id, '误补录')
+        self.assertIsNone(void_error)
+        with fake_today(2026, 10, 21):
+            row, error = ledger_period_services.period_generate_rebuild(
+                self.owner, template['id'], 'form')
+            self.assertIsNone(error)
+            self.assertEqual(row['template_kind'], 'form')
+            self.assertEqual(row['maintenance_period'], '2026-10-19')
+        self.assertTrue(OperationLedger.objects.filter(
+            pk=shell.id, status=LEDGER_STATUS_VOID).exists())
+        self.assertEqual(OperationLedger.objects.filter(
+            created_from='form_template').count(), 1)
+
     def test_period_overview_counts_form_slots(self):
         template, version = self._publish_form_template(generation_period='weekly')
         with fake_today(2026, 10, 21):

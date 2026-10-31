@@ -70,6 +70,8 @@ function makeFile(id, overrides) {
       created_at: '2026-10-01T10:00:00',
     },
     active_session: null,
+    // 2026-10-31 负责人独占：默认当前账号是负责人（会话入口可见）
+    assignment: {owner_id: 9, owner_name: '我', note: '', is_mine: true},
   }, overrides);
 }
 
@@ -79,7 +81,7 @@ function mockFetch(files, manual) {
       return Promise.resolve({editor_available: false});
     }
     if (url.includes('/files/')) return Promise.resolve(files);
-    return Promise.resolve(manual || {id: 5, name: '测试手册', my_roles: ['edit']});
+    return Promise.resolve(manual || {id: 5, name: '测试手册', my_roles: ['edit'], is_owner: true, is_admin: false});
   });
 }
 
@@ -303,7 +305,9 @@ describe('草稿工作台（保存与新增文件）', () => {
     store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
     await flush();
     expect(container.textContent).toContain('当前文件：文件1');
-    // 第二个隐藏 input 为保存上传控件（第一个是新增文件控件）
+    // 第二个隐藏 input 为保存上传控件（第一个是新增文件控件）；
+    // 本机上传须先有下载基线（模拟已下载草稿 r1）
+    store.recordLocalBaseline(1, 1);
     const saveInput = findFileInputs(container)[1];
     expect(saveInput).not.toBeUndefined();
     http.post.mockRejectedValue('编辑会话已过期，请重新验证密码');
@@ -358,7 +362,7 @@ describe('草稿工作台（保存与新增文件）', () => {
         return Promise.resolve({editor_available: false});
       }
       if (url.includes('/files/')) return Promise.resolve([makeFile(1), created]);
-      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit']});
+      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit'], is_owner: true, is_admin: false});
     });
     Object.defineProperty(addInput, 'files',
       {value: [new File(['x'], 'new.docx')]});
@@ -420,7 +424,7 @@ describe('草稿工作台（文件分工）', () => {
     http.get.mockImplementation(url => {
       if (url.includes('assignment-owners')) return Promise.reject('权限拒绝');
       if (url.includes('/files/')) return Promise.resolve([makeFile(1)]);
-      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit']});
+      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit'], is_owner: true, is_admin: false});
     });
     const container = renderPage();
     await flush();
@@ -448,7 +452,7 @@ describe('草稿工作台（文件分工）', () => {
         return Promise.resolve([{id: 9, name: '乙'}]);
       }
       if (url.includes('/files/')) return Promise.resolve([makeFile(1)]);
-      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit']});
+      return Promise.resolve({id: 5, name: '测试手册', my_roles: ['edit'], is_owner: true, is_admin: false});
     });
     const retryBtn = Array.from(modal.querySelectorAll('button'))
       .find(b => b.textContent.replace(/\s+/g, '') === '重试');
@@ -469,7 +473,8 @@ describe('草稿工作台（文件分工展示与提交编制）', () => {
     mockFetch([
       makeFile(1, {assignment: {owner_id: 9, owner_name: '乙', note: '负责正文',
         is_mine: false}}),
-      makeFile(2),
+      makeFile(2, {assignment: {owner_id: null, owner_name: '', note: '',
+        is_mine: false}}),
     ]);
     const container = renderPage();
     await flush();
@@ -515,6 +520,59 @@ describe('草稿工作台（文件分工展示与提交编制）', () => {
     store.passwordVerified = true;
     await flush();
     expect(findButton(container, '提交编制')).toBeUndefined();
+  });
+});
+
+describe('草稿工作台（负责人独占与文件管理门控，2026-10-31）', () => {
+  it('非负责人（含持编制授权未指派者）：无开始编辑入口，显示明确指派提示', async () => {
+    mockFetch([makeFile(1, {assignment: {owner_id: 8, owner_name: '丙',
+      note: '', is_mine: false}})]);
+    const container = renderPage();
+    await flush();
+    store.passwordVerified = true;
+    await flush();
+    expect(findButton(container, '开始编辑')).toBeUndefined();
+    expect(container.textContent).toContain('编辑仅限文件负责人，请先由手册所有者指派');
+    // 非负责人同样不渲染 下载/预览草稿（文件管理行按负责人收窄）
+    expect(findButton(container, '下载草稿')).toBeUndefined();
+    expect(findButton(container, '预览草稿')).toBeUndefined();
+    expect(container.textContent).toContain('下载/预览草稿仅限文件负责人');
+  });
+
+  it('非所有者/管理员：文件管理行的 改名/移除/新增 不可见（下载预览由负责人可见）', async () => {
+    mockFetch([makeFile(1)], {id: 5, name: '测试手册', my_roles: ['edit'],
+      is_owner: false, is_admin: false});
+    const container = renderPage();
+    await flush();
+    store.passwordVerified = true;
+    await flush();
+    expect(findButton(container, '改名')).toBeUndefined();
+    expect(findButton(container, '移除')).toBeUndefined();
+    expect(findButton(container, '新增文件')).toBeUndefined();
+    // 负责人可见下载/预览
+    expect(findButton(container, '下载草稿')).not.toBeUndefined();
+    expect(findButton(container, '预览草稿')).not.toBeUndefined();
+  });
+
+  it('多文件制度：非所有者/管理员导航底部无新增文件入口', async () => {
+    mockFetch([makeFile(1), makeFile(2)], {id: 5, name: '测试手册',
+      my_roles: ['edit'], is_owner: false, is_admin: false});
+    const container = renderPage();
+    await flush();
+    store.passwordVerified = true;
+    await flush();
+    expect(container.textContent).toContain('待发布文件（共 2 份）');
+    expect(findButton(container, '新增文件')).toBeUndefined();
+  });
+
+  it('密码门：持编制授权但未指派负责人时明确提示（负责人独占）', async () => {
+    mockFetch([makeFile(1, {assignment: {owner_id: 8, owner_name: '丙',
+      note: '', is_mine: false}})]);
+    const container = renderPage();
+    await flush();
+    expect(container.textContent).toContain('验证并进入编辑');
+    expect(container.textContent).toContain('编辑仅限文件负责人');
+    expect(container.textContent).toContain('尚未被指派任何文件的负责人');
   });
 });
 
@@ -607,10 +665,11 @@ describe('草稿工作台（保存并结束编辑）', () => {
     });
     await flush();
     // 降级路径保存是同步 multipart：不请求 forcesave，直接撤销会话
+    //（finishEditing 的 revoke 一律显式 discard=false 保存意图）
     expect(http.post).not.toHaveBeenCalled();
     expect(http.delete).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/1/draft/session/',
-      {data: {session_key: 'sess-1'}});
+      {data: {session_key: 'sess-1', discard: false}});
     expect(store.sessionKeyOf(1)).toBe('');
     expect(successSpy).toHaveBeenCalledWith('已保存并结束编辑');
   });
@@ -623,6 +682,7 @@ describe('草稿工作台（保存并结束编辑）', () => {
     store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
     store.editorConfigs[1] = {editor_available: true, document_key: 'k1'};
     store.pollIntervalMs = 1;
+    store.confirmSettleMs = 0;
     await flush();
     const forceSaveCalls = () => http.post.mock.calls.filter(
       ([url]) => url.includes('forcesave'));
@@ -661,7 +721,7 @@ describe('草稿工作台（保存并结束编辑）', () => {
       {session_key: 'sess-1'});
     expect(http.delete).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/1/draft/session/',
-      {data: {session_key: 'sess-1'}});
+      {data: {session_key: 'sess-1', discard: false}});
     expect(store.sessionKeyOf(1)).toBe('');
     expect(successSpy).toHaveBeenCalledWith('已保存并结束编辑');
     // 结束编辑撤销会话（clearSession）后确认记录随之清除：
@@ -698,6 +758,7 @@ describe('草稿工作台（保存并结束编辑：失败与超时保护）', (
     store.editorConfigs[1] = {editor_available: true, document_key: 'k1'};
     store.pollIntervalMs = 1;
     store.pollMaxAttempts = 2;
+    store.confirmSettleMs = 0;
     await flush();
     http.post.mockResolvedValue({forcesave: 'requested', revision: 1});
     http.get.mockImplementation(url => {
@@ -733,6 +794,7 @@ describe('草稿工作台（保存并结束编辑：失败与超时保护）', (
     store.passwordVerified = true;
     store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
     store.editorConfigs[1] = {editor_available: true, document_key: 'k1'};
+    store.confirmSettleMs = 0;
     await flush();
     http.post.mockResolvedValue({forcesave: 'no_changes', revision: 1});
     http.delete.mockResolvedValue({});

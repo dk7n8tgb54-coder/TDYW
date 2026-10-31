@@ -29,7 +29,7 @@ from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
                                      ManualVersionFile)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DOWNLOAD, PERM_DRAFT, PERM_PUBLISH, PERM_VIEW, get_data,
-    has_error, make_client, make_role, make_user, post_json, put_json,
+    has_error, make_client, make_grant, make_user, post_json, put_json,
     setup_test_env,
 )
 
@@ -37,7 +37,12 @@ DOCX = b'PK\x03\x04 multi-file-docx'
 
 
 class MultiFileBase(TestCase):
-    """管理者 + 两名编制者 + 一名发布者；手册就绪"""
+    """管理者（=手册所有者）+ 两名编制者 + 一名发布者 + 查看者；手册就绪
+
+    授权夹具（2026-10-31）：manager 为手册所有者（文件条目管理/分工
+    的业务门禁口径）；editor/editor2 持 can_edit 授权，publisher 持
+    can_publish 授权，viewer 持 can_view 授权。
+    """
 
     def setUp(self):
         setup_test_env()
@@ -51,26 +56,20 @@ class MultiFileBase(TestCase):
         self.manager_client = make_client(self.manager)
         self.manual = Manual.objects.create(
             name='部门管理手册', code='BM-001',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='某部门',
-            tenant_id='deptA')
-        self.edit_role = make_role()
-        self.publish_role = make_role()
-        self.manual.edit_roles.add(self.edit_role)
-        self.manual.publish_roles.add(self.publish_role)
+            org_type=Manual.OWNER_DEPARTMENT, org_name='某部门',
+            owner=self.manager, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
-                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                roles=[self.edit_role])
+                                perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
         self.editor2 = make_user('editor2', tenant_id='deptC',
-                                 perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW],
-                                 roles=[self.edit_role])
+                                 perms=[PERM_DRAFT, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.editor, can_view=True, can_edit=True)
+        make_grant(self.manual, self.editor2, can_view=True, can_edit=True)
         self.publisher = make_user('pub', tenant_id='deptZ',
-                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW],
-                                   roles=[self.publish_role])
-        self.view_role = make_role()
-        self.manual.view_roles.add(self.view_role)
+                                   perms=[PERM_PUBLISH, PERM_DOWNLOAD, PERM_VIEW])
+        make_grant(self.manual, self.publisher, can_view=True, can_publish=True)
         self.viewer = make_user('viewer', tenant_id='deptY',
-                                perms=[PERM_VIEW, PERM_DOWNLOAD],
-                                roles=[self.view_role])
+                                perms=[PERM_VIEW, PERM_DOWNLOAD])
+        make_grant(self.manual, self.viewer, can_view=True)
         self.viewer_client = make_client(self.viewer)
         self.editor_client = make_client(self.editor)
         self.editor2_client = make_client(self.editor2)
@@ -84,13 +83,16 @@ class MultiFileBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return password
 
-    def _add_file(self, name=None, content=DOCX):
+    def _add_file(self, name=None, content=DOCX, owner=None):
+        """新增制度文件；owner 传入账号即同时指派为文件负责人（须持
+        can_edit 编制授权）"""
         self.file_seq += 1
         name = name or f'文件{self.file_seq}.docx'
-        upload = SimpleUploadedFile(name, content)
+        payload = {'file': SimpleUploadedFile(name, content)}
+        if owner:
+            payload['owner_id'] = str(owner.id)
         resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/create/',
-            {'file': upload})
+            f'/institution/manuals/{self.manual.id}/files/create/', payload)
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
@@ -132,7 +134,8 @@ class FileManageTests(MultiFileBase):
         self.assertLessEqual({'file_add', 'upload_original'}, actions)
 
     def test_list_ordered_with_draft_and_occupancy(self):
-        first = self._add_file('甲.docx')
+        # 会话开启要求负责人独占：甲指派 editor 为文件负责人
+        first = self._add_file('甲.docx', owner=self.editor)
         second = self._add_file('乙.docx')
         self._set_password()
         resp = self._start_session(file_id=first['id'])
@@ -202,7 +205,7 @@ class FileManageTests(MultiFileBase):
         self.assertIn('最后一份', resp.json()['error'])
 
     def test_remove_file_with_active_session_rejected(self):
-        data = self._add_file()
+        data = self._add_file(owner=self.editor)
         self._add_file()
         self._set_password()
         resp = self._start_session(file_id=data['id'])
@@ -229,8 +232,8 @@ class CrossManualFileAccessTests(MultiFileBase):
         super().setUp()
         self.other_manual = Manual.objects.create(
             name='另一手册', code='OT-100',
-            owner_type=Manual.OWNER_SECTION, owner_name='乙科室',
-            tenant_id='deptA')
+            org_type=Manual.OWNER_SECTION, org_name='乙科室',
+            owner=self.manager, tenant_id='deptA')
         upload = SimpleUploadedFile('别家.docx', DOCX)
         resp = self.manager_client.post(
             f'/institution/manuals/{self.other_manual.id}/files/create/',
@@ -259,7 +262,7 @@ class CrossManualFileAccessTests(MultiFileBase):
 
     def test_cross_manual_save_rejected(self):
         """跨制度保存：文件不属于 URL 中的制度，不得落任何草稿"""
-        self._add_file()
+        self._add_file(owner=self.editor)
         self._set_password()
         resp = self._start_session()
         self.assertFalse(has_error(resp), resp.content)
@@ -277,18 +280,30 @@ class ParallelEditTests(MultiFileBase):
 
     def setUp(self):
         super().setUp()
-        self.file_a = self._add_file('甲.docx')
-        self.file_b = self._add_file('乙.docx')
+        self.file_a = self._add_file('甲.docx', owner=self.editor)
+        self.file_b = self._add_file('乙.docx', owner=self.editor2)
         self._set_password()
 
     def test_same_file_single_writer(self):
+        """单写以文件为单位：同账号复用同一会话（多标签）；其他编制授权
+        账号因非负责人被负责人独占拒绝（单写由负责人身份保证）"""
         resp = self._start_session(client=self.editor_client,
                                    file_id=self.file_a['id'])
         self.assertFalse(has_error(resp), resp.content)
+        key = get_data(resp)['session_key']
+        # 同账号再次开启：复用同一活跃会话，不产生第二个写者
+        resp = self._start_session(client=self.editor_client,
+                                   file_id=self.file_a['id'])
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(get_data(resp)['session_key'], key)
+        # editor2 持编制授权但非该文件负责人：负责人独占拒绝
         resp = self._start_session(client=self.editor2_client,
                                    file_id=self.file_a['id'])
         self.assertTrue(has_error(resp))
-        self.assertIn('进行中的编辑会话', resp.json()['error'])
+        self.assertIn('无权限', resp.json()['error'])
+        # 该文件活跃会话仍只有 editor 一条
+        self.assertEqual(ManualEditSession.objects.filter(
+            file_id=self.file_a['id'], revoked_at__isnull=True).count(), 1)
 
     def test_different_files_edit_in_parallel(self):
         """不同文件可由不同账号并行编辑，互不占用"""
@@ -354,7 +369,7 @@ class WholePublishTests(MultiFileBase):
 
     def setUp(self):
         super().setUp()
-        self.file_a = self._add_file('甲.docx', DOCX + b'-a')
+        self.file_a = self._add_file('甲.docx', DOCX + b'-a', owner=self.editor)
         self.file_b = self._add_file('乙.docx', DOCX + b'-b')
         self._set_password()
 
@@ -527,11 +542,9 @@ class WholePublishTests(MultiFileBase):
             f'files/{snapshot["id"]}/download/')
         self.assertEqual(resp.status_code, 200)
 
-    def test_version_files_visible_to_viewer_role(self):
-        view_role = make_role()
-        self.manual.view_roles.add(view_role)
-        viewer = make_user('v', tenant_id='deptY', perms=[PERM_VIEW],
-                           roles=[view_role])
+    def test_version_files_visible_to_viewer_grant(self):
+        viewer = make_user('v', tenant_id='deptY', perms=[PERM_VIEW])
+        make_grant(self.manual, viewer, can_view=True)
         resp = self._publish(note='v1')
         self.assertFalse(has_error(resp), resp.content)
         v1 = ManualVersion.objects.get(manual=self.manual)
@@ -542,11 +555,11 @@ class WholePublishTests(MultiFileBase):
 
 
 class WholeRollbackTests(MultiFileBase):
-    """整套回退：按版本快照重建草稿集合"""
+    """整套回退：按版本快照重建草稿集合（所有者/管理员的管理动作）"""
 
     def setUp(self):
         super().setUp()
-        self.file_a = self._add_file('甲.docx', DOCX + b'-a')
+        self.file_a = self._add_file('甲.docx', DOCX + b'-a', owner=self.editor)
         self.file_b = self._add_file('乙.docx', DOCX + b'-b')
         self._set_password()
         resp = post_json(self.publisher_client,
@@ -579,8 +592,8 @@ class WholeRollbackTests(MultiFileBase):
         resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/files/{self.file_b["id"]}/remove/', {})
         self.assertFalse(has_error(resp), resp.content)
-        # 整套回退到 v1
-        resp = post_json(self.editor_client,
+        # 整套回退到 v1（所有者执行：回退重建全部草稿并撤销全部会话）
+        resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/draft/from-version/',
                          {'version_id': self.v1.id})
         self.assertFalse(has_error(resp), resp.content)
@@ -611,22 +624,30 @@ class WholeRollbackTests(MultiFileBase):
     def test_rollback_rejected_for_other_manual_version(self):
         other = Manual.objects.create(
             name='别家手册', code='OT-200',
-            owner_type=Manual.OWNER_SECTION, owner_name='乙科室',
+            org_type=Manual.OWNER_SECTION, org_name='乙科室',
             tenant_id='deptA')
         foreign_version = ManualVersion.objects.create(
             manual=other, version_no=1, file_path='versions/x/y.docx',
             original_name='x.docx', published_by=self.publisher)
-        resp = post_json(self.editor_client,
+        resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/draft/from-version/',
                          {'version_id': foreign_version.id})
         self.assertTrue(has_error(resp))
+
+    def test_rollback_rejected_for_editor_without_manage(self):
+        """仅持编制授权（非所有者/管理员）不得触发整套回退"""
+        resp = post_json(self.editor_client,
+                         f'/institution/manuals/{self.manual.id}/draft/from-version/',
+                         {'version_id': self.v1.id})
+        self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
 
 
 class LegacySingleFileDelegationTests(MultiFileBase):
     """过渡期旧单文件接口：单文件委托、多文件拒绝"""
 
     def test_legacy_apis_delegate_to_single_file(self):
-        data = self._add_file('唯一.docx')
+        data = self._add_file('唯一.docx', owner=self.editor)
         self._set_password()
         # 旧 draft 详情
         resp = self.editor_client.get(

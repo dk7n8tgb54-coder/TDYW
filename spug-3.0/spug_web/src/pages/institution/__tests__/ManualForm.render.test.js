@@ -2,9 +2,11 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 编辑弹窗权限门控行为：角色可选项端点以 institution.manual.config 门控，
- * 无 config 权限的 add/edit 用户打开弹窗不得触发该请求（拦截器会弹
- * 权限拒绝），角色选择框隐藏而非恒空展示。
+ * 编辑弹窗渲染行为（2026-10-31 授权模型改造更新）：旧「角色关联」字段
+ * 已随后端 M2M 移除——表单不再请求 /api/institution/roles/，也不再渲染
+ * 查看/编制/发布角色选择框；业务归属字段为 org_type/org_name（原
+ * owner_* 更名，标签仍为 业务归属/归属单位）。手册级账号授权由详情页
+ * 「权限配置」页签逐本维护。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -21,18 +23,18 @@ jest.mock('libs', () => ({
 }));
 
 jest.mock('../store', () => ({
-  record: {id: 3, name: '部门管理手册', owner_type: 'department', status: 'active',
-    editor_can_view_published: true,
-    view_roles: [{id: 1, name: '查看角色'}],
-    edit_roles: [], publish_roles: []},
-  categories: [],
+  record: {id: 3, name: '部门管理手册', org_type: 'section',
+    org_name: '某科室', status: 'active',
+    editor_can_view_published: true},
+  categories: [{id: 1, name: '部门手册', is_active: true}],
   formVisible: false,
   fetchCategories: jest.fn(),
 }));
 
-const {http, hasPermission} = require('libs');
+const {http} = require('libs');
+const store = require('../store');
 
-describe('ManualForm 角色请求门控', () => {
+describe('ManualForm 渲染（org 字段与旧角色字段移除）', () => {
   let container;
   let ManualForm;
   beforeAll(() => {
@@ -57,29 +59,35 @@ describe('ManualForm 角色请求门控', () => {
     return document.body.textContent;
   }
 
-  it('config 权限用户：请求角色可选项并渲染三个角色选择框', () => {
-    hasPermission.mockImplementation(() => true);
-    const text = renderForm();
-    expect(http.get).toHaveBeenCalledWith('/api/institution/roles/');
-    expect(text).toContain('查看角色');
-    expect(text).toContain('编制角色');
-    expect(text).toContain('发布角色');
-  });
-
-  it('无 config 权限：不请求角色、角色选择框隐藏（不恒空展示）', () => {
-    hasPermission.mockImplementation(
-      code => code !== 'institution.manual.config');
+  it('不再请求旧角色端点 /api/institution/roles/，角色选择框不渲染', () => {
     const text = renderForm();
     const roleCalls = http.get.mock.calls.filter(
       ([url]) => url === '/api/institution/roles/');
     expect(roleCalls).toHaveLength(0);
-    // 「查看角色」等词被"编制者可见发布版"的说明文案包含，用隐藏字段
-    // 特有的标签/占位文案断言
     expect(text).not.toContain('选择平台级');
     expect(text).not.toContain('编制角色');
     expect(text).not.toContain('发布角色');
-    // 其余表单字段不受影响
+  });
+
+  it('业务归属/归属单位按 org_type/org_name 编辑回填，仅请求类别', () => {
+    const text = renderForm();
+    expect(text).toContain('业务归属');
+    expect(text).toContain('归属单位');
+    // 编辑回填：org_name 现值出现在 Select/输入框值中（回填自 store.record）
+    const inputs = Array.from(document.querySelectorAll('input'));
+    const orgInput = inputs.find(i => i.value === '某科室');
+    expect(orgInput).not.toBeUndefined();
+    // 类别字典照常拉取（走 store.fetchCategories）
+    expect(store.fetchCategories).toHaveBeenCalled();
+  });
+
+  it('新建缺省业务归属为部门；手册名称等基础字段照常渲染', () => {
+    store.record = {};
+    const text = renderForm();
     expect(text).toContain('手册名称');
     expect(text).toContain('业务归属');
+    expect(text).toContain('编制者可见发布版');
+    store.record = {id: 3, name: '部门管理手册', org_type: 'section',
+      org_name: '某科室', status: 'active', editor_can_view_published: true};
   });
 });

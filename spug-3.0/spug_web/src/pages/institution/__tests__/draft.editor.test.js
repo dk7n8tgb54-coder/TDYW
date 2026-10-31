@@ -61,8 +61,17 @@ afterEach(() => {
 });
 
 describe('OnlyOfficeEditor 组件', () => {
-  it('api.js 加载失败呈现错误 Alert 与重试按钮（不静默白屏）', async () => {
-    const container = renderEditor();
+  it('api.js 加载失败呈现错误 Alert 与重试按钮，并上报 onUnavailable（不静默白屏）', async () => {
+    const onUnavailable = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(
+        React.createElement(OnlyOfficeEditor, {
+          editorConfig: EDITOR_CONFIG, onUnavailable,
+        }),
+        container);
+    });
     // 组件创建了 script 标签，jsdom 不会真正加载：手动触发 onerror
     const script = document.body.querySelector(
       'script[src="http://onlyoffice.test/web-apps/apps/api/documents/api.js"]');
@@ -71,9 +80,42 @@ describe('OnlyOfficeEditor 组件', () => {
       script.dispatchEvent(new Event('error'));
     });
     expect(container.textContent).toContain('在线编辑器不可用');
-    expect(container.textContent).toContain('本机编辑降级');
+    expect(container.textContent).toContain('本机编辑');
+    // 工作台据此提供「切换到本机编辑」入口（即使上报不可靠，切换控件
+    // 也独立渲染——此处钉死上报链路本身）
+    expect(onUnavailable).toHaveBeenCalled();
   });
 
+  it('onDocumentReady 上报 onReady（重试成功后清除失败标记）', async () => {
+    let events = null;
+    class FakeDocEditor {
+      constructor(_placeholderId, config) { events = config.events; }
+      destroyEditor() {}
+    }
+    window.DocsAPI = {DocEditor: FakeDocEditor};
+    const onReady = jest.fn();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(
+        React.createElement(OnlyOfficeEditor, {
+          editorConfig: EDITOR_CONFIG, onReady,
+        }),
+        container);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(events).not.toBeNull();
+    act(() => { events.onDocumentReady(); });
+    expect(onReady).toHaveBeenCalledTimes(1);
+    act(() => {
+      ReactDOM.unmountComponentAtNode(container);
+    });
+  });
+});
+
+describe('OnlyOfficeEditor 组件（初始化与卸载）', () => {
   it('DocsAPI 就绪时初始化编辑器，占位节点含 document_key 且 config 带 token', async () => {
     const created = [];
     class FakeDocEditor {

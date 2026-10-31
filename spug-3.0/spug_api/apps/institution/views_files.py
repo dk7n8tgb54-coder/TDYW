@@ -15,9 +15,11 @@ from apps.account.models import User
 from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, auth, json_response
 
-from . import revision_services, serializers, services, storage
-from .models import Manual, ManualDraft, ManualFile, ManualOriginal
-from .views import _check_manage_or_edit_role, _manual_from_request
+from . import authorization_services, revision_services, serializers, \
+    services, storage
+from .models import Manual, ManualAuthorization, ManualDraft, ManualFile, \
+    ManualOriginal
+from .views import _check_owner_or_admin, _manual_from_request
 logger = logging.getLogger(__name__)
 
 
@@ -30,10 +32,8 @@ def _file_from_request(request, manual, fid):
 
 
 def _can_view_workspace(user, manual):
-    """草稿工作区/待发布清单可见：编制、发布角色或管理权限"""
-    return (services.can_manage_manual(user) or
-            services.can_edit_draft(user, manual) or
-            services.can_publish(user, manual))
+    """草稿工作区/待发布清单可见：管理员/所有者/编制或发布授权"""
+    return authorization_services.can_view_workspace(user, manual)
 
 
 def _session_payload(file_entry, request):
@@ -78,6 +78,22 @@ def _resolve_owner(owner_id):
     return owner, None
 
 
+def _resolve_assignee(manual, owner_id):
+    """解析分工负责人并校验其持有该手册编制授权（can_edit）
+
+    分工写路径（新增文件携带负责人 / 单与批量分工）统一入口：
+    被指派账号必须持有该手册 can_edit 授权（负责人独占编辑的资格
+    前提）；未传 owner_id（清空/不指定）直接通过。
+    """
+    owner, err = _resolve_owner(owner_id)
+    if err:
+        return None, err
+    err = authorization_services.validate_assignee_for_manual(manual, owner)
+    if err:
+        return None, err
+    return owner, None
+
+
 # ---------------------------------------------------------------------------
 # 制度文件条目（多文件）
 
@@ -85,11 +101,11 @@ def _resolve_owner(owner_id):
 class ManualFileListView(View):
     """待发布文件清单：有序文件 + 各自草稿状态与编辑占用 + 文件分工
 
-    查看角色即可见文件结构（详情页展示发布版清单的入口）与文件分工
+    仅查看授权即可见文件结构（详情页展示发布版清单的入口）与文件分工
     （负责人/分工说明）；草稿修订号、编辑占用与"提交编制"状态属草稿
-    域信息，仅对编制/发布/管理者填充。草稿缺失的文件行附带
-    draft_recovery（恢复途径提示：当前生效版本快照或初始原稿），
-    供草稿工作台渲染对应恢复入口，不静默回退到原稿。
+    域信息，仅对工作区可见（管理员/所有者/编制或发布授权）者填充。
+    草稿缺失的文件行附带 draft_recovery（恢复途径提示：当前生效版本
+    快照或初始原稿），供草稿工作台渲染对应恢复入口，不静默回退到原稿。
     """
 
     @auth('institution.manual.view')
@@ -97,7 +113,7 @@ class ManualFileListView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_manual(request.user, manual):
+        if not authorization_services.can_view_manual(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         with_status = _can_view_workspace(request.user, manual)
         items = []
@@ -122,7 +138,8 @@ class ManualFileCreateView(View):
     """新增制度文件：multipart 上传 -> 条目+原稿+草稿（追加到清单末尾）
 
     可选 multipart 字段 owner_id / note：新增时即指定文件负责人与分工
-    说明（不传即"未分配"，之后可经 assignment 接口改派）。
+    说明（不传即"未分配"，之后可经 assignment 接口改派）。被指派账号
+    必须持有该手册 can_edit 编制授权。
     """
 
     @auth('institution.manual.upload')
@@ -130,7 +147,7 @@ class ManualFileCreateView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         upload = request.FILES.get('file')
@@ -138,7 +155,7 @@ class ManualFileCreateView(View):
             return json_response(error='请选择要上传的文件')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能新增文件')
-        owner, err = _resolve_owner(request.POST.get('owner_id'))
+        owner, err = _resolve_assignee(manual, request.POST.get('owner_id'))
         if err:
             return json_response(error=err)
         note = (request.POST.get('note') or '').strip()
@@ -174,11 +191,12 @@ class AssignmentOwnerOptionsView(View):
     其权限：
     - 页面权限与分工写路径一致：draft_edit（单/批量分工）或 upload
       （新增文件携带负责人）任一；
-    - 业务口径与写接口相同：管理权限或手册编制角色
-      （_check_manage_or_edit_role）；
-    - 候选=全部启用账号，与 _resolve_owner 的"有效账号"口径一致；
-      本模块授权按账号角色判定、tenant_id 不参与归属，跨租户账号
-      可作负责人是预期行为；
+    - 业务口径与写接口相同：手册所有者或制度管理员
+      （_check_owner_or_admin，2026-10-31 起）；
+    - 候选=持有该手册 can_edit 编制授权的启用账号（2026-10-31 起）——
+      负责人独占编辑要求被指派账号具备编制资格，与
+      _resolve_assignee 的校验口径一致；本模块授权按账号授权行判定、
+      tenant_id 不参与归属，跨租户账号可作负责人是预期行为；
     - 只返回 id + name（昵称，空则账号名），不回传其他账号字段。
     """
 
@@ -187,20 +205,24 @@ class AssignmentOwnerOptionsView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
-        users = User.objects.filter(is_active=True).order_by('id')
+        rows = (ManualAuthorization.objects.filter(
+            manual=manual, can_edit=True).select_related('account')
+            .order_by('account_id'))
         return json_response(data=[
-            {'id': u.id, 'name': u.nickname or u.username} for u in users])
+            {'id': row.account_id,
+             'name': row.account.nickname or row.account.username}
+            for row in rows if row.account.is_active])
 
 
 class ManualFileAssignmentView(View):
     """指定/改派/清空文件负责人（文件分工；分工单位=整份文件）
 
     请求体 owner_id 必须显式携带（null=清空为"未分配"）+ note 分工说明。
-    权限=模块 draft_edit 权限 +（管理权限或手册编制角色）；指定负责人
-    不授予该账号任何超出其手册角色的权限。
+    权限=模块 draft_edit 权限 +（手册所有者或制度管理员）；被指派账号
+    必须持有该手册 can_edit 编制授权，此后仅负责人可编辑该文件。
     """
 
     @auth('institution.manual.draft_edit')
@@ -209,7 +231,7 @@ class ManualFileAssignmentView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, resp = _file_from_request(request, manual, fid)
@@ -221,7 +243,7 @@ class ManualFileAssignmentView(View):
         ).parse(request.body)
         if error:
             return json_response(error=error)
-        owner, err = _resolve_owner(form.owner_id)
+        owner, err = _resolve_assignee(manual, form.owner_id)
         if err:
             return json_response(error=err)
         note = (form.note or '').strip()
@@ -263,7 +285,7 @@ def _validate_batch_assignment(manual, form):
     if missing:
         return None, None, None, json_response(
             error='所选文件不存在或不属于当前制度')
-    owner, err = _resolve_owner(form.owner_id)
+    owner, err = _resolve_assignee(manual, form.owner_id)
     if err:
         return None, None, None, json_response(error=err)
     note = (form.note or '').strip()
@@ -279,11 +301,12 @@ class ManualFileBatchAssignmentView(View):
       null=清空）+ note（≤500 字，统一应用到所选文件）。
     - 逐文件校验归属：任一文件不存在或不属于 URL 中的制度，整批拒绝
       （全成功或全失败，绝不部分生效）；权限与单文件分工同口径
-      （draft_edit + 管理权限或手册编制角色）。
+      （draft_edit + 手册所有者或制度管理员）；被指派账号必须持有
+      该手册 can_edit 编制授权。
     - 事务内逐文件复用 services.assign_file_owner（负责人变化时同步
-      清除"提交编制"交接记录），每份文件写一条 file_assign 操作记录
-      （batch=True 标记），另记一条模块审计事件。
-    - 指定负责人不授予任何超出手册角色的权限。
+      清除"提交编制"交接记录并撤销该文件活跃编辑会话），每份文件写
+      一条 file_assign 操作记录（batch=True 标记），另记一条模块审计
+      事件。
     """
 
     @auth('institution.manual.draft_edit')
@@ -292,7 +315,7 @@ class ManualFileBatchAssignmentView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         form, error = JsonParser(
@@ -333,8 +356,9 @@ class ManualFileBatchAssignmentView(View):
 class FileRevisionStartView(View):
     """开始修订（已发布文件的真实状态动作，不是页面文案切换）
 
-    权限=模块 draft_edit + 手册编制角色（修订由编制者开启；发布者从
-    详情待发布状态与核对入口发布，不需要开启修订或编辑会话）。
+    权限=模块 draft_edit + 负责人独占编辑（can_edit_file：编制授权 +
+    该文件负责人；修订由负责人开启，发布者从详情待发布状态与核对入口
+    发布，不需要开启修订或编辑会话）。
     语义见 revision_services.start_file_revision：
     - 修订已在进行中：幂等返回 resumed（前端显示"继续编辑"直接复用）；
     - 工作副本健康：开启修订并原样复用，不复制新快照；
@@ -349,11 +373,11 @@ class FileRevisionStartView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
         form, error = JsonParser(
             Argument('confirm_repair', type=bool, required=False,
                      default=False),
@@ -384,8 +408,9 @@ class ManualFileSubmitView(View):
     后端记录提交时草稿修订号与时间；草稿再次保存/重建后提交状态按
     修订号比对自动失效（计算式，见 services.file_submission_state）。
     无有效草稿或仍有活跃编辑会话时拒绝。放行口径=文件负责人 或
-    管理权限 或 手册编制角色（负责人不要求持有编制角色——提交是状态
-    交接而非编辑操作）；第一阶段不新增发布阻断条件。
+    手册所有者 或 制度管理员（提交是状态交接而非编辑操作；2026-10-31
+    起负责人必持编制授权——分工写路径已校验，但提交本身不要求
+    draft_edit 页面权限）；不新增发布阻断条件。
     """
 
     @auth('institution.manual.view')
@@ -397,9 +422,10 @@ class ManualFileSubmitView(View):
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
-        is_owner = file_entry.owner_id == request.user.id
-        if not (is_owner or services.can_manage_manual(request.user) or
-                services.can_edit_draft(request.user, manual)):
+        is_assignee = file_entry.owner_id == request.user.id
+        if not (is_assignee or
+                authorization_services.is_manual_owner(request.user, manual) or
+                authorization_services.is_institution_admin(request.user)):
             return json_response(error='手册不存在或无权限访问')
         file_entry, err = services.submit_file_compilation(
             file_entry, request.user)
@@ -425,7 +451,7 @@ class ManualFileRenameView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, resp = _file_from_request(request, manual, fid)
@@ -453,7 +479,7 @@ class ManualFileMoveView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, resp = _file_from_request(request, manual, fid)
@@ -481,7 +507,7 @@ class ManualFileRemoveView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, resp = _file_from_request(request, manual, fid)
@@ -515,7 +541,7 @@ class OriginalsOverviewView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_manual(request.user, manual):
+        if not authorization_services.can_view_manual(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         rows = serializers.to_originals_overview(manual)
         if _can_view_workspace(request.user, manual):
@@ -563,7 +589,7 @@ class FileOriginalUploadView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        deny = _check_manage_or_edit_role(manual, request.user)
+        deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
         file_entry, resp = _file_from_request(request, manual, fid)

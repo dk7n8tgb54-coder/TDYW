@@ -15,8 +15,10 @@
  * - 候选加载失败在弹窗内展示明确错误与重试入口（请求带
  *   skipErrorNotification，HTTP 拦截器不再弹同一条错误），绝不把失败
  *   静默表现为空候选列表。
- * - 指定负责人不授予任何编辑权限（编辑仍要求模块权限与手册编制角色），
- *   后端独立校验；本弹窗只提交数据，不做权限判断的替代品。
+ * - 指定负责人不授予任何权限本身，但负责人独占编辑（2026-10-31 授权
+ *   模型）：负责人须持有本手册编制资格（授权 can_edit），候选已按此
+ *   过滤（assignment-owners 候选=持本手册编制授权的启用账号），后端
+ *   在写路径独立校验；本弹窗只提交数据，不做权限判断的替代品。
  */
 import React from 'react';
 import { Modal, Select, Input, Form, Alert, Button } from 'antd';
@@ -103,8 +105,8 @@ export default class FileAssignmentModal extends React.Component {
           }}>
           <Form.Item name="owner_id" label="负责人"
             extra={isBatch
-              ? '统一设置所选文件的负责人；清空即全部未分配。负责人身份不授予编辑权限'
-              : '负责人完成编制后可在文件清单提交编制；负责人身份不授予编辑权限'}>
+              ? '统一设置所选文件的负责人；清空即全部未分配。负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'
+              : '负责人完成编制后可在文件清单提交编制；负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'}>
             <Select allowClear showSearch optionFilterProp="children"
               loading={this.state.fetchingOwners}
               placeholder={isBatch ? '选择负责人账号（清空即全部未分配）'

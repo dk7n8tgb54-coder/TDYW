@@ -20,6 +20,23 @@
  *   离开保护（confirmFileSave：切换文件/返回详情，确认成功但不撤销
  *   会话）共用；editorDirty 闩锁 + saveConfirmed 驱动工作台独立的
  *   "制度草稿保存状态"展示，未确认落盘绝不显示"已保存"。
+ * - no_changes 沉降复核（2026-10-31 竞态修复）：DS 对 forcesave 的
+ *   no_changes 应答只反映命令处理瞬间的缓冲状态，与命令几乎同拍敲入的
+ *   修改可能经事件通道晚于命令注册（dev 实测保存丢失：DS 误答
+ *   no_changes → 前端轮换 key 销毁编辑器 → 在途修改随收尾回调被
+ *   409 丢弃）。因此 no_changes 不即时采信：编辑器实时脏态
+ *   （editorLiveState，onDocumentStateChange 的原始上报，不受
+ *   markSaveConfirmed 清除影响）已报脏即判在途；短沉降窗后再次
+ *   forcesave 复核，仍 no_changes 且编辑器不报脏才确认；
+ *   switchEditMode 在确认返回与轮换之间编辑器翻脏则重走一次确认。
+ * - 本机编辑（2026-10-31 恢复/完善）：编辑方式按文件切换
+ *   （switchEditMode：在线 ⇄ 本机）。用户主动切到本机前必须先经落盘
+ *   确认链路，再以重取编辑配置轮换 document key，让旧编辑实例的回调
+ *   在服务端失效（会话保留供本机上传使用）；下载草稿成功时记录基线
+ *   修订号（localBaselines），上传保存必须携带该基线（uploadLocalDraft，
+ *   绝不改用上传前刷新得到的较新修订号），服务端草稿已推进时后端拒绝
+ *   覆盖。服务未配置/配置加载失败/编辑器加载失败的文件恒为本机方式，
+ *   本机入口不依赖任何失败上报的可靠性。
  */
 import { observable, action, computed } from 'mobx';
 import { http } from 'libs';
@@ -67,15 +84,48 @@ class DraftStore {
   // onDocumentStateChange(true) 置位；false 事件不清除——DS 的"所有更改
   // 已保存"只代表文档服务自身缓存，服务端确认落盘成功才清除（markSaveConfirmed）。
   @observable editorDirty = {};
+  // 编辑器实时脏态（{ [fileId]: true|false }）：onDocumentStateChange 的
+  // 原始上报，true/false 都记录。与 editorDirty 闩锁并行、语义不同：
+  // 闩锁只在服务端确认落盘成功（markSaveConfirmed）时清除，而确认成功
+  // 判定本身需要知道"此刻编辑器是否仍报未保存修改"——DS 的 no_changes
+  // 应答只反映命令处理瞬间，修改可能晚于命令注册（dev 实测 2026-10-31
+  // 保存丢失），实时脏态不受 markSaveConfirmed 清除影响，是确认链
+  // 沉降复核与 switchEditMode 轮换闸门的判据。编辑器实例就绪复位为
+  // false（markEditorReady），随会话/页面复位清除。
+  @observable editorLiveState = {};
   // 服务端确认落盘记录（{ [fileId]: {revision, at, by} }）：只有 forcesave
   // 确认链路成功后写入，供保存状态显示"已保存到制度草稿：rN、时间"。
   @observable saveConfirmed = {};
+  // 每文件编辑方式（'online' | 'local'，缺省 'online'）：仅当在线编辑
+  // 配置可用时生效，服务未配置/配置加载失败/编辑器加载失败一律回落本机
+  @observable editModes = {};
+  // 在线编辑能力标记（{ [fileId]: true }）：editor-config 返回可用时置位。
+  // 切到本机时配置缓存被清除（旧配置不得被再次渲染使用），能力标记保留，
+  // 供本机面板继续提供「切回在线编辑」入口
+  @observable onlineAvailable = {};
+  // 编辑器脚本/文档加载失败标记（{ [fileId]: true }，OnlyOfficeEditor
+  // 上报，编辑器就绪或重新取配置后清除）：工作台据此提供切换到本机的
+  // 显式入口；即使该上报不可靠，编辑方式切换控件也独立于它始终渲染
+  @observable editorLoadFailed = {};
+  // 本机编辑基线修订号（{ [fileId]: revision }）：下载草稿成功时记录，
+  // 上传保存必须携带该基线（绝不改用上传前刷新得到的较新修订号）；
+  // 上传成功（基线已消费）或服务端草稿已推进（基线过期）后清除
+  @observable localBaselines = {};
+  // 保存确认失败后的重试语义（''=重试保存并结束编辑 | 'switch_local'
+  // =重试切换到本机 | 'download_draft'=重试下载草稿），驱动工作台重试
+  // 按钮的文案与分发
+  @observable finishingErrorKind = '';
   // 落盘确认轮询参数（生产默认 2s×15 次≈30s；测试可调小加速）
   pollIntervalMs = 2000;
   pollMaxAttempts = 15;
   // 落盘确认的 forcesave 复核轮数上限：每轮"受理→轮询修订号推进→再次
   // forcesave 复核"，只有 DS 报告 no_changes 才认定完成（见 _confirmForcesave）
   confirmMaxRounds = 3;
+  // no_changes 沉降复核窗口（生产默认 1.2s）：给与 forcesave 命令几乎
+  // 同拍敲入的修改留出"经事件通道注册 + documentState 事件到达"的时间，
+  // 之后再次 forcesave 复核（一次性沉降复核，不属于固定周期轮询）；
+  // 测试可调小（见 _settleNoChanges）
+  confirmSettleMs = 1200;
   // finish 序号：reset/新一次 finish/confirm 使旧的轮询与收尾失效
   finishSeq = 0;
 
@@ -151,11 +201,18 @@ class DraftStore {
     delete this.editorConfigs[fileId];
     delete this.editorErrors[fileId];
     delete this.editorDirty[fileId];
+    delete this.editorLiveState[fileId];
     delete this.saveConfirmed[fileId];
+    // 编辑方式与本机编辑状态随会话一并复位（重开会话后回到缺省在线）
+    delete this.editModes[fileId];
+    delete this.onlineAvailable[fileId];
+    delete this.editorLoadFailed[fileId];
+    delete this.localBaselines[fileId];
     if (this.editorLoadingId === fileId) this.editorLoadingId = null;
     if (this.finishingErrorFileId === fileId) {
       this.finishingErrorFileId = null;
       this.finishingError = '';
+      this.finishingErrorKind = '';
     }
     sessionStorage.removeItem(`${SESSION_STORAGE_KEY_PREFIX}${this.id}_${fileId}`);
   }
@@ -167,7 +224,18 @@ class DraftStore {
    */
   @action.bound
   setEditorDirty(fileId, dirty) {
+    // 实时脏态忠实记录 DS 的原始上报（true/false 都写）；闩锁仍只由
+    // true 置位、服务端确认落盘成功或会话/页面复位清除——两份状态
+    // 语义不同，确认链沉降复核与轮换闸门只读实时脏态（不受
+    // markSaveConfirmed 清除影响），UI 保存状态展示只读闩锁。
+    this.editorLiveState[fileId] = !!dirty;
     if (dirty) this.editorDirty[fileId] = true;
+  }
+
+  /** 编辑器实例就绪：新实例尚无未保存修改，实时脏态复位（旧实例残留） */
+  @action.bound
+  markEditorReady(fileId) {
+    this.editorLiveState[fileId] = false;
   }
 
   /** 服务端确认落盘成功：记录确认结果并清除该文件的未确认修改闩锁 */
@@ -179,6 +247,130 @@ class DraftStore {
       by: draftData ? draftData.last_saved_by_name : null,
     };
     this.editorDirty[fileId] = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // 编辑方式切换（在线 ONLYOFFICE ⇄ 本机下载-编辑-上传）
+
+  /**
+   * 当前生效编辑方式：在线编辑配置可用时取 editModes（缺省在线），否则
+   * 恒为本机——服务未配置、配置加载失败（含会话类失败清会话后）都回落
+   * 本机，本机入口不依赖任何失败上报的可靠性。
+   */
+  effectiveEditMode(fileId) {
+    const config = this.editorConfigs[fileId];
+    if (config && config.editor_available) {
+      return this.editModes[fileId] || 'online';
+    }
+    return 'local';
+  }
+
+  /** 编辑器脚本/文档加载失败上报（闩锁；编辑器就绪或重新取配置后清除） */
+  @action.bound
+  markEditorLoadFailed(fileId) {
+    this.editorLoadFailed[fileId] = true;
+  }
+
+  @action.bound
+  clearEditorLoadFailed(fileId) {
+    delete this.editorLoadFailed[fileId];
+  }
+
+  /** 下载草稿成功：记录该文件草稿修订号作为本次本机编辑的基线 */
+  @action.bound
+  recordLocalBaseline(fileId, revision) {
+    if (revision == null) return;
+    this.localBaselines[fileId] = revision;
+  }
+
+  /**
+   * 服务端轮换 document key（切到本机编辑前使旧编辑实例的回调失效）：
+   * 重取编辑配置即轮换会话 current_doc_key，旧 key 的迟到回调因 key 不符
+   * 被后端 409 拒绝——这是服务端认可的失效方式，不依赖隐藏 iframe 或
+   * 前端模式状态。返回的配置不缓存、不用于渲染（本机编辑不需要）。
+   * 请求失败向上抛出：旧 key 仍有效时绝不允许切走，否则旧编辑实例的
+   * 迟到回调会覆盖本机上传的草稿。
+   */
+  async rotateEditorKey(fileId) {
+    const sessionKey = this.sessionKeyOf(fileId);
+    if (!sessionKey) throw new Error('缺少编辑会话');
+    await http.get(
+      `/api/institution/manuals/${this.id}/files/${fileId}/draft/editor-config/` +
+      `?session_key=${sessionKey}`);
+  }
+
+  /**
+   * 切换指定文件的编辑方式（'online' | 'local'）。返回 {ok, reason}，
+   * 失败语境写入 finishingError（工作台呈现重试入口），不抛错。
+   *
+   * 切到本机（在线编辑进行中时）：
+   * 1) 先走落盘确认链路（confirmFileSave，确认成功但不撤销会话）——
+   *    确认失败留在在线编辑，会话与编辑器保留供重试；
+   * 2) 轮换闸门：确认返回与轮换之间编辑器实时脏态翻 true（确认链最后
+   *    一次复核之后的敲入）则重走一次确认——旧 key 轮换后在途修改必被
+   *    409 丢弃，绝不带着脏信号轮换；
+   * 3) 确认成功后服务端轮换 document key（rotateEditorKey）——失败同样
+   *    阻止切换（此刻旧实例回调仍会被接受，切走即留下覆盖窗口）；
+   * 4) 清除编辑配置缓存：在线编辑器随渲染分支卸载销毁，旧配置的
+   *    editor_token 绑定签发时修订号，不得被再次渲染使用。
+   * 全程不撤销会话——本机上传（multipart draft/save）依赖有效会话。
+   *
+   * 切回在线：清除编辑器失败标记并重新取编辑配置（本机期间修订号可能
+   * 已推进，缓存配置已失效），加载中由编辑区 Spin 呈现。
+   */
+  @action.bound
+  async switchEditMode(fileId, mode) {
+    if (this.finishingFileId) return {ok: false, reason: 'busy'};
+    if (!this.sessionKeyOf(fileId) || this.effectiveEditMode(fileId) === mode) {
+      return {ok: true};
+    }
+    if (mode === 'local') {
+      const config = this.editorConfigs[fileId];
+      if (config && config.editor_available) {
+        // 在线能力事实先行登记（配置缓存即将清除，本机面板据此提供
+        // 「切回在线编辑」入口，不依赖缓存或配置获取路径）
+        this.onlineAvailable[fileId] = true;
+        const ok = await this.confirmFileSave(
+          fileId, '切换到本机编辑', 'switch_local');
+        if (!ok) return {ok: false, reason: 'confirm_failed'};
+        // 轮换闸门（2026-10-31 竞态修复）：确认返回与轮换之间编辑器又
+        // 报出未保存修改（确认链最后一次复核之后的敲入，documentState
+        // 事件在确认返回前后才到达）——旧 key 轮换后该在途修改必被
+        // 后端 key 比对 409 丢弃，必须重走一次确认，干净后才允许轮换。
+        // 读实时脏态而非 editorDirty 闩锁：markSaveConfirmed 刚把闩锁
+        // 清除，闸门要抓的正是"清除之后/清除同拍"到达的脏事件。
+        if (this.editorLiveState[fileId]) {
+          const reok = await this.confirmFileSave(
+            fileId, '切换到本机编辑', 'switch_local');
+          if (!reok) return {ok: false, reason: 'confirm_failed'};
+        }
+        const seq = this.finishSeq;
+        try {
+          await this.rotateEditorKey(fileId);
+        } catch (e) {
+          if (seq !== this.finishSeq) return {ok: false, reason: 'cancelled'};
+          this.finishingErrorFileId = fileId;
+          this.finishingErrorKind = 'switch_local';
+          this.finishingError = '已取消切换到本机编辑：旧在线编辑实例的保存'
+            + '回调尚未在服务端失效，此时切走其迟到回调可能覆盖本机上传的'
+            + '草稿。会话与编辑器已保留，请重试。';
+          return {ok: false, reason: 'rotate_failed'};
+        }
+        if (seq !== this.finishSeq) return {ok: false, reason: 'cancelled'};
+      }
+      this.editModes[fileId] = 'local';
+      delete this.editorConfigs[fileId];
+      delete this.editorErrors[fileId];
+      delete this.editorDirty[fileId];
+      delete this.editorLiveState[fileId];
+    } else {
+      if (!this.onlineAvailable[fileId]) return {ok: false, reason: 'unavailable'};
+      this.editModes[fileId] = 'online';
+      delete this.editorLoadFailed[fileId];
+      delete this.editorConfigs[fileId];
+      this.fetchEditorConfig(fileId);
+    }
+    return {ok: true};
   }
 
   /**
@@ -217,6 +409,10 @@ class DraftStore {
     this.editorConfigs = {};
     this.editorErrors = {};
     this.editorLoadingId = null;
+    this.editModes = {};
+    this.onlineAvailable = {};
+    this.editorLoadFailed = {};
+    this.localBaselines = {};
     this.isFetching = true;
     this.error = '';
     return Promise.all([
@@ -314,6 +510,9 @@ class DraftStore {
       `/api/institution/manuals/${this.id}/files/${fileId}/draft/editor-config/?session_key=${sessionKey}`)
       .then(data => {
         this.editorConfigs[fileId] = data;
+        // 在线能力标记：本机面板据此继续提供「切回在线编辑」入口（配置
+        // 缓存在切到本机时会被清除，能力事实不能随之丢失）
+        if (data && data.editor_available) this.onlineAvailable[fileId] = true;
       })
       .catch(err => {
         const text = this.handleSessionRelatedError(fileId, err);
@@ -356,8 +555,13 @@ class DraftStore {
         return Promise.reject(this.verifyError);
       }
     } else {
+      // 负责人独占（2026-10-31）：会话开启=内容写路径，后端要求 编制授权
+      // + 该文件负责人。非深链进入时优先选择"有草稿且我是负责人"的文件
+      // 建立首个会话，避免把首个有草稿的他人负责文件当验证目标（必然被
+      // 后端拒绝，误报成密码/权限错误）。
       target = this.files.length
-        ? (this.files.find(f => f.draft) || this.files[0])
+        ? (this.files.find(f => f.draft && f.assignment && f.assignment.is_mine) ||
+          this.files.find(f => f.draft) || this.files[0])
         : null;
     }
     if (!target) {
@@ -407,17 +611,26 @@ class DraftStore {
       });
   }
 
-  /** 退出指定文件的编辑会话（显式按钮=服务端 revoke） */
+  /**
+   * 退出指定文件的编辑会话（服务端 revoke）。options.discard=false 仅由
+   * 「保存并结束编辑」成功路径（finishEditing）传入：显式告知服务端允许
+   * 本编辑实例（同一 current_doc_key）撤销后迟到的收尾回调落盘（幂等
+   * 跳过，或保存确认链最后一次复核之后、编辑器销毁之前的最后输入）。
+   * 缺省不携带=后端缺省 discard=true（撤销后收尾回调一律拒绝）——
+   * 「不保存并退出」等一切其他撤销路径必须维持该显式丢弃语义，不得改默认。
+   */
   @action.bound
-  exitFileSession(fileId) {
+  exitFileSession(fileId, options) {
     const sessionKey = this.sessionKeyOf(fileId);
     if (!sessionKey) return Promise.resolve();
     // axios.delete 的 body 须放 config.data。
     // 失败不吞错也不清本地会话（拦截器已提示）：保留 session_key 供重试，
     // 服务端会话在 DELETE 成功前仍占用单写位，成功提示由调用方给出。
+    const data = {session_key: sessionKey};
+    if (options && options.discard === false) data.discard = false;
     return http.delete(
       `/api/institution/manuals/${this.id}/files/${fileId}/draft/session/`,
-      {data: {session_key: sessionKey}})
+      {data})
       .then(() => this.clearSession(fileId));
   }
 
@@ -490,19 +703,54 @@ class DraftStore {
   }
 
   /**
+   * no_changes 沉降复核（2026-10-31 竞态修复，_confirmForcesave 专用）：
+   * DS 对 forcesave 的 no_changes 应答只反映命令处理瞬间的缓冲状态——
+   * 与命令几乎同拍敲入的修改可能经事件通道晚于命令注册（dev 实测：
+   * DS 误答 no_changes → 前端轮换 key 销毁编辑器 → 在途修改随收尾
+   * 回调被 409 丢弃）。因此 no_changes 不即时采信，按序三道判据：
+   * 1) 编辑器实时脏态已报脏（修改注册晚于命令，DS 应答已过时）→ 在途；
+   * 2) 短沉降窗（一次性等待，非固定周期轮询）后再次 forcesave 复核，
+   *    DS 改报受理（沉降窗内有修改注册）→ 在途；
+   * 3) 复核命令处理之后敲入的修改：documentState 事件在复核应答返回
+   *    前后到达，编辑器此刻仍报脏 → 在途。
+   * 三道判据全部干净（复核仍 no_changes 且编辑器不报脏）才认定确认。
+   * Returns:
+   *   {settled: true} 确认成功 | {settled: false} 修改在途，重走确认循环 |
+   *   {failed: true} forcesave 请求失败 | {cancelled: true} 已被新序列取代
+   */
+  async _settleNoChanges(fileId, sessionKey, seq) {
+    if (this.editorLiveState[fileId]) return {settled: false};
+    if (this.confirmSettleMs > 0) await this._delay(this.confirmSettleMs);
+    if (seq !== this.finishSeq) return {cancelled: true};
+    let recheck;
+    try {
+      recheck = await this._requestForcesave(fileId, sessionKey);
+    } catch (err) {
+      return {failed: true};
+    }
+    if (seq !== this.finishSeq) return {cancelled: true};
+    if (!(recheck && recheck.forcesave === 'no_changes')) {
+      return {settled: false};
+    }
+    if (this.editorLiveState[fileId]) return {settled: false};
+    return {settled: true};
+  }
+
+  /**
    * 落盘确认核心（"保存并结束编辑"与离开保护共用的唯一实现）：
-   * 循环触发 forcesave，直到 DS 报告 no_changes 才认定确认成功——
-   * no_changes 表示 DS 文档没有待落盘的修改，即编辑器内容已全部经回调
-   * 写入制度草稿，这是比"命令已受理"更强的服务端确认。
+   * 循环触发 forcesave，直到 DS 报告 no_changes 且经 _settleNoChanges
+   * 沉降复核仍然干净，才认定确认成功——no_changes 表示 DS 文档在命令
+   * 处理瞬间没有待落盘的修改，即编辑器内容已全部经回调写入制度草稿，
+   * 这是比"命令已受理"更强的服务端确认。
    *
    * 每轮：forcesave 受理 → 以响应携带的修订号为基线轮询草稿修订号推进
    * （回调真实落盘的标志）→ 推进后再次 forcesave 复核。复核的必要性：
    * 修订号推进也可能来自其他保存路径（如同账号其他页签的 multipart
    * 保存），若把它误判为本次回调落盘，会在编辑器内容尚未落盘时撤销
    * 会话/销毁编辑器造成丢失；只有 DS 报告 no_changes 才排除这种误判。
-   * 轮询超时后做一次最终 forcesave 复核：no_changes 仍认定成功（回调
-   * 内容与当前草稿一致被幂等跳过、修订号不推进的情形），仍受理则确认
-   * 失败——绝不冒充成功。
+   * 轮询超时后做一次最终 forcesave 复核：no_changes 经沉降复核仍干净
+   * 仍认定成功（回调内容与当前草稿一致被幂等跳过、修订号不推进的情
+   * 形），仍受理则确认失败——绝不冒充成功。
    *
    * 返回 {ok, reason}；成功时写入 saveConfirmed 并清除该文件脏标记。
    */
@@ -516,8 +764,14 @@ class DraftStore {
       }
       if (seq !== this.finishSeq) return {ok: false, reason: 'cancelled'};
       if (res && res.forcesave === 'no_changes') {
-        this.markSaveConfirmed(fileId, this.files.find(f => f.id === fileId)?.draft);
-        return {ok: true, reason: ''};
+        const settle = await this._settleNoChanges(fileId, sessionKey, seq);
+        if (settle.cancelled) return {ok: false, reason: 'cancelled'};
+        if (settle.failed) return {ok: false, reason: 'forcesave_failed'};
+        if (settle.settled) {
+          this.markSaveConfirmed(fileId, this.files.find(f => f.id === fileId)?.draft);
+          return {ok: true, reason: ''};
+        }
+        continue; // 沉降复核发现修改在途：重走确认循环
       }
       // 受理：以响应修订号为基线；响应异常时退回清单内草稿修订号
       const baseline = res && res.revision != null
@@ -526,7 +780,7 @@ class DraftStore {
       if (seq !== this.finishSeq) return {ok: false, reason: 'cancelled'};
       if (advanced) continue; // 修订号已推进：下一轮 forcesave 复核其来源
       // 轮询超时：最终复核一次（受理=修改仍未落盘→失败；no_changes=已
-      // 落盘只是幂等跳过未推进修订号→成功）
+      // 落盘只是幂等跳过未推进修订号→成功，同样经沉降复核）
       let finalRes;
       try {
         finalRes = await this._requestForcesave(fileId, sessionKey);
@@ -535,8 +789,14 @@ class DraftStore {
       }
       if (seq !== this.finishSeq) return {ok: false, reason: 'cancelled'};
       if (finalRes && finalRes.forcesave === 'no_changes') {
-        this.markSaveConfirmed(fileId, this.files.find(f => f.id === fileId)?.draft);
-        return {ok: true, reason: ''};
+        const settle = await this._settleNoChanges(fileId, sessionKey, seq);
+        if (settle.cancelled) return {ok: false, reason: 'cancelled'};
+        if (settle.failed) return {ok: false, reason: 'forcesave_failed'};
+        if (settle.settled) {
+          this.markSaveConfirmed(fileId, this.files.find(f => f.id === fileId)?.draft);
+          return {ok: true, reason: ''};
+        }
+        continue; // 沉降复核发现修改在途：重走确认循环（轮数耗尽则超时失败）
       }
       return {ok: false, reason: 'timeout'};
     }
@@ -549,6 +809,9 @@ class DraftStore {
    *   → no_changes 复核），确认后才 exitFileSession。
    * - 降级路径（无在线编辑器）：保存是同步 multipart，无未落盘窗口，
    *   直接撤销会话。
+   * - 撤销会话显式携带 discard=false（保存意图）：允许本编辑实例撤销后
+   *   迟到的收尾回调落盘，确认链最后一次复核之后的最后输入不随编辑器
+   *   销毁丢失（降级路径无 DS 实例，该参数不会被任何回调使用）。
    * - 任何失败/超时：保留会话与编辑器，置 finishingError 供界面呈现
    *   重试状态，返回 false。绝不吞错冒充成功。
    */
@@ -558,6 +821,7 @@ class DraftStore {
     this.finishingFileId = fileId;
     this.finishingErrorFileId = null;
     this.finishingError = '';
+    this.finishingErrorKind = '';
     try {
       const sessionKey = this.sessionKeyOf(fileId);
       if (!sessionKey) {
@@ -579,7 +843,9 @@ class DraftStore {
           return false;
         }
       }
-      await this.exitFileSession(fileId);
+      // 保存意图的撤销：显式 discard=false，DS 在编辑器销毁时补发的
+      // 收尾回调（可能晚于撤销到达）允许后端落盘，不再被 403 丢弃
+      await this.exitFileSession(fileId, {discard: false});
       if (seq !== this.finishSeq) return false;
       this.refreshFiles().catch(() => {});
       return true;
@@ -597,20 +863,23 @@ class DraftStore {
   }
 
   /**
-   * 离开保护（切换文件/返回详情）复用的保存确认：与 finishEditing 共用
-   * _confirmForcesave 确认链路，但确认成功后不撤销会话（会话按文件
-   * 保留，切回可继续编辑；编辑器销毁后 DS 的关闭回调对已确认内容只会
-   * 幂等跳过，重新进入轮换 document key 也不会再造成丢失）。
+   * 离开保护（切换文件/返回详情/切换编辑方式/下载草稿）复用的保存确认：
+   * 与 finishEditing 共用 _confirmForcesave 确认链路，但确认成功后不撤销
+   * 会话（会话按文件保留，切回可继续编辑；编辑器销毁后 DS 的关闭回调对
+   * 已确认内容只会幂等跳过，重新进入轮换 document key 也不会再造成丢失）。
+   * errorKind：失败后的重试语境（''=重试保存并结束编辑；'switch_local'/
+   * 'download_draft'=对应动作的语境化重试），驱动工作台重试按钮分发。
    * 进行中复用 finishingFileId 状态（工作台禁用冲突导航与重复提交）；
    * 失败保留会话与编辑器，置 finishingError 并带明 context（被取消的
    * 动作）供界面呈现原因与重试入口。
    */
   @action.bound
-  async confirmFileSave(fileId, context) {
+  async confirmFileSave(fileId, context, errorKind) {
     const seq = ++this.finishSeq;
     this.finishingFileId = fileId;
     this.finishingErrorFileId = null;
     this.finishingError = '';
+    this.finishingErrorKind = errorKind || '';
     try {
       const sessionKey = this.sessionKeyOf(fileId);
       if (!sessionKey) return true; // 无会话无在线文档，无需保护
@@ -647,28 +916,75 @@ class DraftStore {
    * 保存指定文件草稿：携带该文件当前修订序号；后端校验会话与修订号，
    * 过期/旧修订被拒绝。成功后用返回的最新草稿更新清单内该文件条目。
    * 会话类失败在 store 内清该文件会话（错误仍向上抛，提示由拦截器负责）。
+   * revision：显式提交的期望修订号（本机上传=下载时的基线），缺省取
+   * 清单内草稿当前修订号（降级路径的同步保存）。
    */
   @action.bound
-  saveDraft(fileId, file) {
+  saveDraft(fileId, file, revision) {
+    return this._saveDraftRequest(fileId, file, revision)
+      .catch(err => {
+        this.handleSessionRelatedError(fileId, err);
+        throw err;
+      });
+  }
+
+  /**
+   * multipart 保存请求本体（不掺错误分类）：会话与修订号由后端校验；
+   * 错误分类由调用方按路径语义处理（在线/降级同步保存清会话，本机
+   * 上传保留会话，见 uploadLocalDraft）。
+   */
+  _saveDraftRequest(fileId, file, revision) {
     this.saving = true;
     const entry = this.files.find(f => f.id === fileId);
     const draft = entry ? entry.draft : null;
+    const expectedRevision = revision != null ? revision : (draft ? draft.revision : 0);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('session_key', this.sessionKeyOf(fileId));
-    formData.append('revision', draft ? draft.revision : 0);
+    formData.append('revision', expectedRevision);
     return http.post(
       `/api/institution/manuals/${this.id}/files/${fileId}/draft/save/`, formData)
       .then(data => {
         if (entry) entry.draft = data;
         return data;
       })
-      .catch(err => {
-        this.handleSessionRelatedError(fileId, err);
-        throw err;
-      })
       .finally(() => {
         this.saving = false;
+      });
+  }
+
+  /**
+   * 本机编辑上传保存（编辑方式=本机时的保存入口）：必须携带下载草稿时
+   * 记录的基线修订号——绝不读取清单内最新修订号冒充基线（服务端草稿
+   * 已被推进时后端按修订号冲突拒绝，新草稿内容不被覆盖）。
+   * 成功：以返回草稿更新清单条目、清除已消费的基线并刷新清单（修订
+   * 状态随之刷新）；成功提示由调用方在真实成功响应之后给出。
+   * 失败：错误向上抛（拦截器已提示），绝不报成功。
+   * - 基线过期（"草稿已被其他会话更新"）：清除基线——用户须重新下载
+   *   最新草稿取得新基线后再上传；**会话保留可重试**（修订号冲突不是
+   *   会话失效，"其他会话更新"文案含"会话"一词，不得走会话清理规则）。
+   * - 其余失败：沿用既有分类——会话类清该文件会话（可重开），密码类
+   *   回密码门（handleSessionRelatedError）。
+   */
+  @action.bound
+  uploadLocalDraft(fileId, file) {
+    const baseline = this.localBaselines[fileId];
+    if (baseline == null) {
+      return Promise.reject('请先下载草稿到本机编辑后再上传保存');
+    }
+    return this._saveDraftRequest(fileId, file, baseline)
+      .then(data => {
+        delete this.localBaselines[fileId];
+        return this.refreshFiles().catch(() => {}).then(() => data);
+      })
+      .catch(err => {
+        const text = typeof err === 'string' ? err : '';
+        if (text.includes('草稿已被其他会话更新')) {
+          delete this.localBaselines[fileId];
+        } else {
+          this.handleSessionRelatedError(fileId, err);
+        }
+        throw err;
       });
   }
 
@@ -784,8 +1100,14 @@ class DraftStore {
     this.finishingFileId = null;
     this.finishingErrorFileId = null;
     this.finishingError = '';
+    this.finishingErrorKind = '';
     this.editorDirty = {};
+    this.editorLiveState = {};
     this.saveConfirmed = {};
+    this.editModes = {};
+    this.onlineAvailable = {};
+    this.editorLoadFailed = {};
+    this.localBaselines = {};
   }
 }
 

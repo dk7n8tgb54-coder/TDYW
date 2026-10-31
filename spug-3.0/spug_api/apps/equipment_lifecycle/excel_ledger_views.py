@@ -159,6 +159,7 @@ class ExcelLedgerExportView(View):
     {"pdf_params": {...}} 覆盖模板参数（高级设置，仅当次导出生效）。
     """
 
+    # 格式标识 -> 下载文件扩展名（fmt 是路由标识，excel 对应 .xlsx）
     FORMAT_FIELD_LABEL = {'excel': 'xlsx', 'pdf': 'pdf'}
 
     def _export(self, request, pk, fmt):
@@ -187,7 +188,7 @@ class ExcelLedgerExportView(View):
                          'version_id': ledger.excel_record.version_id})
         base_name = excel_ledger_services.export_base_name(ledger)
         suffix = LEDGER_STATUS_SUFFIX.get(ledger.status, ledger.status)
-        filename = '%s-%s.%s' % (base_name, suffix, fmt)
+        filename = '%s-%s.%s' % (base_name, suffix, self.FORMAT_FIELD_LABEL[fmt])
         return file_response(filename, content, content_type), None
 
     @_na

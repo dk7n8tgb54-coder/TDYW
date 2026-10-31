@@ -460,7 +460,7 @@ export class ExcelLedgerStore {
     return exportFile({
       url: `${API}/${this.detail.id}/export/excel/`,
       method: 'post',
-      defaultFilename: `${this._exportBaseName()}.excel.xlsx`,
+      defaultFilename: `${this._exportBaseName()}.xlsx`,
       loadingText: '正在生成 Excel...',
     });
   }

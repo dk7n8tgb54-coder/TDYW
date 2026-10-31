@@ -1,0 +1,46 @@
+{
+  "services": {
+    "CoAuthoring": {
+      "token": {
+        "enable": {
+          "request": {
+            "inbox": true,
+            "outbox": true
+          },
+          "browser": true
+        },
+        "inbox": {
+          "header": "Authorization"
+        },
+        "outbox": {
+          "header": "Authorization"
+        }
+      },
+      "secret": {
+        "browser": {
+          "string": ""
+        },
+        "inbox": {
+          "string": ""
+        },
+        "outbox": {
+          "string": ""
+        },
+        "session": {
+          "string": ""
+        }
+      },
+      "sql": {
+        "type": "postgres",
+        "dbHost": "onlyoffice-db-10",
+        "dbPort": 5432,
+        "dbName": "onlyoffice",
+        "dbUser": "onlyoffice",
+        "dbPass": "onlyoffice"
+      }
+    }
+  },
+  "rabbitmq": {
+    "url": "amqp://oo10:oo10devpass@onlyoffice-mq-10:5672"
+  }
+}

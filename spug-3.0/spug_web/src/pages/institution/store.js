@@ -18,7 +18,7 @@ class Store {
   @observable categories = [];
   @observable f_keyword = undefined;
   @observable f_category_id = undefined;
-  @observable f_owner_type = undefined;
+  @observable f_org_type = undefined;
   @observable f_status = undefined;
 
   @action.bound
@@ -27,7 +27,7 @@ class Store {
     const params = {page: this.pageNum, page_size: this.pageSize};
     if (this.f_keyword) params.keyword = this.f_keyword;
     if (this.f_category_id) params.category_id = this.f_category_id;
-    if (this.f_owner_type) params.owner_type = this.f_owner_type;
+    if (this.f_org_type) params.org_type = this.f_org_type;
     if (this.f_status) params.status = this.f_status;
     return http.get('/api/institution/manuals/', {params})
       .then(data => {

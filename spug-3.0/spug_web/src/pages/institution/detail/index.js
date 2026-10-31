@@ -27,6 +27,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons';
 import { hasPermission, history } from 'libs';
 import { AuthButton, AuthDiv } from 'components';
 import { http } from 'libs';
+import { canViewPublished } from '../utils';
 import store from './store';
 import FileListTab from './FileListTab';
 import DraftStatusSummary from './DraftStatusSummary';
@@ -47,7 +48,12 @@ class InstitutionManualDetail extends React.Component {
     store.fetchDetail(id).then(() => {
       // 快速切换手册时丢弃非当前手册的迟到链路
       if (store.id === id && store.manual) {
-        store.fetchVersions(id);
+        // 版本历史属已发布内容：无 can_view_published 口径权限时不发请求
+        // （后端 VersionListView 同口径拒绝，不产生注定失败的调用；
+        // 与 FileChangeTab 的发布记录守卫同款）
+        if (canViewPublished(store.manual)) {
+          store.fetchVersions(id);
+        }
         // 原稿/文件清单由各页签进页签时按文件级接口懒加载，
         // 旧制度级 /originals/ 列表在多文件制度会被后端拒绝，不在入口预取
         // 旧章节分工记录（遗留只读）入口拉取一次，供文件清单页签过渡展示
@@ -97,7 +103,7 @@ class InstitutionManualDetail extends React.Component {
           <Tag color={manual.status === 'active' ? 'green' : 'default'}>
             {manual.status_display}
           </Tag>
-          <Tag>{manual.owner_type_display} · {manual.owner_name || '-'}</Tag>
+          <Tag>{manual.org_type_display || '-'} · {manual.org_name || '-'}</Tag>
           {typeof manual.files_count === 'number' && (
             <Tag>{manual.files_count} 份文件</Tag>
           )}
@@ -142,7 +148,11 @@ class InstitutionManualDetail extends React.Component {
       );
     }
     if (!store.manual) return null;
-    const canConfig = hasPermission('institution.manual.config');
+    // 「权限配置」页签可见（2026-10-31 授权模型）：持 config 权限码者
+    // （编辑密码维护等配置能力），或手册所有者/制度管理员（管理本手册
+    // 的账号授权与所有者）。后端对各接口仍独立校验。
+    const canConfig = hasPermission('institution.manual.config') ||
+      store.manual.is_owner || store.manual.is_admin;
     const activeKey = this.state.activeKey || 'files';
     return (
       <AuthDiv auth="institution.manual.view">

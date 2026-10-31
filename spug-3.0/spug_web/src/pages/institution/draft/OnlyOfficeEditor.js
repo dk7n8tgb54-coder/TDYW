@@ -12,6 +12,14 @@
  * - config 由后端 editor-config 端点签发并已含 JWT token；本组件不
  *   修改 config（document.key 与会话绑定，重新取配置会使旧编辑器
  *   实例的回调失效）。
+ * - height prop（2026-10-30）：宿主容器高度由工作台按放大状态下发
+ *   （常规 72vh / 放大 100%）。height 仅参与 render 的容器样式，不在
+ *   生命周期中触发 initEditor——放大/还原切换只改变容器尺寸，DS 的
+ *   iframe（100%×100%）随宿主自动重排，编辑器实例不销毁重建。
+ * - 加载失败上报（2026-10-31）：api.js 加载失败、编辑器初始化异常与
+ *   文档加载 onError 经 onUnavailable 上报工作台（store.editorLoadFailed），
+ *   工作台据此提供显式「切换到本机编辑」入口；onDocumentReady 经 onReady
+ *   上报以清除失败标记（重试成功后回到常规在线分支）。
  */
 import React from 'react';
 import { Alert, Button, Spin } from 'antd';
@@ -53,10 +61,19 @@ class OnlyOfficeEditor extends React.Component {
     this.setState({phase: 'loading', error: ''});
     loadDocsApi(this.props.editorConfig.editor_api_url)
       .then(() => this.initEditor())
-      .catch(() => this.setState({
-        phase: 'error',
-        error: '编辑器脚本加载失败（ONLYOFFICE 文档服务不可达），可改用下方本机编辑降级路径',
-      }));
+      .catch(() => {
+        this._reportUnavailable();
+        this.setState({
+          phase: 'error',
+          error: '编辑器脚本加载失败（ONLYOFFICE 文档服务不可达），'
+            + '可切换为本机编辑（下载草稿 → 本机 Word/WPS 编辑 → 上传保存）',
+        });
+      });
+  };
+
+  /** 加载失败上报工作台（本机编辑入口的依据之一，幂等） */
+  _reportUnavailable = () => {
+    if (this.props.onUnavailable) this.props.onUnavailable();
   };
 
   initEditor = () => {
@@ -72,11 +89,18 @@ class OnlyOfficeEditor extends React.Component {
       ...this.props.editorConfig.config,
       token: this.props.editorConfig.token,
       events: {
-        onDocumentReady: () => this.setState({phase: 'ready'}),
-        onError: () => this.setState({
-          phase: 'error',
-          error: '编辑器加载文档出错，请刷新编辑配置或使用本机编辑降级路径',
-        }),
+        onDocumentReady: () => {
+          if (this.props.onReady) this.props.onReady();
+          this.setState({phase: 'ready'});
+        },
+        onError: () => {
+          this._reportUnavailable();
+          this.setState({
+            phase: 'error',
+            error: '编辑器加载文档出错，可重试加载或切换为本机编辑'
+              + '（下载草稿 → 本机 Word/WPS 编辑 → 上传保存）',
+          });
+        },
         // 文档修改状态变化：data=true 有未保存修改，false=DS 已保存到
         // 自身缓存。仅把 true 上报（store 侧闩锁，false 不清除）——DS 的
         // "所有更改已保存"不代表制度草稿落盘，不得据此显示业务已保存。
@@ -88,6 +112,7 @@ class OnlyOfficeEditor extends React.Component {
       },
     });
     } catch (e) {
+      this._reportUnavailable();
       this.setState({phase: 'error', error: `编辑器初始化失败：${e}`});
     }
   };
@@ -111,15 +136,18 @@ class OnlyOfficeEditor extends React.Component {
 
   render() {
     const {phase, error} = this.state;
+    // 高度仅在 render 生效（不触发 initEditor）；flex column + flex:1
+    // 让 loading/error 提示与编辑器宿主共享同一容器，不产生额外溢出
+    const height = this.props.height || '72vh';
     return (
-      <div>
+      <div style={{height, display: 'flex', flexDirection: 'column'}}>
         {phase === 'loading' && (
-          <div style={{padding: 60, textAlign: 'center'}}>
+          <div style={{padding: 60, textAlign: 'center', flexShrink: 0}}>
             <Spin tip="正在加载在线编辑器…"/>
           </div>
         )}
         {phase === 'error' && (
-          <Alert type="error" showIcon style={{marginBottom: 12}}
+          <Alert type="error" showIcon style={{marginBottom: 12, flexShrink: 0}}
             message="在线编辑器不可用"
             description={error}
             action={
@@ -128,7 +156,7 @@ class OnlyOfficeEditor extends React.Component {
             }/>
         )}
         <div ref={el => { this.hostRef = el; }}
-          style={{height: '72vh', border: '1px solid #f0f0f0'}}/>
+          style={{flex: 1, minHeight: 0, border: '1px solid #f0f0f0'}}/>
       </div>
     );
   }

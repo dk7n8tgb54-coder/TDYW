@@ -5,31 +5,29 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Form, Input, Select, Modal, Switch, message } from 'antd';
-import { hasPermission, http } from 'libs';
+import { http } from 'libs';
 import store from './store';
 
 const {Option} = Select;
 
 /**
- * 构造提交载荷：antd 清空 Select/DatePicker 后值为 undefined，
- * JSON.stringify 会丢键，后端无法区分"未提交"与"清空"，
- * 因此角色列表显式转空数组、文本字段显式转空串。
+ * 构造提交载荷：antd 清空 Select 后值为 undefined，JSON.stringify 会丢键，
+ * 后端无法区分"未提交"与"清空"，因此文本字段显式转空串。
+ * 手册级查看/编制/发布授权（2026-10-31 授权模型）改由详情页「权限配置」
+ * 页签的逐本账号授权维护，不再随手册表单提交角色字段。
  */
 export function buildManualPayload(values, defaults = {}) {
   return {
     name: (values.name || '').trim(),
     code: (values.code || '').trim(),
     category_id: values.category_id || null,
-    owner_type: values.owner_type || defaults.owner_type || 'department',
-    owner_name: (values.owner_name || '').trim(),
+    org_type: values.org_type || defaults.org_type || 'department',
+    org_name: (values.org_name || '').trim(),
     status: values.status || defaults.status || 'active',
     editor_can_view_published: values.editor_can_view_published !== undefined
       ? !!values.editor_can_view_published
       : (defaults.editor_can_view_published !== undefined
         ? !!defaults.editor_can_view_published : true),
-    view_role_ids: values.view_role_ids || [],
-    edit_role_ids: values.edit_role_ids || [],
-    publish_role_ids: values.publish_role_ids || [],
   };
 }
 
@@ -42,20 +40,9 @@ class ManualForm extends React.Component {
 
   componentDidMount() {
     store.fetchCategories();
-    // 角色可选项端点以 institution.manual.config 门控：仅配置者请求，
-    // 避免 add/edit 权限用户打开弹窗即撞权限拒绝错误
-    if (hasPermission('institution.manual.config')) {
-      this.fetchRoles();
-    }
   }
 
-  fetchRoles() {
-    http.get('/api/institution/roles/')
-      .then(data => this.setState({roles: data || []}))
-      .catch(() => {});
-  }
-
-  state = {roles: [], submitting: false};
+  state = {submitting: false};
 
   /**
    * 兼容旧调用：组件内统一走模块级 buildManualPayload
@@ -84,10 +71,6 @@ class ManualForm extends React.Component {
 
   render() {
     const info = store.record;
-    const canConfig = hasPermission('institution.manual.config');
-    const roleOptions = this.state.roles.map(r => (
-      <Option key={r.id} value={r.id}>{r.name}</Option>
-    ));
     return (
       <Modal
         visible
@@ -100,14 +83,11 @@ class ManualForm extends React.Component {
           initialValues={info.id ? {
             name: info.name, code: info.code,
             category_id: info.category_id || undefined,
-            owner_type: info.owner_type, owner_name: info.owner_name,
+            org_type: info.org_type, org_name: info.org_name,
             status: info.status,
             editor_can_view_published: info.editor_can_view_published,
-            view_role_ids: (info.view_roles || []).map(x => x.id),
-            edit_role_ids: (info.edit_roles || []).map(x => x.id),
-            publish_role_ids: (info.publish_roles || []).map(x => x.id),
           } : {
-            owner_type: 'department', status: 'active',
+            org_type: 'department', status: 'active',
             editor_can_view_published: true,
           }}>
           <Form.Item name="name" label="手册名称"
@@ -124,37 +104,17 @@ class ManualForm extends React.Component {
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="owner_type" label="业务归属" required>
+          <Form.Item name="org_type" label="业务归属" required>
             <Select>
               <Option value="department">部门</Option>
               <Option value="section">科室</Option>
             </Select>
           </Form.Item>
-          <Form.Item name="owner_name" label="归属单位">
+          <Form.Item name="org_name" label="归属单位">
             <Input placeholder="部门或科室名称（业务数据，页面维护）" maxLength={255}/>
           </Form.Item>
-          {canConfig && (
-            <React.Fragment>
-              <Form.Item name="view_role_ids" label="查看角色"
-                extra="持有任一角色的账号可查看该手册已发布版本">
-                <Select mode="multiple" allowClear placeholder="选择平台级/本租户角色">
-                  {roleOptions}
-                </Select>
-              </Form.Item>
-              <Form.Item name="edit_role_ids" label="编制角色"
-                extra="持有任一角色的账号经验证编辑密码后可编辑草稿">
-                <Select mode="multiple" allowClear placeholder="选择角色">
-                  {roleOptions}
-                </Select>
-              </Form.Item>
-              <Form.Item name="publish_role_ids" label="发布角色"
-                extra="持有任一角色的账号可发布版本（需填写变更说明）">
-                <Select mode="multiple" allowClear placeholder="选择角色">
-                  {roleOptions}
-                </Select>
-              </Form.Item>
-            </React.Fragment>
-          )}
+          {/* 手册级账号授权（查看/编制/发布）在详情页「权限配置」页签
+              逐本维护（2026-10-31 授权模型改造），不再随手册表单提交 */}
           <Form.Item name="status" label="状态">
             <Select>
               <Option value="active">启用</Option>
@@ -163,7 +123,7 @@ class ManualForm extends React.Component {
           </Form.Item>
           <Form.Item name="editor_can_view_published" label="编制者可见发布版"
             valuePropName="checked"
-            extra="关闭后，仅持有查看角色的账号可见已发布版本（跨部门参与时逐本配置）">
+            extra="关闭后，仅持查看授权的账号可见已发布版本；创建后可在详情页「权限配置」页签随账号授权一并调整">
             <Switch/>
           </Form.Item>
         </Form>

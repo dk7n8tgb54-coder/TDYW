@@ -6,7 +6,7 @@
  * 整套待发布状态旁，PublishButton 组件）：
  * - 点击先请求 publish-preview 分组预检，确认窗口展示 固定文案+全部分组；
  * - 受阻文件点名、给出可执行处理入口（我的会话→工作台深链结束会话；
- *   他人会话→等待说明；缺草稿→编制角色恢复 / 无编制角色说明），
+ *   他人会话→等待说明；缺草稿→编制角色（负责人）恢复 / 无编制角色说明），
  *   受阻时禁用确认按钮（不让用户点击必然失败的确认；服务端仍权威校验）；
  * - 确认后携带变更说明 POST publish，成功走统一生命周期刷新；
  *   失败不显示成功、不清空现有数据；
@@ -243,7 +243,7 @@ describe('PublishButton（发布新版本入口）', () => {
 });
 
 describe('PublishButton（受阻处理与确认发布）', () => {
-  it('缺草稿且无编制角色（发布者）：说明需编制角色处理，不渲染注定失败的入口', async () => {
+  it('缺草稿且无编制角色（发布者）：说明需文件负责人处理，不渲染注定失败的入口', async () => {
     setupPublishPreview({
       changed: [], added: [],
       blocked: [{file_id: 18, name: '无草稿文件.docx', sort_order: 6,
@@ -252,7 +252,7 @@ describe('PublishButton（受阻处理与确认发布）', () => {
     container = renderButton();
     await openConfirm();
     const modalText = document.body.textContent;
-    expect(modalText).toContain('需持有编制角色的账号建立草稿');
+    expect(modalText).toContain('需该文件负责人（持编制资格）建立草稿');
     expect(modalText).not.toContain('去恢复草稿');
   });
 

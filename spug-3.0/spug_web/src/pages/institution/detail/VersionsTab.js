@@ -15,7 +15,7 @@ import { observer } from 'mobx-react';
 import { Table, Tag, Modal, message, Alert, Button, Tooltip } from 'antd';
 import { AuthButton } from 'components';
 import { http } from 'libs';
-import { downloadFile, formatSize, formatDateTime } from '../utils';
+import { canViewPublished, downloadFile, formatSize, formatDateTime } from '../utils';
 import PreviewModal from './PreviewModal';
 import store from './store';
 
@@ -36,9 +36,11 @@ const CLEAN_STATUS_LABELS = {
 class VersionsTab extends React.Component {
   state = {preview: null, filesModal: null};
 
-  showPreview = (request, fileName) => {
+  showPreview = (request, fileName, title) => {
     request.then(data => {
-      this.setState({preview: {url: data.preview_url, fileName: data.file_name || fileName}});
+      this.setState({preview: {
+        url: data.preview_url, fileName: data.file_name || fileName, title,
+      }});
     });
   };
 
@@ -77,9 +79,10 @@ class VersionsTab extends React.Component {
   handleVersionPreview = (v) => {
     const files = Array.isArray(v.files) ? v.files : [];
     if (files.length === 1) {
+      const name = v.file_name || files[0].file_name;
       this.showPreview(
         http.get(`/api/institution/manuals/${store.id}/versions/${v.id}/preview-url/`),
-        v.file_name || files[0].file_name);
+        name, `预览历史版本 v${v.version_no}：${name}`);
       return;
     }
     this.openFilesModal(v);
@@ -137,7 +140,7 @@ class VersionsTab extends React.Component {
     row.latest_changed_version_no != null ? `v${row.latest_changed_version_no}` : '-'
   );
 
-  renderFileActions = (versionId, snapshotId, fileName, isCleaned) => {
+  renderFileActions = (versionId, snapshotId, fileName, isCleaned, versionNo) => {
     if (isCleaned) {
       return <Tooltip title="该文件已按保留策略清理，仅存清单与哈希元数据">
         <Tag color="default">已清理</Tag>
@@ -148,7 +151,7 @@ class VersionsTab extends React.Component {
         <AuthButton auth="institution.manual.view" type="link" size="small"
           onClick={() => this.showPreview(
             http.get(`/api/institution/manuals/${store.id}/versions/${versionId}/files/${snapshotId}/preview-url/`),
-            fileName)}>预览</AuthButton>
+            fileName, `预览历史版本 v${versionNo}：${fileName}`)}>预览</AuthButton>
         <AuthButton auth="institution.manual.download" type="link" size="small"
           onClick={() => downloadFile(
             `/api/institution/manuals/${store.id}/versions/${versionId}/files/${snapshotId}/download/`,
@@ -185,7 +188,8 @@ class VersionsTab extends React.Component {
           <Table.Column title="最近变更" width={90}
             render={(_, f) => this.renderLatestChanged(f)}/>
           <Table.Column title="操作" width={125}
-            render={(_, f) => this.renderFileActions(fm.versionId, f.id, f.file_name, f.is_cleaned)}/>
+            render={(_, f) => this.renderFileActions(
+              fm.versionId, f.id, f.file_name, f.is_cleaned, fm.versionNo)}/>
         </Table>
         {removed.length > 0 && (
           <div style={{marginTop: 12}}>
@@ -202,7 +206,8 @@ class VersionsTab extends React.Component {
                 render={v => (v || '').slice(0, 8)}/>
               <Table.Column title="操作" width={125}
                 render={(_, r) => this.renderFileActions(
-                  r.previous_version_id, r.previous_snapshot_id, r.name)}/>
+                  r.previous_version_id, r.previous_snapshot_id, r.name,
+                  false, fm.previousVersionNo)}/>
             </Table>
           </div>
         )}
@@ -212,8 +217,20 @@ class VersionsTab extends React.Component {
 
   render() {
     const manual = store.manual || {};
+    // 发布历史属已发布内容（can_view_published 口径）：无权限时后端拒绝
+    // 版本清单，详情页挂载链同样不发请求——此处显式说明而非空表冒充
+    if (!canViewPublished(manual)) {
+      return (
+        <Alert type="info" showIcon style={{marginTop: 12}}
+          message="发布历史属于已发布内容：当前账号无可查看发布版本的授权，版本清单不展示。"/>
+      );
+    }
     const canPublish = (manual.my_roles || []).includes('publish');
-    const canEdit = (manual.my_roles || []).includes('edit');
+    // 整套回退业务门=手册所有者或制度管理员（2026-10-31 授权模型：
+    // 后端 DraftFromVersionView 不再放行仅持编制授权的账号）；
+    // 「设为/取消长期保留」仍按发布授权（my_roles.publish，发布域操作
+    // 不走管理权限码）
+    const canRollback = !!manual.is_owner || !!manual.is_admin;
     return (
       <div>
         {/* 发布主入口在详情头部整套待发布状态旁（PublishButton）；
@@ -278,7 +295,7 @@ class VersionsTab extends React.Component {
                       <Tag color="default">文件已清理</Tag>
                     </Tooltip>
                   )}
-                  {canEdit && !cleaned && (
+                  {canRollback && !cleaned && (
                     <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
                       onClick={() => this.handleRollback(v)}>从历史版本回退</AuthButton>
                   )}
@@ -301,7 +318,8 @@ class VersionsTab extends React.Component {
 
 function PreviewModalForTab({state, onClose}) {
   return <PreviewModal visible={!!state.preview} url={state.preview && state.preview.url}
-    fileName={state.preview && state.preview.fileName} onClose={onClose}/>;
+    fileName={state.preview && state.preview.fileName}
+    title={state.preview && state.preview.title} onClose={onClose}/>;
 }
 
 export default VersionsTab;

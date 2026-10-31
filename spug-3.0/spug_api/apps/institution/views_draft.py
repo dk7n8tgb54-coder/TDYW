@@ -25,6 +25,8 @@
                                                    confirm_repair 从生效快照修复）
   POST   /manuals/<pk>/files/<fid>/draft/session/ 验证密码开启编辑会话
   DELETE /manuals/<pk>/files/<fid>/draft/session/ 主动退出编辑会话
+                                                   （discard=false 保留收尾
+                                                   回调落盘，缺省丢弃）
   POST   /manuals/<pk>/files/<fid>/draft/save/    保存草稿（multipart，校验修订序号）
   GET    /manuals/<pk>/files/<fid>/draft/download/     下载草稿
   GET    /manuals/<pk>/files/<fid>/draft/preview-url/  预览草稿地址
@@ -74,7 +76,8 @@ from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, auth, json_response
 from libs.pagination import paginate
 
-from . import editor_services, serializers, services, storage, version_compare
+from . import authorization_services, editor_services, serializers, \
+    services, storage, version_compare
 from .models import (Manual, ManualDraft, ManualFile, ManualOriginal,
                      ManualVersion, ManualVersionFile)
 from .views import _download_response, _manual_from_request
@@ -100,12 +103,19 @@ def build_editor_token(manual, file_entry, draft, user):
         object_id=f'{manual.id}-{file_entry.id}-{draft.revision}')
 
 
-def _build_preview_url(request, manual, file_kind, obj, stored_name,
-                       file_name=None):
+def _build_preview_url(request, manual, file_kind, obj, file_name=None):
     """生成 kkFileView 在线预览地址与短时效令牌
 
-    fullfilename 用含 UUID 的存储文件名，避免 kkFileView 同名缓存串键。
+    fullfilename（kkFileView 的回源下载文件名与转换缓存键）一律取
+    obj.file_path 的物理存储名（build_stored_name 生成、含 UUID 后缀，
+    与物理文件唯一对应）；显示名只作为 file_name 下发——显示名作缓存键
+    会让同显示名的两份不同文件（如 草稿 vs 生效版快照）串用转换缓存
+    （预览串版，dev 实测复现）。
     """
+    stored_name = storage.stored_filename(obj.file_path)
+    if not stored_name:
+        # 理论兜底：file_path 为空的脏行退回显示名（与旧行为一致，不产生空键）
+        stored_name = file_name or getattr(obj, 'original_name', '') or ''
     preview_token = generate_attachment_preview_token(
         attachment_id=obj.id, user_id=request.user.id, tenant_id='',
         module=storage.PREVIEW_MODULE, object_type=file_kind,
@@ -169,7 +179,7 @@ class FileDraftDetailView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
+        if not authorization_services.can_edit_manual_files(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
@@ -239,14 +249,15 @@ class FileDraftCreateView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not (services.can_manage_manual(request.user) or
-                services.can_edit_draft(request.user, manual)):
-            return json_response(error='手册不存在或无权限访问')
-        if manual.status != Manual.STATUS_ACTIVE:
-            return json_response(error='手册已归档，不能编辑')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        # 草稿建立/重建/恢复属内容写路径：负责人独占编辑（编制授权 +
+        # 该文件负责人）
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
+        if manual.status != Manual.STATUS_ACTIVE:
+            return json_response(error='手册已归档，不能编辑')
         form, error = JsonParser(
             Argument('original_id', type=int, required=False, default=None),
             Argument('confirm', type=bool, required=False, default=False),
@@ -319,20 +330,24 @@ class FileDraftCreateView(View):
 
 
 class FileDraftSessionView(View):
-    """验证编辑密码开启该文件的会话（文件级单写）；DELETE 主动退出"""
+    """验证编辑密码开启该文件的会话（文件级单写）；DELETE 主动退出
+
+    会话开启属内容写路径：负责人独占编辑（can_edit_file：编制授权 +
+    该文件负责人）；编辑密码只是附加验证，不能单独赋予编辑权。
+    """
 
     @auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
-        if manual.status != Manual.STATUS_ACTIVE:
-            return json_response(error='手册已归档，不能编辑')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
+        if manual.status != Manual.STATUS_ACTIVE:
+            return json_response(error='手册已归档，不能编辑')
         draft, err = _draft_or_error(file_entry)
         if err:
             return err
@@ -355,6 +370,18 @@ class FileDraftSessionView(View):
 
     @auth('institution.manual.draft_edit')
     def delete(self, request, pk, fid):
+        """主动退出编辑会话
+
+        可选布尔参数 discard（缺省 true，JSON body）：
+        - discard=true（缺省）：撤销后该编辑实例的一切收尾回调照旧拒绝
+          （"不保存并退出"的显式丢弃意图不被推翻；密码重置/整套回退/
+          草稿恢复等批量失效路径同口径）。
+        - discard=false：「保存并结束编辑」确认成功后的撤销显式携带，
+          DS 关闭编辑器时补发的收尾 status-2/6 回调（同一 current_doc_key）
+          允许按防线落盘，避免最后一次修改丢失；防线（JWT/key 一致/仍是
+          最新会话/角色/归档/行锁修订号复核）见
+          editor_services._resolve_final_callback_session。
+        """
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
@@ -363,6 +390,7 @@ class FileDraftSessionView(View):
             return resp
         form, error = JsonParser(
             Argument('session_key', type=str, required=True, help='缺少会话标识'),
+            Argument('discard', type=bool, required=False, default=True),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -372,12 +400,18 @@ class FileDraftSessionView(View):
         if session:
             session.revoked_at = timezone.now()
             session.revoked_reason = '用户主动退出'
-            session.save(update_fields=['revoked_at', 'revoked_reason'])
+            session.final_callback_allowed = not form.discard
+            session.save(update_fields=['revoked_at', 'revoked_reason',
+                                        'final_callback_allowed'])
         return json_response()
 
 
 class FileDraftSaveView(View):
-    """保存文件草稿：会话有效 + 修订序号一致才接受；文件先行，失败补偿"""
+    """保存文件草稿：会话有效 + 修订序号一致才接受；文件先行，失败补偿
+
+    保存（multipart，含本机编辑上传）属内容写路径：负责人独占编辑
+    （can_edit_file：编制授权 + 该文件负责人）。
+    """
 
     @auth('institution.manual.draft_edit')
     @transaction.atomic
@@ -385,11 +419,11 @@ class FileDraftSaveView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
         draft, err = _draft_or_error(file_entry)
         if err:
             return err
@@ -429,7 +463,7 @@ class FileDraftDownloadView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
+        if not authorization_services.can_edit_manual_files(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
@@ -451,7 +485,7 @@ class FileDraftPreviewUrlView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
+        if not authorization_services.can_edit_manual_files(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
@@ -460,7 +494,7 @@ class FileDraftPreviewUrlView(View):
         if err:
             return err
         data = _build_preview_url(
-            request, manual, storage.FILE_KIND_DRAFT, draft, draft.original_name)
+            request, manual, storage.FILE_KIND_DRAFT, draft)
         if not data:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
         return json_response(data=data)
@@ -478,23 +512,27 @@ class OriginalPreviewUrlView(View):
         if original.cleaned_at:
             return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
         data = _build_preview_url(
-            request, manual, storage.FILE_KIND_ORIGINAL, original,
-            original.original_name)
+            request, manual, storage.FILE_KIND_ORIGINAL, original)
         if not data:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
         return json_response(data=data)
 
 
 class DraftFromVersionView(View):
-    """整套回退：以历史版本的快照清单重建待发布草稿集合"""
+    """整套回退：以历史版本的快照清单重建待发布草稿集合
+
+    回退重建全部文件的草稿并撤销全部活跃会话（覆盖他人工作副本的
+    整册管理动作）：业务放行=手册所有者或制度管理员（2026-10-31 起；
+    与文件条目管理同口径，不再放行仅持编制授权的账号）。
+    """
 
     @auth('institution.manual.draft_edit')
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not (services.can_manage_manual(request.user) or
-                services.can_edit_draft(request.user, manual)):
+        if not (authorization_services.is_manual_owner(request.user, manual)
+                or authorization_services.is_institution_admin(request.user)):
             return json_response(error='手册不存在或无权限访问')
         form, error = JsonParser(
             Argument('version_id', type=int, required=True, help='请选择要回退的版本'),
@@ -597,7 +635,7 @@ class PublishView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_publish(request.user, manual):
+        if not authorization_services.can_publish(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能发布')
@@ -628,7 +666,7 @@ class VersionListView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         qs = manual.versions.select_related('published_by').prefetch_related(
             'files__manual_file').all()
@@ -656,7 +694,7 @@ class VersionFilesListView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         version = ManualVersion.objects.filter(pk=vid, manual=manual).first()
         if not version:
@@ -689,7 +727,7 @@ class FileVersionHistoryView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
@@ -741,7 +779,7 @@ class PublishPreviewView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_publish(request.user, manual):
+        if not authorization_services.can_publish(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能发布')
@@ -755,7 +793,7 @@ class VersionFileDownloadView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         snapshot = ManualVersionFile.objects.filter(
             pk=sfid, version_id=vid, version__manual=manual).first()
@@ -777,7 +815,7 @@ class VersionFilePreviewUrlView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         snapshot = ManualVersionFile.objects.filter(
             pk=sfid, version_id=vid, version__manual=manual).first()
@@ -787,7 +825,7 @@ class VersionFilePreviewUrlView(View):
             return json_response(error='该文件已按保留策略清理，仅存清单与哈希元数据')
         data = _build_preview_url(
             request, manual, storage.FILE_KIND_VERSION_FILE, snapshot,
-            snapshot.display_name, file_name=snapshot.display_name)
+            file_name=snapshot.display_name)
         if not data:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
         return json_response(data=data)
@@ -816,7 +854,7 @@ class VersionDownloadView(_VersionSingleSnapshotMixin, View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         snapshot, resp = self._get_snapshot(request, manual, vid)
         if resp:
@@ -835,14 +873,14 @@ class VersionPreviewUrlView(_VersionSingleSnapshotMixin, View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_view_published(request.user, manual):
+        if not authorization_services.can_view_published(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         snapshot, resp = self._get_snapshot(request, manual, vid)
         if resp:
             return resp
         data = _build_preview_url(
             request, manual, storage.FILE_KIND_VERSION, snapshot,
-            snapshot.display_name, file_name=snapshot.display_name)
+            file_name=snapshot.display_name)
         if not data:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
         return json_response(data=data)
@@ -855,7 +893,7 @@ class DeprecateView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_publish(request.user, manual):
+        if not authorization_services.can_publish(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         version, err = services.deprecate_current_version(manual, request.user)
         if err:
@@ -885,13 +923,14 @@ class FileEditorConfigView(View):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
-        if not services.can_edit_draft(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
-        if manual.status != Manual.STATUS_ACTIVE:
-            return json_response(error='手册已归档，不能编辑')
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
+        # 编辑配置属内容写路径（开启在线编辑）：负责人独占编辑
+        if not authorization_services.can_edit_file(request.user, manual, file_entry):
+            return json_response(error='手册不存在或无权限访问')
+        if manual.status != Manual.STATUS_ACTIVE:
+            return json_response(error='手册已归档，不能编辑')
         draft, err = _draft_or_error(file_entry)
         if err:
             return err
@@ -961,9 +1000,9 @@ class OoEditorCallbackView(View):
 
     校验链：回调 JWT（Authorization: Bearer 或 body.token）→ 载荷必须含
     status → 权威回调内容一律取自 JWT 载荷 → 载荷 key 解析出的
-    制度/文件必须与路由一致 → users 数组归属账号 → 编制角色 + 该文件
-    活跃编辑会话 → 回调 key 等于会话当前签发 key（迟到/旧实例拒绝）→
-    修订号行锁复核落盘。
+    制度/文件必须与路由一致 → users 数组归属账号 → 负责人独占编辑
+    （编制授权 + 该文件负责人）+ 该文件活跃编辑会话 → 回调 key 等于
+    会话当前签发 key（迟到/旧实例拒绝）→ 修订号行锁复核落盘。
     返回 {"error": 0} 表示已处理；非 0 时 DS 会重试。
 
     注意：本视图在 urls.py 以 transaction.non_atomic_requests(as_view())
@@ -1026,24 +1065,24 @@ def _resolve_preview_object(kind, obj_id, manual, user):
     """
     if kind == storage.FILE_KIND_ORIGINAL:
         obj = ManualOriginal.objects.filter(pk=obj_id, manual=manual).first()
-        if obj and not services.can_view_manual(user, manual):
+        if obj and not authorization_services.can_view_manual(user, manual):
             obj = None
         return obj
     if kind == storage.FILE_KIND_VERSION:
         obj = ManualVersion.objects.filter(pk=obj_id, manual=manual).first()
-        if obj and not services.can_view_published(user, manual):
+        if obj and not authorization_services.can_view_published(user, manual):
             obj = None
         return obj
     if kind == storage.FILE_KIND_VERSION_FILE:
         obj = ManualVersionFile.objects.filter(
             pk=obj_id, version__manual=manual).first()
-        if obj and not services.can_view_published(user, manual):
+        if obj and not authorization_services.can_view_published(user, manual):
             obj = None
         return obj
     if kind == storage.FILE_KIND_DRAFT:
         obj = ManualDraft.objects.filter(
             pk=obj_id, file__manual=manual).first()
-        if obj and not services.can_edit_draft(user, manual):
+        if obj and not authorization_services.can_edit_manual_files(user, manual):
             obj = None
         return obj
     return None

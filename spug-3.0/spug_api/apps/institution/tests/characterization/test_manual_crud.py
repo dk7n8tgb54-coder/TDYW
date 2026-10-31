@@ -1,10 +1,11 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""手册 CRUD、角色关联配置、编辑密码的真实行为测试
+"""手册 CRUD、逐本授权过滤、编辑密码的真实行为测试
 
-核心授权语义（方案 §2/§3）：
-- 业务授权完全按手册关联角色判定；tenant_id 不参与归属/可见判断。
-- 同租户但无角色者不可见；跨租户持角色者可见。
+核心授权语义（2026-10-31 授权模型改造）：
+- 业务授权 = 所有者/逐本账号授权；tenant_id 不参与归属/可见判断。
+- 同租户但无授权者不可见；跨租户持授权者可见。
+- 创建手册者自动成为所有者。
 """
 import json
 import os
@@ -18,7 +19,7 @@ from apps.institution.models import (Manual, ManualCategory, ManualOperationLog,
                                      ManualVersion, ManualOriginal)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_ADD, PERM_CONFIG, PERM_DELETE, PERM_EDIT, PERM_UPLOAD,
-    PERM_VIEW, delete_json, get_data, has_error, make_client, make_role,
+    PERM_VIEW, delete_json, get_data, has_error, make_client, make_grant,
     make_user, post_json, put_json, setup_test_env,
 )
 
@@ -26,7 +27,7 @@ from apps.institution.tests.base import (
 def _make_manual(name='操作手册A', **kwargs):
     params = dict(
         name=name, code=f'ZD-{name[-1]}' if name else '',
-        owner_type=Manual.OWNER_SECTION, owner_name='某科室',
+        org_type=Manual.OWNER_SECTION, org_name='某科室',
         tenant_id='deptA',
     )
     params.update(kwargs)
@@ -103,20 +104,19 @@ class ManualCrudTests(TestCase):
         self.superuser = make_user('root', is_supper=True, tenant_id='root')
         self.manager_client = make_client(self.manager)
 
-    def test_create_manual_with_roles(self):
-        view_role = make_role(tenant_id='deptA')
-        edit_role = make_role(tenant_id='deptA')
+    def test_create_manual_sets_owner_to_creator(self):
+        """创建人即所有者：持 add 权限码者创建手册后负责其授权与分工"""
         resp = post_json(self.manager_client, '/institution/manuals/create/', {
             'name': '部门管理手册', 'code': 'GL-001',
-            'owner_type': 'department', 'owner_name': '某部门',
-            'view_role_ids': [view_role.id], 'edit_role_ids': [edit_role.id],
-            'publish_role_ids': [],
+            'org_type': 'department', 'org_name': '某部门',
         })
         self.assertFalse(has_error(resp))
         data = get_data(resp)
         self.assertEqual(data['name'], '部门管理手册')
         manual = Manual.objects.get(pk=data['id'])
-        self.assertEqual(list(manual.view_roles.values_list('id', flat=True)), [view_role.id])
+        self.assertEqual(manual.owner_id, self.manager.id)
+        self.assertTrue(data['is_owner'])
+        self.assertEqual(data['owner_id'], self.manager.id)
         self.assertTrue(ManualOperationLog.objects.filter(
             manual=manual, action='create').exists())
 
@@ -126,24 +126,16 @@ class ManualCrudTests(TestCase):
                          {'name': 'x'})
         self.assertTrue(has_error(resp))
 
-    def test_create_invalid_owner_type(self):
+    def test_create_invalid_org_type(self):
         resp = post_json(self.manager_client, '/institution/manuals/create/',
-                         {'name': 'x', 'owner_type': 'company'})
+                         {'name': 'x', 'org_type': 'company'})
         self.assertTrue(has_error(resp))
 
-    def test_create_invalid_role_id(self):
-        resp = post_json(self.manager_client, '/institution/manuals/create/', {
-            'name': 'x', 'view_role_ids': [999999]})
-        self.assertTrue(has_error(resp))
-        self.assertIn('无效的角色', resp.json()['error'])
-
-    def test_list_visibility_by_roles_not_tenant(self):
-        """核心授权语义：跨租户持角色可见；同租户无角色不可见"""
-        view_role = make_role()
+    def test_list_visibility_by_grants_not_tenant(self):
+        """核心授权语义：跨租户持授权可见；同租户无授权不可见"""
         manual = _make_manual()
-        manual.view_roles.add(view_role)
-        leader_b = make_user('leader', tenant_id='deptB', roles=[view_role],
-                             perms=[PERM_VIEW])
+        leader_b = make_user('leader', tenant_id='deptB', perms=[PERM_VIEW])
+        make_grant(manual, leader_b, can_view=True)
         insider_c = make_user('insider', tenant_id='deptA', perms=[PERM_VIEW])
         resp = make_client(leader_b).get('/institution/manuals/')
         names = [x['name'] for x in get_data(resp)['items']]
@@ -154,19 +146,34 @@ class ManualCrudTests(TestCase):
         names = [x['name'] for x in get_data(resp)['items']]
         self.assertIn(manual.name, names)
 
+    def test_list_row_carries_owner_and_grant_flags(self):
+        """列表行下发 org_*/owner_*/is_owner/is_admin/my_roles 新契约"""
+        manual = _make_manual(owner=self.manager)
+        make_grant(manual, self.manager, can_edit=True)
+        resp = self.manager_client.get('/institution/manuals/')
+        row = next(x for x in get_data(resp)['items'] if x['id'] == manual.id)
+        self.assertEqual(row['org_type'], 'section')
+        self.assertEqual(row['org_type_display'], '科室')
+        self.assertEqual(row['org_name'], '某科室')
+        self.assertEqual(row['owner_id'], self.manager.id)
+        self.assertTrue(row['is_owner'])
+        self.assertFalse(row['is_admin'])
+        self.assertEqual(row['my_roles'], ['edit'])
+        self.assertNotIn('view_roles', row)
+        self.assertNotIn('edit_roles', row)
+        self.assertNotIn('publish_roles', row)
+
     def test_list_keyword_filter(self):
-        _make_manual(name='应急救援手册')
-        _make_manual(name='SMS手册')
+        _make_manual(name='应急救援手册', owner=self.manager)
+        _make_manual(name='SMS手册', owner=self.manager)
         resp = self.manager_client.get('/institution/manuals/?keyword=应急')
         names = [x['name'] for x in get_data(resp)['items']]
         self.assertEqual(names, ['应急救援手册'])
 
     def test_detail_visibility(self):
-        view_role = make_role()
         manual = _make_manual()
-        manual.view_roles.add(view_role)
-        holder = make_user('holder', tenant_id='deptB', roles=[view_role],
-                           perms=[PERM_VIEW])
+        holder = make_user('holder', tenant_id='deptB', perms=[PERM_VIEW])
+        make_grant(manual, holder, can_view=True)
         outsider = make_user('out', tenant_id='deptB', perms=[PERM_VIEW])
         resp = make_client(holder).get(f'/institution/manuals/{manual.id}/')
         self.assertFalse(has_error(resp))
@@ -176,10 +183,10 @@ class ManualCrudTests(TestCase):
 
     def test_edit_metadata_by_manager(self):
         cat = ManualCategory.objects.create(name='类别1')
-        manual = _make_manual()
+        manual = _make_manual(owner=self.manager)
         resp = put_json(self.manager_client, f'/institution/manuals/{manual.id}/', {
             'name': '改名手册', 'code': 'GL-002', 'category_id': cat.id,
-            'owner_type': 'department', 'owner_name': '部门',
+            'org_type': 'department', 'org_name': '部门',
             'status': 'archived', 'editor_can_view_published': False,
         })
         self.assertFalse(has_error(resp))
@@ -196,7 +203,7 @@ class ManualCrudTests(TestCase):
         self.assertTrue(has_error(resp))
 
     def test_delete_refused_when_versions_exist(self):
-        manual = _make_manual()
+        manual = _make_manual(owner=self.manager)
         ManualVersion.objects.create(
             manual=manual, version_no=1, file_path='institution/versions/x.docx',
             original_name='x.docx', published_by=self.manager)
@@ -210,7 +217,7 @@ class ManualCrudTests(TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(storage, 'get_institution_storage_base',
                               return_value=tmp):
-                manual = _make_manual()
+                manual = _make_manual(owner=self.manager)
                 rel = storage.build_relative_path('original', manual.id, 'a.docx')
                 abs_path = storage.resolve_absolute_path(rel)
                 os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -231,7 +238,7 @@ class ManualCrudTests(TestCase):
 
     def test_delete_aborted_when_file_cleanup_fails(self):
         """物理清理失败：直接拒绝删除，手册保持原状（可重试，无孤儿文件）"""
-        manual = _make_manual()
+        manual = _make_manual(owner=self.manager)
         with patch.object(storage, 'safe_delete_manual_dir',
                           return_value=(False, 'disk error')):
             resp = delete_json(self.manager_client,
@@ -240,32 +247,20 @@ class ManualCrudTests(TestCase):
         self.assertIn('清理失败', resp.json()['error'])
         self.assertTrue(Manual.objects.filter(pk=manual.id).exists())
 
-    def test_roles_config_requires_config_perm(self):
-        editor = make_user('e', perms=['institution.manual.draft_edit'])
+    def test_roles_endpoint_removed(self):
+        """旧角色关联配置端点已移除（M2M 角色关联废弃）：404"""
         manual = _make_manual()
-        resp = put_json(make_client(editor), f'/institution/manuals/{manual.id}/roles/',
+        resp = put_json(self.manager_client,
+                        f'/institution/manuals/{manual.id}/roles/',
                         {'view_role_ids': []})
-        self.assertTrue(has_error(resp))
+        self.assertEqual(resp.status_code, 404)
 
-    def test_roles_config_success_with_oplog(self):
-        view_role = make_role(tenant_id='deptA')
-        edit_role = make_role(tenant_id='deptA')
-        publish_role = make_role(tenant_id='deptA')
-        manual = _make_manual()
-        resp = put_json(self.manager_client, f'/institution/manuals/{manual.id}/roles/', {
-            'view_role_ids': [view_role.id],
-            'edit_role_ids': [edit_role.id, publish_role.id],
-            'publish_role_ids': [publish_role.id],
-        })
-        self.assertFalse(has_error(resp))
-        manual.refresh_from_db()
-        self.assertEqual(set(manual.edit_roles.values_list('id', flat=True)),
-                         {edit_role.id, publish_role.id})
-        self.assertTrue(ManualOperationLog.objects.filter(
-            manual=manual, action='config_change').exists())
+    def test_legacy_roles_options_endpoint_removed(self):
+        resp = self.manager_client.get('/institution/roles/')
+        self.assertEqual(resp.status_code, 404)
 
     def test_password_set_stores_hash_only(self):
-        manual = _make_manual()
+        manual = _make_manual(owner=self.manager)
         resp = put_json(self.manager_client, f'/institution/manuals/{manual.id}/password/',
                         {'password': 'secret123'})
         self.assertFalse(has_error(resp))
@@ -286,7 +281,7 @@ class ManualCrudTests(TestCase):
         self.assertTrue(has_error(resp))
 
     def test_password_too_short(self):
-        manual = _make_manual()
+        manual = _make_manual(owner=self.manager)
         resp = put_json(self.manager_client, f'/institution/manuals/{manual.id}/password/',
                         {'password': 'ab'})
         self.assertTrue(has_error(resp))
@@ -304,7 +299,8 @@ class TenantManagerDeclarationTests(TestCase):
     def test_all_models_use_tenant_manager(self):
         from libs.tenant_base_model import TenantModelManager
         from apps.institution import models as m
-        names = ('ManualCategory', 'Manual', 'ManualFile', 'ManualOriginal',
+        names = ('ManualCategory', 'Manual', 'ManualAuthorization',
+                 'ManualFile', 'ManualOriginal',
                  'ManualDraft', 'ManualVersion', 'ManualVersionFile',
                  'ManualEditSession', 'ManualChapter', 'ManualOperationLog')
         for name in names:
@@ -312,30 +308,3 @@ class TenantManagerDeclarationTests(TestCase):
             self.assertIsInstance(model.objects, TenantModelManager, name)
             # 真实走 TenantModelManager.get_queryset 的查询路径
             model.objects.count()
-
-
-class RoleOptionsTests(TestCase):
-    def setUp(self):
-        setup_test_env()
-        self.config_only = make_user('cfg', tenant_id='deptA', perms=[PERM_CONFIG])
-        self.viewer = make_user('viewer', perms=[PERM_VIEW])
-
-    def test_config_holder_can_list_options_without_account_perm(self):
-        """制度配置者无需 system.account.view 即可获取本租户可分配角色"""
-        make_role(name='本租户编制角色', tenant_id='deptA')
-        resp = make_client(self.config_only).get('/institution/roles/')
-        self.assertFalse(has_error(resp))
-        names = [x['name'] for x in get_data(resp)]
-        self.assertIn('本租户编制角色', names)
-
-    def test_supper_sees_platform_level_roles(self):
-        """平台级角色（tenant_id 为空）仅超管可见——方案 §3 角色由超管维护"""
-        make_role(name='平台编制角色', tenant_id='')
-        supper = make_user('root', is_supper=True)
-        resp = make_client(supper).get('/institution/roles/')
-        names = [x['name'] for x in get_data(resp)]
-        self.assertIn('平台编制角色', names)
-
-    def test_view_only_denied(self):
-        resp = make_client(self.viewer).get('/institution/roles/')
-        self.assertTrue(has_error(resp))

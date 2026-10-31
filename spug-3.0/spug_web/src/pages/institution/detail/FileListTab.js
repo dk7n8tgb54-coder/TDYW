@@ -2,33 +2,43 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 文件清单页签（详情页默认页签，2026-10-30 修订状态交互优化）：
- * 日常清单保持简单——顺序/文件名/大小/负责人/状态/编制提交/主要操作；
- * 修订号、工作副本来源与"草稿 vs 生效版本"等细节放草稿工作台详情与
- * 变更记录。状态列由服务端计算的 内容关系（draft-status）+ 修订进行中
- * （revision_open 显式状态）合并为一句可懂短语：
- * - 已生效（无未发布修改）→ 行操作显示「开始修订」（真实状态动作：
- *   开启新一轮修订并复用现有工作副本；工作副本缺失/损坏/与生效基线
- *   不一致时明确提示并经确认从当前生效版本快照修复）；
- * - 修订进行中 → 「继续编辑」直接复用，绝不覆盖；
- * - 草稿未就绪（.doc 转换失败等）→ 明确提示，文件已上传但暂不可发布。
- * 文件分工：负责人列直接点击姓名/「未分配」编辑（有分工权限者），
- * 只读展示（无权限者）；支持勾选多份文件批量指定/清空负责人
- * （全成功或全失败，服务端逐文件校验归属）；操作列不再有「文件分工」
- * 链接。提交编制仍仅行内负责人（is_mine）可见。
+ * 文件清单页签（详情页默认页签，2026-10-30 双视图版）：
+ * 页签内分两个内容视图（不新增顶层页签），杜绝"已发布文件 / 待发布草稿 /
+ * 编制提交"三种状态混为一谈：
+ * - 「当前生效版本 vN」：最近一次发布形成的不可变快照清单。预览/下载始终
+ *   打开发布快照，按钮与预览标题均注明版本来源（预览当前生效版 vN）；
+ *   草稿侧的"已从待发布移除"以行内 Tag 提示（发布后该文件将不在清单中）。
+ *   2026-10-31 起不展示负责人列（负责人属修订分工，只在「修订草稿」视图
+ *   展示与维护；assignment 数据仍随行关联，供「只看我负责的文件」筛选）。
+ * - 「修订草稿」：待发布工作内容。展示 草稿修订号(rN)/负责人/状态(草稿 vs
+ *   生效版本关系+修订进行中)/编制提交；预览与下载明确打开待发布草稿
+ *   （预览待发布草稿 rN），仅持编制角色者可用（后端同样要求 draft_edit +
+ *   can_edit_draft，前端不扩权）。
+ * 默认视图：有生效版本 → 当前生效版本；首次发布前 → 修订草稿。切换视图
+ * 保留「只看我负责的文件」筛选并清空行勾选（勾选属于草稿视图的批量分工）。
+ * 「编制提交」是交接状态不是发布状态：提交有效时对应提交时的修订号（当前
+ * 草稿与提交修订号一致，预览草稿即为提交内容）；草稿再次变更即显示"提交
+ * 已失效"。系统不保存提交时刻的文件副本（无历史快照机制），该限制在
+ * 提示文案中明确说明，绝不把最新草稿冒充"已提交版本"。
+ * 负责人是当前责任归属（仅在「修订草稿」视图展示与维护）：2026-10-31
+ * 授权模型下负责人独占编辑——编辑=模块 draft_edit 权限 + 手册编制授权
+ * （my_roles.edit）+ 该文件负责人身份（is_mine），同一文件受单写会话
+ * 限制（同一时间仅一人）；分工入口在「修订草稿」视图的负责人列
+ * （仅所有者/制度管理员可写），不改变任何权限。
+ * 行操作：修订进行中 → 「继续编辑」深链复用工作副本；修订已结束 →
+ * 「开始修订」（真实状态动作，needs_repair 时经确认从生效版本快照修复）。
  * 数据源（均为服务端权威计算，前端只展示、不推断）：
  * - /files/：待发布集合 + 修订状态 + 文件分工（草稿与提交状态仅工作区
  *   可见者返回；负责人为责任信息对所有可见者下发）
  * - /draft-status/：逐份内容关系与整套摘要（服务端按哈希/名称/序位计算）
  * - /versions/<vid>/files/：生效快照（预览/下载走当前生效版本端点）
- * 行来源按权限分口径：工作区可见者以待发布集合为行（含未进入生效版本
- * 的新增文件）；仅查看角色以生效快照为行（不泄漏草稿信息）。
- * 加载失败置错误态可重试，绝不以空清单或"无变化"冒充；已清理快照
- * 只显示元数据，不提供会失败的预览/下载。
+ * 加载失败置错误态可重试，绝不以空清单或"无变化"冒充；已清理快照只显示
+ * 元数据，不提供会失败的预览/下载。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Table, Tag, Modal, message, Alert, Button, Tooltip, Checkbox } from 'antd';
+import { Table, Tag, Modal, message, Alert, Button, Tooltip, Checkbox,
+  Segmented } from 'antd';
 import { AuthButton } from 'components';
 import { hasPermission, history } from 'libs';
 import { http } from 'libs';
@@ -41,20 +51,25 @@ import FileAssignmentModal from './FileAssignmentModal';
 import { buildFileState } from './draftStatusShared';
 import store from './store';
 
-// 提交编制状态文案（服务端 submission.state：none/submitted/stale）
+// 提交编制状态文案（服务端 submission.state：none/submitted/stale）。
+// 提交是"负责人→发布者"的交接标记，不代表已发布生效；系统不保存提交
+// 时刻的文件副本（无历史快照机制），有效/失效的差异与该限制在 Tooltip
+// 中说明，绝不把更新后的草稿冒充"已提交版本"。
 const SUBMISSION_META = {
   none: {label: '未提交', color: 'default',
     tip: '负责人完成编制后可在此提交（记录提交时的草稿修订号）'},
   submitted: {label: '已提交', color: 'green', tip: null},
-  stale: {label: '提交已失效', color: 'orange',
-    tip: '提交后草稿已再次保存或重建，请负责人确认后重新提交'},
+  stale: {label: '提交已失效', color: 'orange', tip: null},
 };
+
+const VIEW_EFFECTIVE = 'effective';
+const VIEW_DRAFT = 'draft';
 
 @observer
 class FileListTab extends React.Component {
   state = {
     preview: null, assignmentFile: null, batchAssign: false,
-    onlyMine: false, selectedKeys: [],
+    onlyMine: false, selectedKeys: [], activeView: null,
   };
 
   componentDidMount() {
@@ -72,6 +87,31 @@ class FileListTab extends React.Component {
       store.fetchDraftStatus(store.id);
     }
   }
+
+  /** 默认视图：有生效版本 → 当前生效版本；首次发布前 → 修订草稿 */
+  defaultView(manual) {
+    const hasCurrent = !!(manual.current_version &&
+      manual.current_version.id != null);
+    return hasCurrent ? VIEW_EFFECTIVE : VIEW_DRAFT;
+  }
+
+  /** 当前生效视图：仅允许该账号有权可见的视图（后端对数据同样分权） */
+  currentView(manual) {
+    const requested = this.state.activeView || this.defaultView(manual);
+    if (requested === VIEW_DRAFT && !canViewWorkspace(manual)) {
+      return VIEW_EFFECTIVE;
+    }
+    if (requested === VIEW_EFFECTIVE && !canViewPublished(manual)) {
+      return VIEW_DRAFT;
+    }
+    return requested;
+  }
+
+  handleViewChange = (view) => {
+    // 切换视图清空行勾选（批量分工属于草稿视图的操作，不得对另一视图
+    // 的行误操作）；保留「只看我负责的文件」筛选与滚动体验
+    this.setState({activeView: view, selectedKeys: []});
+  };
 
   refresh() {
     const id = store.id;
@@ -104,9 +144,11 @@ class FileListTab extends React.Component {
     });
   };
 
-  showPreview = (request, fileName) => {
+  showPreview = (request, fileName, title) => {
     request.then(data => {
-      this.setState({preview: {url: data.preview_url, fileName: data.file_name || fileName}});
+      this.setState({preview: {
+        url: data.preview_url, fileName: data.file_name || fileName, title,
+      }});
     });
   };
 
@@ -116,19 +158,51 @@ class FileListTab extends React.Component {
     if (this.props.onOpenFileHistory) this.props.onOpenFileHistory();
   };
 
-  /** 预览/下载走当前生效版本的快照端点；无快照或已清理不渲染入口 */
+  /** 生效视图预览/下载：始终打开当前生效版本的发布快照（不可变）；
+   *  无快照或已清理不渲染入口 */
   renderSnapshotActions(snap, cf) {
     if (!snap || !cf || snap.is_cleaned) return null;
+    const versionNo = cf.version_no;
     return (
       <span>
         <AuthButton auth="institution.manual.view" type="link" size="small"
           onClick={() => this.showPreview(
             http.get(`/api/institution/manuals/${store.id}/versions/${cf.version_id}/files/${snap.id}/preview-url/`),
-            snap.file_name)}>预览</AuthButton>
-        <AuthButton auth="institution.manual.download" type="link" size="small"
-          onClick={() => downloadFile(
-            `/api/institution/manuals/${store.id}/versions/${cf.version_id}/files/${snap.id}/download/`,
-            snap.file_name)}>下载</AuthButton>
+            snap.file_name, `预览当前生效版 v${versionNo}：${snap.file_name}`)}>
+          预览当前生效版
+        </AuthButton>
+        <Tooltip title={`下载当前生效版本 v${versionNo} 的发布快照（不受草稿修改影响）`}>
+          <AuthButton auth="institution.manual.download" type="link" size="small"
+            onClick={() => downloadFile(
+              `/api/institution/manuals/${store.id}/versions/${cf.version_id}/files/${snap.id}/download/`,
+              snap.file_name)}>下载</AuthButton>
+        </Tooltip>
+      </span>
+    );
+  }
+
+  /** 草稿视图预览/下载：明确打开待发布草稿（尚未生效）。后端要求
+   *  draft_edit + 编制授权（负责人域），前端只在 负责人（编制授权 +
+   *  is_mine）行渲染，与负责人独占编辑口径一致，不扩权 */
+  renderDraftFileActions(file) {
+    const draft = file.draft;
+    if (!draft) return null;
+    const name = draft.file_name || file.name;
+    const revision = draft.revision;
+    return (
+      <span>
+        <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+          onClick={() => this.showPreview(
+            http.get(`/api/institution/manuals/${store.id}/files/${file.id}/draft/preview-url/`),
+            name, `预览待发布草稿 r${revision}：${name}`)}>
+          预览草稿 r{revision}
+        </AuthButton>
+        <Tooltip title={`下载待发布草稿 r${revision}（尚未生效的工作副本）`}>
+          <AuthButton auth="institution.manual.download" type="link" size="small"
+            onClick={() => downloadFile(
+              `/api/institution/manuals/${store.id}/files/${file.id}/draft/download/`,
+              name)}>下载</AuthButton>
+        </Tooltip>
       </span>
     );
   }
@@ -253,11 +327,10 @@ class FileListTab extends React.Component {
     );
   }
 
-  /** 行操作：预览/下载（生效快照）+ 开始修订/继续编辑（编制角色）+
-   *  提交编制（负责人）+ 变更记录；文件分工入口在负责人列 */
-  renderRowActions(row, cf, canEdit, manualActive) {
+  /** 生效视图行操作：预览/下载（发布快照，注明版本来源）+ 变更记录；
+   *  已清理快照只显示元数据 Tag */
+  renderEffectiveRowActions(row, cf) {
     const isCleaned = !!(row.snap && row.snap.is_cleaned);
-    const isActive = row.kind === 'active';
     return (
       <span>
         {isCleaned && (
@@ -266,32 +339,55 @@ class FileListTab extends React.Component {
           </Tooltip>
         )}
         {!isCleaned && this.renderSnapshotActions(row.snap, cf)}
-        {isActive && canEdit && manualActive && (
-          row.file.revision_open ? (
+        <AuthButton type="link" size="small"
+          onClick={() => this.openFileHistory(row.snap.manual_file_id)}>
+          变更记录
+        </AuthButton>
+      </span>
+    );
+  }
+
+  /** 草稿视图行操作：开始修订/继续编辑 与 预览/下载待发布草稿
+   *  （负责人独占：编制授权 + 该文件负责人；非负责人的编制授权账号
+   *  不渲染编辑入口，占位提示指引先获得分工）+ 提交编制（负责人）+
+   *  变更记录 */
+  renderDraftRowActions(row, canEdit, manualActive) {
+    const file = row.file;
+    // 负责人独占编辑：can_edit 授权 且 该文件负责人（后端 can_edit_file
+    // 同口径）；非负责人不渲染，避免点开必然被拒的入口
+    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
+    return (
+      <span>
+        {isAssignee && manualActive && (
+          file.revision_open ? (
             // 修订进行中：直接复用现有工作副本（绝不覆盖），不调状态接口
             <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
               onClick={() => history.push(
-                `/institution/manuals/${store.id}/draft?file=${row.file.id}`)}>
+                `/institution/manuals/${store.id}/draft?file=${file.id}`)}>
               继续编辑
             </AuthButton>
           ) : (
             // 已结束修订的开始修订是真实状态动作：先开启修订再进入工作台
             <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              onClick={() => this.handleStartRevision(row.file)}>
+              onClick={() => this.handleStartRevision(file)}>
               开始修订
             </AuthButton>
           )
         )}
-        {isActive && manualActive && row.file.assignment &&
-          row.file.assignment.is_mine && (
+        {canEdit && manualActive && !isAssignee && (
+          <Tooltip title="编辑仅限文件负责人（须持本手册编制资格）。你持编制授权但不是该文件负责人，请先由手册所有者指派分工。">
+            <span style={{color: '#999', fontSize: 12}}>编辑限负责人</span>
+          </Tooltip>
+        )}
+        {manualActive && file.assignment && file.assignment.is_mine && (
           <Button type="link" size="small"
-            onClick={() => this.handleSubmitCompile(row.file)}>
+            onClick={() => this.handleSubmitCompile(file)}>
             提交编制
           </Button>
         )}
+        {isAssignee && this.renderDraftFileActions(file)}
         <AuthButton type="link" size="small"
-          onClick={() => this.openFileHistory(
-            row.kind === 'active' ? row.file.id : row.snap.manual_file_id)}>
+          onClick={() => this.openFileHistory(file.id)}>
           变更记录
         </AuthButton>
       </span>
@@ -320,7 +416,10 @@ class FileListTab extends React.Component {
     ) : body;
   }
 
-  /** 提交编制状态单元格（submission 仅工作区可见者下发；前端只映射不推断） */
+  /** 提交编制状态单元格（submission 仅工作区可见者下发；前端只映射不推断）。
+   *  提交是交接状态不是发布状态：有效=提交时修订号与当前草稿一致（预览
+   *  草稿即为提交内容）；失效=草稿已更新且系统不保留提交时刻的文件副本
+   *  （无历史快照机制），绝不提供"已提交版本"预览。 */
   renderSubmissionCell(file) {
     const submission = file.submission;
     if (!submission) return '-';
@@ -329,10 +428,13 @@ class FileListTab extends React.Component {
     if (submission.state === 'submitted') {
       tipParts.push(
         `${submission.submitted_by_name || '-'} 提交于 ${formatDateTime(submission.submitted_at)}`,
-        `提交时修订号 r${submission.submission_revision}`);
+        `提交时修订号 r${submission.submission_revision} 与当前草稿 r${submission.draft_revision} 一致，预览待发布草稿即为提交时内容`,
+        '提交编制仅是交接标记，不代表已发布生效；系统不保存提交时刻的文件副本');
     } else if (submission.state === 'stale') {
       tipParts.push(
-        `原提交 r${submission.submission_revision}，当前草稿已更新至 r${submission.draft_revision}`);
+        `提交已失效：原提交 r${submission.submission_revision}，草稿已更新至 r${submission.draft_revision}`,
+        '系统不保留提交时刻的文件副本，无法查看提交时内容（预览打开的是当前草稿）',
+        '请负责人确认后重新提交');
     }
     if (meta.tip) tipParts.push(meta.tip);
     return (
@@ -373,38 +475,32 @@ class FileListTab extends React.Component {
     );
   }
 
-  renderRemovedSection(cf) {
-    const status = store.draftStatus;
-    if (!status) return null;
-    const removed = status.removed_items || [];
-    if (!removed.length) return null;
-    const snapByFileId = {};
-    if (cf && Array.isArray(cf.items)) {
-      cf.items.forEach(s => { snapByFileId[s.manual_file_id] = s; });
+  /** 生效视图行：版本快照为行（不可变发布内容，含已移除文件条目的快照）。
+   *  工作区可见者以 draft-status.removed_items 标注"已从待发布移除"。
+   *  assignment 仍随行关联（负责人列已不展示），供「只看我负责的文件」
+   *  筛选使用，不得移除。 */
+  buildEffectiveRows(cf) {
+    const removedByFileId = {};
+    if (store.draftStatus && Array.isArray(store.draftStatus.removed_items)) {
+      store.draftStatus.removed_items.forEach(
+        r => { removedByFileId[r.file_id] = r; });
     }
-    const rows = removed.map(r => ({
-      ...r, snapshot: snapByFileId[r.file_id] || null,
+    const assignmentByFileId = {};
+    (store.files || []).forEach(
+      f => { assignmentByFileId[f.id] = f.assignment || null; });
+    const items = (cf && Array.isArray(cf.items)) ? cf.items : [];
+    return items.map(s => ({
+      kind: 'snapshot', key: `s-${s.id}`, snap: s,
+      assignment: assignmentByFileId[s.manual_file_id] || null,
+      removedFromDraft: !!removedByFileId[s.manual_file_id],
     }));
-    return (
-      <div style={{marginTop: 16}}>
-        <Alert type="warning" showIcon style={{marginBottom: 8}}
-          message={`已移除 ${removed.length} 份文件（仍保留在当前生效版本 v${status.current_version_no} 中，发布新版本后将不再包含；可从此处查阅，也可通过整套回退重新纳入）`}/>
-        <Table rowKey="file_id" size="small" dataSource={rows} pagination={false}>
-          <Table.Column title="文件名" dataIndex="name" ellipsis/>
-          <Table.Column title="大小" dataIndex="file_size" width={85}
-            render={v => formatSize(v)}/>
-          <Table.Column title="哈希" dataIndex="file_hash" width={95}
-            render={v => (v || '').slice(0, 8)}/>
-          <Table.Column title="操作" width={125}
-            render={(_, r) => (r.snapshot ? this.renderSnapshotActions(r.snapshot, cf) : '-')}/>
-        </Table>
-      </div>
-    );
   }
 
-  /** 行构建：工作区可见者=待发布集合为行；仅查看者=生效快照为行。 */
-  buildRows(workspace, cf) {
+  /** 草稿视图行：待发布集合为行（含未进入生效版本的新增文件），内嵌
+   *  生效快照（大小展示兜底）与逐份内容关系 */
+  buildDraftRows() {
     const snapByFileId = {};
+    const cf = store.currentFiles;
     if (cf && Array.isArray(cf.items)) {
       cf.items.forEach(s => { snapByFileId[s.manual_file_id] = s; });
     }
@@ -412,25 +508,10 @@ class FileListTab extends React.Component {
     if (store.draftStatus && Array.isArray(store.draftStatus.items)) {
       store.draftStatus.items.forEach(x => { relationByFileId[x.file_id] = x; });
     }
-    // 文件分工按文件条目 ID 连接（负责人对所有可见者下发）
-    const assignmentByFileId = {};
-    (store.files || []).forEach(f => { assignmentByFileId[f.id] = f.assignment || null; });
-    let rows;
-    if (workspace) {
-      rows = (store.files || []).map(f => ({
-        kind: 'active', key: `f-${f.id}`, file: f,
-        snap: snapByFileId[f.id], relation: relationByFileId[f.id],
-      }));
-    } else {
-      rows = ((cf && Array.isArray(cf.items)) ? cf.items : []).map(s => ({
-        kind: 'snapshot', key: `s-${s.id}`, snap: s,
-        assignment: assignmentByFileId[s.manual_file_id] || null,
-      }));
-    }
-    const mineCount = rows.filter(
-      r => r.assignment ? r.assignment.is_mine :
-        (r.file && r.file.assignment && r.file.assignment.is_mine)).length;
-    return {rows, mineCount};
+    return (store.files || []).map(f => ({
+      kind: 'active', key: `f-${f.id}`, file: f,
+      snap: snapByFileId[f.id], relation: relationByFileId[f.id],
+    }));
   }
 
   /** 勾选行键（f-<id>）→ 当前有效的制度文件 ID 列表（仅活动行可勾选） */
@@ -460,91 +541,96 @@ class FileListTab extends React.Component {
     );
   }
 
-  renderTable(rows, {viewPublished, workspace, cf, canEdit, canAssign,
-    manualActive}) {
-    const rowSelection = canAssign ? {
-      selectedRowKeys: this.state.selectedKeys,
-      onChange: keys => this.setState({selectedKeys: keys}),
-      getCheckboxProps: r => ({disabled: r.kind !== 'active'}),
-    } : null;
+  /** 生效视图表格：顺序/文件名/大小/操作（预览/下载均打开
+   *  当前生效版本发布快照并注明版本来源）；不展示负责人——
+   *  负责人属修订分工，只在「修订草稿」视图的负责人列展示与维护 */
+  renderEffectiveTable(rows, {cf, workspace}) {
     return (
       <Table rowKey="key" size="small" scroll={{x: true}}
-        rowSelection={rowSelection}
-        loading={workspace ? store.isFetchingFiles : store.isFetchingCurrentFiles}
+        loading={store.isFetchingCurrentFiles}
         dataSource={rows} pagination={false}>
         <Table.Column title="顺序" width={55}
           render={(_, r, i) => i + 1}/>
         <Table.Column title="文件名" ellipsis
-          render={(_, r) => (r.kind === 'active'
-            ? r.file.name : r.snap.file_name)}/>
+          render={(_, r) => (
+            <span>
+              {r.snap.file_name}
+              {workspace && r.removedFromDraft && (
+                <Tooltip title="该文件已从待发布集合移除，发布新版本后将不在本制度中；可通过整套回退重新纳入">
+                  <Tag color="orange" style={{marginLeft: 8}}>已从待发布移除</Tag>
+                </Tooltip>
+              )}
+            </span>
+          )}/>
         <Table.Column title="大小" width={85}
-          render={(_, r) => {
-            if (r.kind === 'snapshot') return formatSize(r.snap.file_size);
-            const snapSize = r.snap && r.snap.file_size;
-            return formatSize(snapSize != null
-              ? snapSize : (r.file.draft && r.file.draft.file_size));
-          }}/>
-        <Table.Column title="负责人" width={120}
-          render={(_, r) => this.renderOwnerCell(
-            r.kind === 'active' ? r.file.assignment : r.assignment,
-            canAssign && r.kind === 'active',
-            r.kind === 'active' ? r.file : null)}/>
-        {workspace && (
-          <Table.Column title="状态" width={190}
-            render={(_, r) => (r.kind === 'active'
-              ? this.renderStateCell(r.file, r.relation) : '-')}/>
-        )}
-        {workspace && (
-          <Table.Column title="编制提交" width={110}
-            render={(_, r) => (r.kind === 'active'
-              ? this.renderSubmissionCell(r.file) : '-')}/>
-        )}
-        <Table.Column title="操作" width={260} fixed="right"
-          render={(_, r) => this.renderRowActions(
-            r, cf, canEdit, manualActive)}/>
+          render={(_, r) => formatSize(r.snap.file_size)}/>
+        <Table.Column title="操作" width={290} fixed="right"
+          render={(_, r) => this.renderEffectiveRowActions(r, cf)}/>
       </Table>
     );
   }
 
-  render() {
-    const manual = store.manual || {};
-    const viewPublished = canViewPublished(manual);
-    const workspace = canViewWorkspace(manual);
-    const canEdit = (manual.my_roles || []).includes('edit');
-    // 分工口径与后端写接口完全一致：@auth draft_edit 页面权限 +
-    // （管理权限或手册编制角色，对应 _check_manage_or_edit_role）。
-    // 缺 draft_edit 时保存必然被"权限拒绝"，入口必须保持只读
-    const canAssign = hasPermission('institution.manual.draft_edit') &&
-      (canEdit || hasPermission('institution.manual.edit') ||
-        hasPermission('institution.manual.config'));
-    const current = manual.current_version;
-    const manualActive = manual.status === 'active';
-    const cf = store.currentFiles;
+  /** 草稿视图表格：顺序/文件名/大小/草稿修订/负责人/状态/编制提交/操作。
+   *  预览与下载打开待发布草稿（仅编制角色），操作按修订状态分叉 */
+  renderDraftTable(rows, {canEdit, canAssign, manualActive}) {
+    const rowSelection = canAssign ? {
+      selectedRowKeys: this.state.selectedKeys,
+      onChange: keys => this.setState({selectedKeys: keys}),
+      getCheckboxProps: () => ({disabled: false}),
+    } : null;
+    return (
+      <Table rowKey="key" size="small" scroll={{x: true}}
+        rowSelection={rowSelection}
+        loading={store.isFetchingFiles}
+        dataSource={rows} pagination={false}>
+        <Table.Column title="顺序" width={55}
+          render={(_, r, i) => i + 1}/>
+        <Table.Column title="文件名" ellipsis
+          render={(_, r) => r.file.name}/>
+        <Table.Column title="大小" width={85}
+          render={(_, r) => {
+            const snapSize = r.snap && r.snap.file_size;
+            return formatSize(snapSize != null
+              ? snapSize : (r.file.draft && r.file.draft.file_size));
+          }}/>
+        <Table.Column title={
+          <Tooltip title="当前待发布草稿的修订号：每次保存/重建 +1。提交编制按该修订号比对自动失效。">
+            <span>草稿修订</span>
+          </Tooltip>
+        } width={95}
+          render={(_, r) => (r.file.draft && r.file.draft.revision != null
+            ? <Tag>r{r.file.draft.revision}</Tag> : '-')}/>
+        <Table.Column title={
+          <Tooltip title="负责人是当前责任归属：负责人独占编辑（须持本手册编制资格），同一文件同一时间仅一人可编辑（单写会话）。点击姓名可修改分工（仅所有者/制度管理员）。">
+            <span>负责人</span>
+          </Tooltip>
+        } width={120}
+          render={(_, r) => this.renderOwnerCell(
+            r.file.assignment, canAssign, r.file)}/>
+        <Table.Column title="状态" width={190}
+          render={(_, r) => this.renderStateCell(r.file, r.relation)}/>
+        <Table.Column title="编制提交" width={110}
+          render={(_, r) => this.renderSubmissionCell(r.file)}/>
+        <Table.Column title="操作" width={390} fixed="right"
+          render={(_, r) => this.renderDraftRowActions(
+            r, canEdit, manualActive)}/>
+      </Table>
+    );
+  }
 
-    let {rows, mineCount} = this.buildRows(workspace, cf);
-    // 「只看我负责的文件」筛选（编制者视角；行内负责人由服务端 is_mine 判定）。
-    // 筛选切换同时清空勾选：不得对筛选后不可见的文件批量操作
-    if (this.state.onlyMine) {
-      rows = rows.filter(r => r.assignment ? r.assignment.is_mine :
-        (r.file && r.file.assignment && r.file.assignment.is_mine));
-    }
-
+  /** 生效视图：不可变发布快照清单。预览/下载始终打开发布快照，
+   *  入口按钮与预览标题注明版本来源；头部保留版本信息与废止入口 */
+  renderEffectiveView({manual, current, cf, workspace, viewPublished,
+    manualActive, rows}) {
+    const removedCount = (store.draftStatus &&
+      store.draftStatus.removed_items || []).length;
     return (
       <div>
         <div style={{marginBottom: 8, color: '#666', fontSize: 12}}>
           {workspace
-            ? '制度以当前生效版本为准；修订（编辑）某份文件用行内「开始修订/继续编辑」进入草稿工作台，完成后在页面顶部发布整套。负责人列可点击修改分工，勾选多份文件可批量分工。修订号、工作副本来源与历史比较见草稿工作台与「变更记录」。'
-            : '当前生效文件是最新一次发布形成的完整清单（不可变），逐份预览/下载即为最新内容；各文件的发布参与与维护动作见「变更记录」，最初上传的原始文件在「初始来源」。'}
+            ? '当前生效版本是最近一次发布形成的不可变清单：本视图的预览与下载始终打开该发布快照，不受草稿修改影响。修订中的待发布内容（含各文件负责人、草稿修订号、编制提交）请切换到「修订草稿」视图。'
+            : '当前生效版本是最新一次发布形成的完整清单（不可变）：预览与下载始终打开该发布快照。各文件的发布参与与维护动作见「变更记录」，最初上传的原始文件在「初始来源」。'}
         </div>
-        {workspace && (
-          <div style={{marginBottom: 8}}>
-            <Checkbox checked={this.state.onlyMine}
-              onChange={e => this.setState(
-                {onlyMine: e.target.checked, selectedKeys: []})}>
-              只看我负责的文件{mineCount > 0 ? `（${mineCount}）` : ''}
-            </Checkbox>
-          </div>
-        )}
         {viewPublished && current && (
           <div style={{marginBottom: 12, padding: '12px 16px',
             background: '#fafafa', border: '1px solid #f0f0f0'}}>
@@ -570,22 +656,97 @@ class FileListTab extends React.Component {
         )}
         {viewPublished && !current && (
           <Alert type="info" showIcon style={{marginBottom: 12}}
-            message="该制度暂无生效版本。已发布的版本废止后此处为空；当前编辑内容见下方待发布清单，发布后在「版本与发布」生成新的生效版本。"/>
+            message="该制度暂无生效版本。已发布的版本废止后此处为空；当前编辑内容见「修订草稿」视图，发布后在「版本与发布」生成新的生效版本。"/>
         )}
-        {workspace && store.draftStatusError && (
+        {workspace && removedCount > 0 && (
+          <Alert type="warning" showIcon style={{marginBottom: 8}}
+            message={`${removedCount} 份文件已从待发布集合移除（行内标「已从待发布移除」），仍保留在当前生效版本中，发布新版本后将不再包含；可通过整套回退重新纳入。`}/>
+        )}
+        {rows.length > 0 && this.renderEffectiveTable(rows, {cf, workspace})}
+      </div>
+    );
+  }
+
+  /** 草稿视图：待发布工作内容（尚未生效）。草稿修订号/负责人/状态/
+   *  编制提交集中呈现；预览与下载明确打开待发布草稿（负责人独占域） */
+  renderDraftView({canEdit, canAssign, manualActive, rows}) {
+    return (
+      <div>
+        <div style={{marginBottom: 8, color: '#666', fontSize: 12}}>
+          本视图是待发布的工作内容（尚未生效）：预览与下载打开的是待发布草稿
+          （行内标注修订号 rN），整套发布后才会成为新的生效版本。
+          负责人是当前责任归属：编辑仅限文件负责人（须持本手册编制资格），
+          单写会话（同一文件同一时间仅一人）；持编制授权但未被指派负责人的
+          账号可查看清单，编辑前请先由手册所有者指派分工。
+          提交编制是交接标记、不代表已发布：仅记录提交时的草稿修订号，系统
+          不保存提交时刻的文件副本，草稿再次保存或重建后提交自动失效。
+        </div>
+        {store.draftStatusError && (
           <Alert type="warning" showIcon style={{marginBottom: 8}}
             message="草稿与生效版本的关系加载失败，无法确认各文件是否有未发布变化"
             action={<Button size="small" type="primary"
               onClick={() => store.fetchDraftStatus(store.id)}>重试</Button>}/>
         )}
-        {workspace && canAssign && this.renderBatchBar(rows)}
-        {workspace && rows.length === 0 && !store.isFetchingFiles && (
+        {canAssign && this.renderBatchBar(rows)}
+        {rows.length === 0 && !store.isFetchingFiles && (
           <Alert type="info" showIcon
             message="该制度还没有待发布文件。请在「初始来源」页签上传原始文件（每份文件各建一个制度文件与草稿）。"/>
         )}
-        {rows.length > 0 && this.renderTable(rows,
-          {viewPublished, workspace, cf, canEdit, canAssign, manualActive})}
-        {workspace && this.renderRemovedSection(cf)}
+        {rows.length > 0 && this.renderDraftTable(rows,
+          {canEdit, canAssign, manualActive})}
+      </div>
+    );
+  }
+
+  render() {
+    const manual = store.manual || {};
+    const viewPublished = canViewPublished(manual);
+    const workspace = canViewWorkspace(manual);
+    const canEdit = (manual.my_roles || []).includes('edit');
+    // 分工口径与后端写接口完全一致（2026-10-31 授权模型）：@auth
+    // draft_edit 页面权限 +（手册所有者或制度管理员）业务门。缺
+    // draft_edit 或非所有者/管理员时保存必然被"权限拒绝"，入口必须只读
+    const canAssign = hasPermission('institution.manual.draft_edit') &&
+      (manual.is_owner || manual.is_admin);
+    const current = manual.current_version;
+    const manualActive = manual.status === 'active';
+    const cf = store.currentFiles;
+    const view = this.currentView(manual);
+
+    let rows = view === VIEW_DRAFT
+      ? this.buildDraftRows() : this.buildEffectiveRows(cf);
+    // 「只看我负责的文件」筛选（按服务端 is_mine；两个视图都可用）。
+    // 筛选切换同时清空勾选：不得对筛选后不可见的文件批量操作
+    const mineCount = (store.files || []).filter(
+      f => f.assignment && f.assignment.is_mine).length;
+    if (this.state.onlyMine) {
+      rows = rows.filter(r => r.assignment ? r.assignment.is_mine :
+        (r.file && r.file.assignment && r.file.assignment.is_mine));
+    }
+
+    const viewProps = {manual, current, cf, workspace, viewPublished,
+      canEdit, canAssign, manualActive, rows};
+    return (
+      <div>
+        {viewPublished && workspace && (
+          <div style={{marginBottom: 12, display: 'flex',
+            alignItems: 'center', flexWrap: 'wrap', gap: 16}}>
+            <Segmented value={view} onChange={this.handleViewChange}
+              options={[
+                {value: VIEW_EFFECTIVE,
+                  label: `当前生效版本${current ? ` v${current.version_no}` : ''}`},
+                {value: VIEW_DRAFT, label: '修订草稿'},
+              ]}/>
+            <Checkbox checked={this.state.onlyMine}
+              onChange={e => this.setState(
+                {onlyMine: e.target.checked, selectedKeys: []})}>
+              只看我负责的文件{mineCount > 0 ? `（${mineCount}）` : ''}
+            </Checkbox>
+          </div>
+        )}
+        {view === VIEW_DRAFT
+          ? this.renderDraftView(viewProps)
+          : this.renderEffectiveView(viewProps)}
         {this.renderLegacyChapters()}
         {this.state.assignmentFile && (
           <FileAssignmentModal manualId={store.id}
@@ -602,6 +763,7 @@ class FileListTab extends React.Component {
         )}
         <PreviewModal visible={!!this.state.preview} url={this.state.preview && this.state.preview.url}
           fileName={this.state.preview && this.state.preview.fileName}
+          title={this.state.preview && this.state.preview.title}
           onClose={() => this.setState({preview: null})}/>
       </div>
     );

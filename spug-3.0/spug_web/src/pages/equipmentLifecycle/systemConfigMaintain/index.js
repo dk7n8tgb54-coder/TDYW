@@ -55,6 +55,10 @@ class SystemConfigMaintain extends React.Component {
     sharedStore.fetchChanges(maintainStore.systemId);
   };
 
+  handleParamPageChange = (page) => {
+    maintainStore.fetchParamsPage(page);
+  };
+
   showDetail = (changeId) => {
     this.setState({detailId: changeId});
   };
@@ -293,7 +297,13 @@ class SystemConfigMaintain extends React.Component {
           rowKey="id"
           size="small"
           loading={maintainStore.isParamsFetching}
-          pagination={false}
+          pagination={{
+            current: maintainStore.paramPage,
+            pageSize: maintainStore.paramPageSize,
+            total: maintainStore.paramTotal,
+            showTotal: total => `共 ${total} 条`,
+            onChange: this.handleParamPageChange,
+          }}
           dataSource={maintainStore.params}
           columns={this.paramColumns}
           locale={{emptyText: <Empty description="暂无配置参数定义，请先新增" image={Empty.PRESENTED_IMAGE_SIMPLE}/>}}

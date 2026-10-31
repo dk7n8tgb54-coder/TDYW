@@ -32,7 +32,8 @@ from apps.institution import storage
 from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
                                      ManualFile, ManualOperationLog,
                                      ManualVersion)
-from apps.institution.tests.base import get_data, has_error, post_json
+from apps.institution.tests.base import (get_data, has_error, make_grant,
+                                         post_json)
 from apps.institution.tests.characterization.test_manual_multi_files import (
     DOCX)
 from apps.institution.tests.characterization.test_version_changes import (
@@ -122,6 +123,7 @@ class PublishRoundEndTests(VersionChangesTestBase):
         resp = post_json(self.editor_client, REVISION_START.format(
             id=self.manual.id, fid=self.file_a['id']), {})
         self.assertFalse(has_error(resp), resp.content)
+        self.assertFalse(has_error(resp), resp.content)
         self.assertTrue(get_data(resp)['started'])
         resp = self.publisher_client.get(
             f'/institution/manuals/{self.manual.id}/publish-preview/')
@@ -143,7 +145,7 @@ class PublishRoundEndTests(VersionChangesTestBase):
     def test_content_change_after_start_publishes_and_ends_round(self):
         """修订中修改一份文件：整套发布仍含全部文件，发布结束全部修订"""
         self._publish('v1')
-        post_json(self.publisher_client, REVISION_START.format(
+        post_json(self.editor_client, REVISION_START.format(
             id=self.manual.id, fid=self.file_a['id']), {})
         self._modify_file(self.file_a['id'], DOCX + b'-a-v2')
         version = self._publish('v2 只改甲')
@@ -418,9 +420,9 @@ class BatchAssignmentTests(VersionChangesTestBase):
         """任一文件不属于该制度：整批拒绝，已选文件一个都不改"""
         other = Manual.objects.create(
             name='别家手册', code='BM-FGN',
-            owner_type=Manual.OWNER_DEPARTMENT, owner_name='别的部门',
-            tenant_id='deptA')
-        other.edit_roles.add(self.edit_role)
+            org_type=Manual.OWNER_DEPARTMENT, org_name='别的部门',
+            owner=self.manager, tenant_id='deptA')
+        make_grant(other, self.editor, can_edit=True)
         upload = SimpleUploadedFile('别家.docx', DOCX + b'-foreign')
         resp = self.manager_client.post(
             f'/institution/manuals/{other.id}/files/create/',
@@ -431,7 +433,10 @@ class BatchAssignmentTests(VersionChangesTestBase):
                            self.editor.id, note='x')
         self.assertTrue(has_error(resp))
         rows = self._rows()
-        self.assertIsNone(rows[self.file_a['id']]['assignment']['owner_id'])
+        # 整批拒绝：file_a 保持创建时指派的负责人与分工说明，一字不改
+        self.assertEqual(rows[self.file_a['id']]['assignment']['owner_id'],
+                         self.editor.id)
+        self.assertEqual(rows[self.file_a['id']]['assignment']['note'], '')
         # 外部手册的文件同样未被改动
         resp = self.manager_client.get(
             f'/institution/manuals/{other.id}/files/')
