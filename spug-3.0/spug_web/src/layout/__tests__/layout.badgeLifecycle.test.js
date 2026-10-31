@@ -3,7 +3,8 @@
  *
  * 真实渲染 layout/index（ReactDOM + jsdom），mock 布局子组件与外部依赖，
  * 验证：
- * - 布局挂载时立即启动执照/批复/合同三个 Badge Store（登录进入主布局立即获取）
+ * - 布局挂载时立即启动执照/批复/合同/制度管理 Badge Store（登录进入主
+ *   布局立即获取；制度管理红点为 2026-10-31 二轮权限模型改造新增）
  * - 布局卸载时停止全部 Badge Store（事件监听与跨日刷新生命周期终止）
  * - 执照与合同弹窗提醒组件仍正常挂载；不存在批复弹窗组件
  * - 批复相关 popup / ack 接口不会被请求
@@ -33,6 +34,7 @@ jest.mock('../RadioLicenseBadgeStore', () => mockBadgeStoreFactory());
 jest.mock('../ApprovalBadgeStore', () => mockBadgeStoreFactory());
 jest.mock('../CoopTaskBadgeStore', () => mockBadgeStoreFactory());
 jest.mock('../ContractAgreementBadgeStore', () => mockBadgeStoreFactory());
+jest.mock('../InstitutionBadgeStore', () => mockBadgeStoreFactory());
 jest.mock('../AlertStore', () => ({start: jest.fn(), stop: jest.fn()}));
 
 jest.mock('../Sider', () => () => <div data-testid="sider"/>);
@@ -92,15 +94,17 @@ afterEach(() => {
 });
 
 describe('主布局 Badge Store 生命周期', () => {
-  it('挂载时立即启动执照/批复/合同三个 Badge Store 及告警 Store', () => {
+  it('挂载时立即启动执照/批复/合同/制度管理 Badge Store 及告警 Store', () => {
     renderLayout();
     const radioLicenseBadge = require('../RadioLicenseBadgeStore');
     const approvalBadge = require('../ApprovalBadgeStore');
     const contractAgreementBadge = require('../ContractAgreementBadgeStore');
+    const institutionBadge = require('../InstitutionBadgeStore');
     const alertStore = require('../AlertStore');
     expect(radioLicenseBadge.start).toHaveBeenCalledTimes(1);
     expect(approvalBadge.start).toHaveBeenCalledTimes(1);
     expect(contractAgreementBadge.start).toHaveBeenCalledTimes(1);
+    expect(institutionBadge.start).toHaveBeenCalledTimes(1);
     expect(alertStore.start).toHaveBeenCalledTimes(1);
   });
 
@@ -109,6 +113,7 @@ describe('主布局 Badge Store 生命周期', () => {
     const approvalBadge = require('../ApprovalBadgeStore');
     const radioLicenseBadge = require('../RadioLicenseBadgeStore');
     const contractAgreementBadge = require('../ContractAgreementBadgeStore');
+    const institutionBadge = require('../InstitutionBadgeStore');
     act(() => {
       ReactDOM.unmountComponentAtNode(container);
     });
@@ -117,6 +122,7 @@ describe('主布局 Badge Store 生命周期', () => {
     expect(radioLicenseBadge.stop).toHaveBeenCalledTimes(1);
     expect(approvalBadge.stop).toHaveBeenCalledTimes(1);
     expect(contractAgreementBadge.stop).toHaveBeenCalledTimes(1);
+    expect(institutionBadge.stop).toHaveBeenCalledTimes(1);
 
     // 卸载后 focus / visible 事件不触发任何 badge 请求
     const callsBefore = mockHttpGet.mock.calls.length;

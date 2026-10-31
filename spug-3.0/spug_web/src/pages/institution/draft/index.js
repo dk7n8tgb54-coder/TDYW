@@ -11,8 +11,9 @@
  * - 流程按钮：开始编辑 → 保存并结束编辑 → 提交编制；下载/预览/改名/
  *   排序/移除/新增为次级操作。2026-10-31 授权模型：负责人独占编辑——
  *   「开始编辑」仅 文件负责人（持本手册编制授权 + assignment.is_mine）
- *   渲染，非负责人显示明确提示；文件管理行中 下载/预览草稿同样限负责人，
- *   改名/排序/移除/新增限 手册所有者或制度管理员。负责人持有该文件
+ *   渲染（二轮改造起所有者例外：可编辑该手册任意文件），非负责人显示
+ *   明确提示；文件管理行中 下载/预览草稿同样限负责人（所有者例外同上），
+ *   改名/排序/移除/新增限 手册所有者或平台超管。负责人持有该文件
  *   编辑会话时提交编制禁用（明确提示先保存并结束编辑；后端仍独立校验）。
  * - 「保存并结束编辑」的真实落盘确认在 store.finishEditing：确认链路
  *   （forcesave → 轮询草稿修订号推进 → 再次 forcesave 复核到 no_changes）
@@ -53,7 +54,7 @@ import {
 } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { history } from 'libs';
-import { AuthButton, AuthFragment } from 'components';
+import { AuthFragment } from 'components';
 import { http } from 'libs';
 import { downloadFile, formatSize, formatDateTime } from '../utils';
 import PreviewModal from '../detail/PreviewModal';
@@ -62,6 +63,7 @@ import ExpandedBar from './ExpandedBar';
 import SaveStatusTag from './SaveStatusTag';
 import FileNav, {submissionTagFor} from './FileNav';
 import RecoveryPanel from './RecoveryPanel';
+import ManualAuthButton from '../ManualAuthButton';
 import { finishingErrorTitleOf, finishingRetryLabelOf } from './finishingShared';
 import useWorkTabUnsaved from '../../../layout/useWorkTabUnsaved';
 import store from './store';
@@ -555,7 +557,9 @@ class InstitutionDraftWorkspace extends React.Component {
         )}
         <p>
           手册「{manual.name}」的草稿编辑受编辑密码保护。
-          需同时满足：账号持本手册编制资格且为对应文件负责人，并通过编辑密码验证。
+          {manual.is_owner
+            ? '你是本手册所有者：可编辑该手册任意文件，验证密码后即可进入。'
+            : '需同时满足：账号持本手册编制资格且为对应文件负责人，并通过编辑密码验证。'}
         </p>
         <p>
           {target && target.draft
@@ -588,20 +592,22 @@ class InstitutionDraftWorkspace extends React.Component {
     const manual = store.manual || {};
     const finishing = store.finishingFileId === file.id;
     const hasActiveSession = hasSession || !!active;
-    // 负责人独占编辑（2026-10-31）：编制授权 + 该文件负责人；非负责人
-    // （含持编制授权未指派者）不渲染会话入口，明确提示指引
+    // 负责人独占编辑（2026-10-31）：编制授权 + 该文件负责人；二轮权限
+    // 模型改造起 所有者例外可编辑该手册任意文件（超管不可，除非兼任
+    // 所有者/负责人）。其余账号不渲染会话入口，明确提示指引
     const canEdit = (manual.my_roles || []).includes('edit');
-    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
+    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine) ||
+      !!manual.is_owner;
     return (
       <div style={{marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap',
         alignItems: 'center'}}>
         {!hasSession && isAssignee && (
           <Tooltip title={!file.draft ? '该文件还没有可编辑草稿' : undefined}>
-            <AuthButton auth="institution.manual.draft_edit" type="primary"
-              size="small" disabled={!file.draft}
+            <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+              type="primary" size="small" disabled={!file.draft}
               onClick={() => this.handleStartSession(file.id)}>
               开始编辑
-            </AuthButton>
+            </ManualAuthButton>
           </Tooltip>
         )}
         {!hasSession && !isAssignee && (
@@ -621,8 +627,9 @@ class InstitutionDraftWorkspace extends React.Component {
           </Tooltip>
         )}
         {/* 本机方式的下载/上传入口在编辑区本机面板（EditorArea，含基线
-            状态与步骤说明）；流程行只保留主流程与冲突敏感的提交编制 */}
-        {(file.assignment && file.assignment.is_mine) && (
+            状态与步骤说明）；流程行只保留主流程与冲突敏感的提交编制。
+            提交编制：负责人或手册所有者（规则 2，后端同口径） */}
+        {((file.assignment && file.assignment.is_mine) || manual.is_owner) && (
           <Tooltip title={hasActiveSession
             ? '该文件有进行中的编辑会话，请先「保存并结束编辑」后再提交编制'
             : undefined}>
@@ -643,14 +650,15 @@ class InstitutionDraftWorkspace extends React.Component {
   }
 
   /** 次级操作行（2026-10-31 按授权模型拆分门控）：
-   *  下载草稿/预览草稿 = 文件负责人（编制授权 + is_mine，与编辑入口同域）；
-   *  改名/上移/下移/移除/新增文件 = 手册所有者或制度管理员（AuthButton
-   *  页面码原样，后端独立校验）。 */
+   *  下载草稿/预览草稿 = 文件负责人（编制授权 + is_mine，与编辑入口同域；
+   *  所有者例外与编辑入口一致）；改名/上移/下移/移除/新增文件 = 手册
+   *  所有者或平台超管（ManualAuthButton：所有者豁免页面码，后端独立校验）。 */
   renderFileAdminRow(file, draft) {
     const manual = store.manual || {};
     const fileIndex = store.files.findIndex(f => f.id === file.id);
     const canEdit = (manual.my_roles || []).includes('edit');
-    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
+    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine) ||
+      !!manual.is_owner;
     const canManageFiles = !!manual.is_owner || !!manual.is_admin;
     return (
       <div style={{marginTop: 10, paddingTop: 8, borderTop: '1px dashed #f0f0f0',
@@ -658,43 +666,57 @@ class InstitutionDraftWorkspace extends React.Component {
         <span style={{color: '#999', fontSize: 12}}>文件管理：</span>
         {isAssignee ? (
           <span>
-            <AuthButton auth="institution.manual.download" type="link" size="small"
+            <ManualAuthButton manual={manual} auth="institution.manual.download"
+              type="link" size="small"
               disabled={!file.draft}
-              onClick={this.handleDownloadDraft}>下载草稿</AuthButton>
-            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+              onClick={this.handleDownloadDraft}>下载草稿</ManualAuthButton>
+            <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+              type="link" size="small"
               disabled={!file.draft} onClick={() => this.handlePreview(file)}>
               预览草稿
-            </AuthButton>
+            </ManualAuthButton>
           </span>
         ) : (
           <span style={{color: '#999', fontSize: 12}}>下载/预览草稿仅限文件负责人</span>
         )}
         {canManageFiles && (
           <span>
-            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              onClick={this.showRename}>改名</AuthButton>
+            <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+              type="link" size="small"
+              onClick={this.showRename}>改名</ManualAuthButton>
             {store.files.length > 1 && (
               <span>
-                <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+                  type="link" size="small"
                   disabled={fileIndex <= 0}
-                  onClick={() => this.handleMove(file, -1)}>上移</AuthButton>
-                <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                  onClick={() => this.handleMove(file, -1)}>上移</ManualAuthButton>
+                <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+                  type="link" size="small"
                   disabled={fileIndex < 0 || fileIndex >= store.files.length - 1}
-                  onClick={() => this.handleMove(file, 1)}>下移</AuthButton>
+                  onClick={() => this.handleMove(file, 1)}>下移</ManualAuthButton>
               </span>
             )}
-            <AuthFragment auth="institution.manual.draft_edit">
+            {(manual.is_owner ? (
               <Popconfirm title={`确定将文件「${file.name}」移除出待发布集合？`}
                 onConfirm={() => this.handleRemove(file)}>
                 <Button type="link" danger size="small"
                   disabled={store.files.length <= 1}>移除</Button>
               </Popconfirm>
-            </AuthFragment>
+            ) : (
+              <AuthFragment auth="institution.manual.draft_edit">
+                <Popconfirm title={`确定将文件「${file.name}」移除出待发布集合？`}
+                  onConfirm={() => this.handleRemove(file)}>
+                  <Button type="link" danger size="small"
+                    disabled={store.files.length <= 1}>移除</Button>
+                </Popconfirm>
+              </AuthFragment>
+            ))}
             {store.files.length <= 1 && (
-              <AuthButton auth="institution.manual.upload" type="link" size="small"
+              <ManualAuthButton manual={manual} auth="institution.manual.upload"
+                type="link" size="small"
                 loading={this.state.adding} onClick={this.handlePickAddFile}>
                 新增文件（.doc/.docx）
-              </AuthButton>
+              </ManualAuthButton>
             )}
           </span>
         )}

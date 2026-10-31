@@ -25,7 +25,8 @@ import { observer } from 'mobx-react';
 import { Spin, Tabs, Tag, Button, Result, Modal, message } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
 import { hasPermission, history } from 'libs';
-import { AuthButton, AuthDiv } from 'components';
+import { AuthDiv } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import { http } from 'libs';
 import { canViewPublished } from '../utils';
 import store from './store';
@@ -91,7 +92,10 @@ class InstitutionManualDetail extends React.Component {
   renderHeader() {
     const manual = store.manual;
     const canEdit = (manual.my_roles || []).includes('edit');
-    const canManage = hasPermission('institution.manual.edit') ||
+    // 元数据管理功能资格：页面码；手册所有者对象级豁免（规则 2：
+    // 所有者对本人手册拥有全部权限，后端 manual_auth 同口径）
+    const canManage = manual.is_owner ||
+      hasPermission('institution.manual.edit') ||
       hasPermission('institution.manual.config');
     return (
       <div style={{marginBottom: 12}}>
@@ -109,19 +113,22 @@ class InstitutionManualDetail extends React.Component {
           )}
         </div>
         <div style={{marginTop: 8, display: 'flex', gap: 8}}>
-          {/* 草稿工作台后端要求手册编制角色（can_edit_draft），与入口口径一致；
-              仅有管理权限无编制角色者进入只会撞错误页。按文件编辑请用
-              文件清单行内的「继续编辑」（深链直达对应文件）。 */}
+          {/* 草稿工作台后端要求手册编制资格（can_edit_manual_files，所有者
+              豁免），与入口口径一致；仅有管理权限无编制资格者进入只会撞
+              错误页。按文件编辑请用文件清单行内的「继续编辑」（深链直达
+              对应文件）。所有者不需要 draft_edit 页面码（ManualAuthButton）。 */}
           {canEdit && manual.status === 'active' && (
-            <AuthButton auth="institution.manual.draft_edit" size="small"
+            <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+              size="small"
               onClick={() => history.push(`/institution/manuals/${manual.id}/draft`)}>
               草稿工作台
-            </AuthButton>
+            </ManualAuthButton>
           )}
           {canManage && (
-            <AuthButton auth="institution.manual.delete" size="small" danger type="link"
+            <ManualAuthButton manual={manual} auth="institution.manual.delete"
+              size="small" danger type="link"
               disabled={!!manual.current_version}
-              onClick={this.handleDelete}>删除手册</AuthButton>
+              onClick={this.handleDelete}>删除手册</ManualAuthButton>
           )}
         </div>
         {/* 整套草稿状态摘要（显眼位置）+ 发布新版本入口（发布角色，位于
@@ -149,7 +156,7 @@ class InstitutionManualDetail extends React.Component {
     }
     if (!store.manual) return null;
     // 「权限配置」页签可见（2026-10-31 授权模型）：持 config 权限码者
-    // （编辑密码维护等配置能力），或手册所有者/制度管理员（管理本手册
+    // （编辑密码维护等配置能力），或手册所有者/平台超管（管理本手册
     // 的账号授权与所有者）。后端对各接口仍独立校验。
     const canConfig = hasPermission('institution.manual.config') ||
       store.manual.is_owner || store.manual.is_admin;

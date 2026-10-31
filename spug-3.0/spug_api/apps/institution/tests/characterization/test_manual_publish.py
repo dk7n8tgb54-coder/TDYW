@@ -172,6 +172,16 @@ class PublishTests(PublishWorkflowBase):
         resp = self._publish(client=make_client(perm_only))
         self.assertTrue(has_error(resp))
 
+    def test_owner_can_publish_without_publish_grant(self):
+        """第二轮：所有者无需 can_publish 授权即可发布（manual_auth
+        对象级豁免 + can_publish 所有者分支）"""
+        resp = self._publish(client=self.manager_client, note='所有者发布')
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(get_data(resp)['version_no'], 1)
+        self.assertEqual(
+            ManualVersion.objects.get(manual=self.manual).published_by_id,
+            self.manager.id)
+
     def test_publish_without_draft_rejected(self):
         empty = Manual.objects.create(
             name='空手册', code='K-002', org_type=Manual.OWNER_SECTION,
@@ -219,7 +229,7 @@ class PublishTests(PublishWorkflowBase):
             f'/institution/manuals/{self.manual.id}/versions/')
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(get_data(resp)['total'], 1)
-        # 编辑角色且手册允许编制者可见发布版
+        # can_view 授权可见发布版（仅 can_edit 不再可见——开关已删）
         resp = self.editor_client.get(
             f'/institution/manuals/{self.manual.id}/versions/')
         self.assertFalse(has_error(resp), resp.content)

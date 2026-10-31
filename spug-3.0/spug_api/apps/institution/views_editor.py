@@ -15,11 +15,11 @@
 from django.db import transaction
 from django.views.generic import View
 
-from libs import Argument, JsonParser, auth, json_response
+from libs import Argument, JsonParser, json_response
 
 from . import authorization_services, editor_services, services
 from .models import Manual
-from .views import _manual_from_request
+from .views import _manual_from_request, manual_auth
 from .views_draft import _draft_or_error
 from .views_files import _file_from_request
 
@@ -33,7 +33,7 @@ class FileDraftForcesaveView(View):
     递增）。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:

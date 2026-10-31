@@ -63,6 +63,9 @@ class MultiFileMigrationTests(TransactionTestCase):
         operator2 = make_user('legacy-editor', tenant_id='deptB')
 
         def seed_manual(name, code):
+            # 注：editor_can_view_published 是 0002 历史态列（迁移 0009 才
+            # 删除；Django 不把 Python default 写进库结构），历史态原始
+            # SQL 播种必须显式携带，不是对当前模型的字段断言
             return _sql_insert(
                 'tdyw_institution_manual',
                 ['tenant_id', 'name', 'code', 'owner_type', 'owner_name',

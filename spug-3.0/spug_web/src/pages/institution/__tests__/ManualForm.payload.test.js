@@ -27,22 +27,19 @@ describe('buildManualPayload', () => {
     expect(keys).toContain('org_type');
   });
 
-  it('新建缺省：归属部门、启用、编制者可见发布版', () => {
+  it('新建缺省：归属部门、启用', () => {
     const payload = buildManualPayload({name: 'x'});
     expect(payload.org_type).toBe('department');
     expect(payload.status).toBe('active');
-    expect(payload.editor_can_view_published).toBe(true);
+    // 2026-10-31 二轮权限模型：editor_can_view_published 开关整体退役，
+    // 手册表单不再提交该键
+    expect(payload).not.toHaveProperty('editor_can_view_published');
   });
 
-  it('编辑缺省回落到手册现值，显式提交的 false 不被覆盖', () => {
-    const defaults = {org_type: 'section', status: 'archived',
-      editor_can_view_published: true};
+  it('编辑缺省回落到手册现值', () => {
+    const defaults = {org_type: 'section', status: 'archived'};
     expect(buildManualPayload({name: 'x'}, defaults).org_type).toBe('section');
     expect(buildManualPayload({name: 'x'}, defaults).status).toBe('archived');
-    expect(buildManualPayload({name: 'x'}, defaults).editor_can_view_published)
-      .toBe(true);
-    expect(buildManualPayload({name: 'x', editor_can_view_published: false}, defaults)
-      .editor_can_view_published).toBe(false);
   });
 
   it('文本字段去除首尾空白', () => {

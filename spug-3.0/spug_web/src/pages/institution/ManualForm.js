@@ -4,7 +4,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Form, Input, Select, Modal, Switch, message } from 'antd';
+import { Form, Input, Select, Modal, message } from 'antd';
 import { http } from 'libs';
 import store from './store';
 
@@ -24,10 +24,6 @@ export function buildManualPayload(values, defaults = {}) {
     org_type: values.org_type || defaults.org_type || 'department',
     org_name: (values.org_name || '').trim(),
     status: values.status || defaults.status || 'active',
-    editor_can_view_published: values.editor_can_view_published !== undefined
-      ? !!values.editor_can_view_published
-      : (defaults.editor_can_view_published !== undefined
-        ? !!defaults.editor_can_view_published : true),
   };
 }
 
@@ -85,10 +81,8 @@ class ManualForm extends React.Component {
             category_id: info.category_id || undefined,
             org_type: info.org_type, org_name: info.org_name,
             status: info.status,
-            editor_can_view_published: info.editor_can_view_published,
           } : {
             org_type: 'department', status: 'active',
-            editor_can_view_published: true,
           }}>
           <Form.Item name="name" label="手册名称"
             rules={[{required: true, message: '请输入手册名称'}]}>
@@ -120,11 +114,6 @@ class ManualForm extends React.Component {
               <Option value="active">启用</Option>
               <Option value="archived">归档</Option>
             </Select>
-          </Form.Item>
-          <Form.Item name="editor_can_view_published" label="编制者可见发布版"
-            valuePropName="checked"
-            extra="关闭后，仅持查看授权的账号可见已发布版本；创建后可在详情页「权限配置」页签随账号授权一并调整">
-            <Switch/>
           </Form.Item>
         </Form>
       </Modal>

@@ -30,7 +30,7 @@ jest.mock('../detail/store', () => {
   class DetailStore {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
-      my_roles: ['edit'], editor_can_view_published: true,
+      my_roles: ['edit'],
       current_version: {id: 3, version_no: 2}};
     @observable isFetching = false;
     @observable error = '';
@@ -81,7 +81,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   hasPermission.mockImplementation(() => true);
   store.manual = {id: 7, name: '科室操作手册', status: 'active',
-    my_roles: ['edit'], editor_can_view_published: true,
+    my_roles: ['edit'],
     current_version: {id: 3, version_no: 2}};
   store.draftStatus = null;
   store.draftStatusError = '';

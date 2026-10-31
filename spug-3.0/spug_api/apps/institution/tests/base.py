@@ -29,7 +29,9 @@ PERM_UPLOAD = 'institution.manual.upload'
 PERM_DOWNLOAD = 'institution.manual.download'
 PERM_DRAFT = 'institution.manual.draft_edit'
 PERM_PUBLISH = 'institution.manual.publish'
-PERM_ADMIN = 'institution.manual.admin'
+# 注：原"制度管理员"权限码（admin 码）已废除（2026-10-31 第二轮
+# 权限模型），不再提供夹具常量；"admin"语义收敛为平台超管
+# （make_user(is_supper=True)）。
 
 ALL_PERMS = [
     PERM_VIEW, PERM_ADD, PERM_EDIT, PERM_DELETE, PERM_CONFIG,
@@ -83,6 +85,9 @@ def make_user(username='user', is_supper=False, tenant_id='inst', perms=None,
 
     perms: 模块权限码列表（生成一个承载 page_perms 的角色）
     roles: 额外挂载的 account.Role 实例列表（手册级授权用）
+    perms=None（且非超管）即为「无任何 institution 页面码」账号——配合
+    Manual.owner 可构造"无页面码的所有者"夹具，钉死对象级豁免
+    （manual_auth 通道：所有者不需要角色权限）。
     """
     unique = f'{username}_{make_uuid()[:8]}'
     user = User.objects.create(

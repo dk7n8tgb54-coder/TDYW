@@ -394,12 +394,13 @@ describe('版本保留策略状态与长期保留标记', () => {
 
 describe('无 can_view_published 口径权限的版本页签', () => {
   it('展示无权说明而非空版本表冒充，且不发版本请求', () => {
-    // 2026-10-31 授权模型：仅持编制授权且手册关闭"编制者可查看发布版"
-    // 的账号（含手册所有者本人）不自动可见发布版；版本历史对齐后端
-    // VersionListView 的 can_view_published 门禁
+    // 2026-10-31 二轮权限模型改造：仅持编制授权且非所有者/平台超管的账号
+    // 不自动可见发布版（「编制授权者可查看发布版」开关已废除；所有者
+    // 自动可见发布版）；版本历史对齐后端 VersionListView 的
+    // can_view_published 门禁
     const original = store.manual;
     store.manual = Object.assign({}, original,
-      {my_roles: ['edit'], editor_can_view_published: false, is_owner: true});
+      {my_roles: ['edit'], is_owner: false, is_admin: false});
     try {
       const container = renderTab();
       expect(container.textContent)

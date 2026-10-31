@@ -4,9 +4,9 @@
  *
  * 账号授权卡片（2026-10-31 授权模型改造，替代旧「角色关联」配置）：
  * 逐本账号授权 = 每账号一行（查看/编制/发布三个布尔授权位），
- * 「保存授权」整体替换（PUT authorizations/，items 全量 + 本卡内的
- * 「编制授权者可查看发布版」Switch）。仅手册所有者/制度管理员可读写
- * （后端独立校验；编制/发布授权不足以读写授权配置）。
+ * 「保存授权」整体替换（PUT authorizations/，items 全量）。
+ * 仅手册所有者/平台超级管理员可读写（后端独立校验；编制/发布授权不足
+ * 以读写授权配置）。
  * - 挂载即拉取授权清单与账号候选；清单失败置错误态可重试，候选失败在
  *   卡片内展示错误与重试（skipErrorNotification，FileAssignmentModal
  *   同款模式），绝不把失败静默表现为空候选列表。
@@ -17,7 +17,7 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Card, Table, Tag, Button, Select, Switch, Alert, Checkbox, message } from 'antd';
+import { Card, Table, Tag, Button, Select, Alert, Checkbox, message } from 'antd';
 import { DeleteOutlined } from '@ant-design/icons';
 import store from './store';
 
@@ -44,7 +44,6 @@ function rowsFromServer(items) {
 class AuthorizationCard extends React.Component {
   state = {
     rows: null,
-    editorVisible: false,
     addAccountId: undefined,
     saving: false,
   };
@@ -61,7 +60,6 @@ class AuthorizationCard extends React.Component {
       if (auth) {
         this.setState({
           rows: rowsFromServer(auth.items),
-          editorVisible: !!auth.editor_can_view_published,
           addAccountId: undefined,
         });
       }
@@ -115,7 +113,7 @@ class AuthorizationCard extends React.Component {
         can_publish: !!r.can_publish,
       }));
     this.setState({saving: true});
-    store.saveAuthorizations(store.id, items, this.state.editorVisible)
+    store.saveAuthorizations(store.id, items)
       .then(data => {
         const revoked = data && data.revoked_sessions;
         message.success(revoked > 0
@@ -123,7 +121,6 @@ class AuthorizationCard extends React.Component {
           : '授权已保存');
         this.setState({
           rows: rowsFromServer(data && data.items),
-          editorVisible: !!(data && data.editor_can_view_published),
         });
       })
       .catch(() => {
@@ -133,18 +130,11 @@ class AuthorizationCard extends React.Component {
   };
 
   render() {
-    const {rows, editorVisible, addAccountId, saving} = this.state;
+    const {rows, addAccountId, saving} = this.state;
     const options = store.accountOptions || [];
     const existingIds = (rows || []).map(r => r.account_id);
     return (
-      <Card title="账号授权（查看 / 编制 / 发布）" size="small" style={{marginBottom: 16}}
-        extra={
-          <span>
-            <span style={{marginRight: 8, fontSize: 12}}>编制授权者可查看发布版</span>
-            <Switch size="small" checked={editorVisible}
-              onChange={v => this.setState({editorVisible: v})}/>
-          </span>
-        }>
+      <Card title="账号授权（查看 / 编制 / 发布）" size="small" style={{marginBottom: 16}}>
         <p style={{marginTop: 0, color: '#666', fontSize: 12}}>
           授权按账号逐本授予（整体保存）：查看=可见手册与发布版；编制=可进入
           草稿工作区（编辑内容还须被指派为对应文件的负责人，单写会话）；
@@ -168,7 +158,7 @@ class AuthorizationCard extends React.Component {
           loading={store.isFetchingAuthorizations}
           dataSource={rows || []}
           locale={{emptyText: rows === null
-            ? '加载中…' : '暂无账号授权：持「制度管理员」权限的账号始终可见全部手册'}}>
+            ? '加载中…' : '暂无账号授权：平台超级管理员始终可见全部手册'}}>
           <Table.Column title="账号" dataIndex="account_name" ellipsis/>
           {AUTH_BITS.map(bit => (
             <Table.Column key={bit.key} width={90}

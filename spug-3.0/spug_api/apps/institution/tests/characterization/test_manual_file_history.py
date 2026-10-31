@@ -164,12 +164,11 @@ class FileVersionHistoryTests(FileHistoryBase):
         self.assertEqual(get_data(resp)['items'], [])
 
     def test_permission_requires_view_published(self):
-        """仅编制授权（无 can_view）且手册关闭"编制者可查看发布版"：拒绝"""
+        """仅编制授权（无 can_view）不可见发布历史（第二轮：仅 can_edit
+        不再可见发布版，editor_can_view_published 开关已删除）"""
         edit_only = make_user('edit-only', tenant_id='deptB',
                               perms=[PERM_VIEW])
         make_grant(self.manual, edit_only, can_edit=True)
-        self.manual.editor_can_view_published = False
-        self.manual.save(update_fields=['editor_can_view_published'])
         resp = self._version_history(self.file_a['id'],
                                      client=make_client(edit_only))
         self.assertTrue(has_error(resp))

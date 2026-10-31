@@ -1,24 +1,29 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""授权模型改造（2026-10-31）的真实行为测试：所有者 + 逐本账号授权
+"""权限模型第二轮改造（2026-10-31）的真实行为测试：所有者全权 + 逐本授权
 
 验收口径（全部走 test client 真实请求链路；隔离测试库 + 临时存储目录）：
 - 两层模型：系统角色（页面权限码 institution.manual.*）授予功能资格；
   具体可操作哪本手册由 Manual.owner（所有者）与 ManualAuthorization
   （逐本账号授权 can_view/can_edit/can_publish）决定；tenant_id 不参与
   任何判定（跨租户授权/所有者是预期行为，本套件继续钉死）。
-- 授权配置端点：GET/PUT manuals/<pk>/authorizations/（所有者/制度管理员；
-  整体替换、全 False 删行、失权撤销会话 + 迟到回调拒绝）、
-  owner-candidates（仅制度管理员）、POST owner（指定/接管/移交；
-  所有者本人不能移交）。
-- 负责人独占编辑：同手册其他持 can_edit 编制授权账号在 会话开启/
-  multipart 保存（含本机上传）/editor-config/forcesave/开始修订/草稿
-  创建 全部拒绝；编辑密码只是附加验证，已验密不能越权。
-- 发布域按 can_publish 授权；can_view_published 组合（view 授权 /
-  edit+editor_can_view_published；owner 不自动可见发布版）。
-- 可见性过滤：列表（所有者/任一授权行）/详情/work_status 逐手册判定。
+- 所有者自动拥有该手册范围内全部权限（查看发布版与草稿、编辑任意
+  文件、发布、授权与分工管理、设密码），不要求持有页面权限码或逐本
+  授权（manual_auth 对象级豁免钉死）。
+- "admin"概念收敛为平台超管（is_supper）：原"制度管理员"权限码废除；移交/接管=当前所有者或超管；原所有者移交后失权（会话撤销
+  留痕、log/audit 含 kind）。
+- 授权配置端点：GET/PUT manuals/<pk>/authorizations/（整体替换、全
+  False 删行、失权撤销会话 + 迟到回调拒绝）、owner-candidates（所有者
+  或超管）、POST owner（移交/接管；同账号/停用账号拒绝）。
+- 负责人独占编辑：非所有者同手册其他持 can_edit 编制授权账号在 会话
+  开启/multipart 保存/editor-config/forcesave/开始修订/草稿创建 全部
+  拒绝；所有者例外（可编辑该手册任意文件）。
+- 发布域：can_publish 授权或所有者；仅 can_edit 授权不再可见发布版
+  （editor_can_view_published 开关已删）。
+- 编辑密码：仅所有者或平台超管可设置/重置（config 页面码不能覆盖）。
 """
 import json
+import os
 import tempfile
 from unittest.mock import patch
 
@@ -28,9 +33,10 @@ from django.test import TestCase, override_settings
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualAuthorization,
                                      ManualEditSession, ManualFile,
-                                     ManualOperationLog)
+                                     ManualDraft, ManualOperationLog,
+                                     ManualVersion)
 from apps.institution.tests.base import (
-    PERM_ADMIN, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW, get_data,
+    PERM_CONFIG, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW, get_data,
     has_error, make_client, make_grant, make_user, post_json, put_json,
     setup_test_env,
 )
@@ -56,14 +62,14 @@ def _manual(name='授权手册', owner=None, tenant_id='deptA', **kwargs):
 
 
 class _AuthEnvBase(TestCase):
-    """所有者 + 制度管理员 + 编制者/发布者/查看者 + 无关账号"""
+    """所有者 + 平台超管 + 编制者/发布者/查看者 + 无关账号"""
 
     def setUp(self):
         setup_test_env()
         self.owner = make_user('owner', tenant_id='deptA',
                                perms=[PERM_VIEW])
-        self.admin = make_user('inst-admin', tenant_id='deptA',
-                               perms=[PERM_VIEW, PERM_ADMIN])
+        # "admin"收敛为平台超管：is_supper（原"制度管理员"权限码废除）
+        self.admin = make_user('inst-admin', is_supper=True, tenant_id='deptA')
         self.editor = make_user('editor', tenant_id='deptB',
                                 perms=[PERM_DRAFT, PERM_VIEW])
         self.publisher = make_user('pub', tenant_id='deptC',
@@ -88,11 +94,8 @@ class AuthorizationApiTests(_AuthEnvBase):
         make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         self.path = f'/institution/manuals/{self.manual.id}/authorizations/'
 
-    def _put(self, client, items, editor_can_view_published=None):
-        body = {'items': items}
-        if editor_can_view_published is not None:
-            body['editor_can_view_published'] = editor_can_view_published
-        return put_json(client, self.path, body)
+    def _put(self, client, items):
+        return put_json(client, self.path, {'items': items})
 
     # -- 业务门禁 --
 
@@ -101,7 +104,7 @@ class AuthorizationApiTests(_AuthEnvBase):
         resp = self.owner_client.get(self.path)
         self.assertFalse(has_error(resp), resp.content)
         data = get_data(resp)
-        self.assertEqual(data['editor_can_view_published'], True)
+        self.assertNotIn('editor_can_view_published', data)
         self.assertIn(self.editor.id,
                       [x['account_id'] for x in data['items']])
         resp = self._put(self.owner_client, [
@@ -112,20 +115,19 @@ class AuthorizationApiTests(_AuthEnvBase):
         self.assertTrue(ManualAuthorization.objects.filter(
             manual=self.manual, account=self.viewer, can_view=True).exists())
 
-    def test_admin_manages_any_manual(self):
-        """制度管理员对任意手册（含非自己所有）可管理授权"""
+    def test_platform_admin_manages_any_manual(self):
+        """平台超管对任意手册（含非自己所有）可管理授权"""
         resp = self._put(self.admin_client, [
             {'account_id': self.publisher.id, 'can_view': True,
              'can_edit': False, 'can_publish': True},
-        ], editor_can_view_published=False)
+        ])
         self.assertFalse(has_error(resp), resp.content)
         self.assertTrue(ManualAuthorization.objects.filter(
             manual=self.manual, account=self.publisher,
             can_publish=True).exists())
-        self.manual.refresh_from_db()
-        self.assertFalse(self.manual.editor_can_view_published)
         resp = self.admin_client.get(self.path)
         self.assertFalse(has_error(resp), resp.content)
+        self.assertNotIn('editor_can_view_published', get_data(resp))
 
     def test_editor_and_stranger_denied(self):
         """编制/发布/查看授权与无关账号均不能读取或替换授权配置"""
@@ -197,7 +199,8 @@ class AuthorizationApiTests(_AuthEnvBase):
             manual=self.manual, action='authorization_change').latest('id')
         detail = json.loads(log.detail)
         self.assertEqual(detail['revoked_sessions'], 0)
-        self.assertEqual(detail['editor_can_view_published'], True)
+        self.assertNotIn('editor_can_view_published', detail)
+        self.assertEqual(detail['grants'][0]['account_id'], self.editor.id)
 
 
 class RevocationSessionTests(DraftWorkflowBase):
@@ -213,11 +216,8 @@ class RevocationSessionTests(DraftWorkflowBase):
         self.auth_path = (
             f'/institution/manuals/{self.manual.id}/authorizations/')
 
-    def _put_auth(self, items, editor_can_view_published=None):
-        body = {'items': items}
-        if editor_can_view_published is not None:
-            body['editor_can_view_published'] = editor_can_view_published
-        return put_json(self.manager_client, self.auth_path, body)
+    def _put_auth(self, items):
+        return put_json(self.manager_client, self.auth_path, {'items': items})
 
     def test_losing_edit_grant_revokes_sessions_and_rejects_save(self):
         """失权（PUT 授权去掉 can_edit）撤销其在该手册全部文件的活跃会话，
@@ -299,14 +299,13 @@ class RevocationSessionTests(DraftWorkflowBase):
             HTTP_AUTHORIZATION=f'Bearer {token}')
         self.assertEqual(resp.status_code, 403)
         # 草稿未被覆盖
-        from apps.institution.models import ManualDraft
         draft = ManualDraft.objects.get(file_id=self.file_id)
         self.assertEqual(draft.revision, 1)
         self.assertNotEqual(draft.file_hash, _docx(b'late-after-revoke'))
 
 
 class OwnerManagementTests(_AuthEnvBase):
-    """owner-candidates（admin only）与 POST owner（指定/接管/移交）"""
+    """owner-candidates（所有者/超管）与 POST owner（移交/接管）"""
 
     def setUp(self):
         super().setUp()
@@ -315,8 +314,11 @@ class OwnerManagementTests(_AuthEnvBase):
             f'/institution/manuals/{self.manual.id}/owner-candidates/')
         self.owner_path = f'/institution/manuals/{self.manual.id}/owner/'
 
-    def test_owner_candidates_admin_only(self):
-        """候选清单仅制度管理员可取（所有者也不行：受控移交仅管理员）"""
+    def _assign_owner(self, client, account_id):
+        return post_json(client, self.owner_path, {'account_id': account_id})
+
+    def test_owner_candidates_for_owner_or_admin(self):
+        """候选清单=手册所有者或平台超管；其他账号拒绝"""
         resp = self.admin_client.get(self.candidates_path)
         self.assertFalse(has_error(resp), resp.content)
         rows = get_data(resp)
@@ -325,95 +327,118 @@ class OwnerManagementTests(_AuthEnvBase):
         self.assertEqual(by_id[self.editor.id]['name'], self.editor.nickname)
         for row in rows:
             self.assertEqual(set(row.keys()), {'id', 'name'})
-        for client in (self.owner_client, self.editor_client,
+        # 指定所有者后，所有者本人可调（第二轮：所有者可移交）
+        self._assign_owner(self.admin_client, self.owner.id)
+        resp = self.owner_client.get(self.candidates_path)
+        self.assertFalse(has_error(resp), resp.content)
+        # 非所有者非超管拒绝
+        for client in (self.editor_client, self.publisher_client,
                        self.stranger_client):
             resp = client.get(self.candidates_path)
             self.assertTrue(has_error(resp))
             self.assertIn('无权限', resp.json()['error'])
 
-    def test_post_owner_assigns_and_transfers(self):
-        """指定（NULL->账号）与移交（改账号）统一入口；操作记录留痕"""
-        resp = post_json(self.admin_client, self.owner_path,
-                         {'account_id': self.owner.id})
+    def test_admin_takeover_then_owner_transfer(self):
+        """超管接管（takeover）与所有者移交（transfer）统一入口；留痕"""
+        resp = self._assign_owner(self.admin_client, self.owner.id)
         self.assertFalse(has_error(resp), resp.content)
         self.manual.refresh_from_db()
         self.assertEqual(self.manual.owner_id, self.owner.id)
-        # is_owner 按请求者（管理员）计算：管理员本人不是所有者
-        self.assertFalse(get_data(resp)['is_owner'])
-        self.assertEqual(get_data(resp)['owner_id'], self.owner.id)
-        # 接管/移交：改指另一账号
-        resp = post_json(self.admin_client, self.owner_path,
-                         {'account_id': self.editor.id})
+        # 超管不是所有者：kind=takeover
+        detail = json.loads(ManualOperationLog.objects.filter(
+            manual=self.manual, action='owner_change').latest('id').detail)
+        self.assertEqual(detail['kind'], 'takeover')
+        self.assertIsNone(detail['previous_owner_id'])
+        self.assertEqual(detail['owner_id'], self.owner.id)
+        # 所有者移交（transfer）：改指另一账号
+        resp = self._assign_owner(self.owner_client, self.editor.id)
         self.assertFalse(has_error(resp), resp.content)
         self.manual.refresh_from_db()
         self.assertEqual(self.manual.owner_id, self.editor.id)
-        actions = list(ManualOperationLog.objects.filter(
-            manual=self.manual, action='owner_change')
-            .values_list('detail', flat=True))
-        self.assertEqual(len(actions), 2)
-        # 取移交（第二次操作）的记录：previous=原所有者
         detail = json.loads(ManualOperationLog.objects.filter(
             manual=self.manual, action='owner_change').latest('id').detail)
+        self.assertEqual(detail['kind'], 'transfer')
         self.assertEqual(detail['previous_owner_id'], self.owner.id)
         self.assertEqual(detail['owner_id'], self.editor.id)
 
-    def test_post_owner_denied_for_owner_and_others(self):
-        """所有者本人不能移交（受控移交仅管理员）；其他账号拒绝"""
+    def test_owner_transfer_revokes_previous_owner_sessions(self):
+        """所有者移交后：原所有者活跃编辑会话被撤销留痕，此后不再因
+        所有者身份保有权能（无授权则详情/编辑均拒绝）"""
+        self._assign_owner(self.admin_client, self.owner.id)
+        # 文件+草稿+密码，原所有者（手册所有者）开编辑会话
+        with tempfile.TemporaryDirectory() as tmp:
+            patcher = patch.object(storage, 'get_institution_storage_base',
+                                   return_value=tmp)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+            file_entry = ManualFile.objects.create(
+                manual=self.manual, display_name='a.docx', sort_order=0)
+            ManualDraft.objects.create(
+                manual=self.manual, file=file_entry,
+                file_path='drafts/x/202610/a.docx', revision=1)
+            resp = put_json(self.owner_client,
+                            f'/institution/manuals/{self.manual.id}/password/',
+                            {'password': 'pass-1234'})
+            self.assertFalse(has_error(resp), resp.content)
+            resp = post_json(
+                self.owner_client,
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{file_entry.id}/draft/session/', {'password': 'pass-1234'})
+            self.assertFalse(has_error(resp), resp.content)
+            session_key = get_data(resp)['session_key']
+            # 移交给 editor
+            resp = self._assign_owner(self.owner_client, self.editor.id)
+            self.assertFalse(has_error(resp), resp.content)
+            session = ManualEditSession.objects.get(session_key=session_key)
+            self.assertIsNotNone(session.revoked_at)
+            self.assertIn('所有者移交', session.revoked_reason)
+            self.assertEqual(
+                json.loads(ManualOperationLog.objects.filter(
+                    manual=self.manual, action='owner_change').latest('id')
+                    .detail)['revoked_sessions'], 1)
+        # 原所有者不再因所有者身份保有权能：详情不可见（无授权行）
+        resp = self.owner_client.get(
+            f'/institution/manuals/{self.manual.id}/')
+        self.assertTrue(has_error(resp))
+        self.assertIn('无权限', resp.json()['error'])
+
+    def test_post_owner_same_account_rejected(self):
+        """移交给自己（同账号）明确拒绝；超管接管给自己是合法的（不同账号）"""
+        self._assign_owner(self.admin_client, self.owner.id)
+        resp = self._assign_owner(self.owner_client, self.owner.id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('相同', resp.json()['error'])
         self.manual.refresh_from_db()
-        post_json(self.admin_client, self.owner_path,
-                  {'account_id': self.owner.id})
-        for client in (self.owner_client, self.editor_client,
-                       self.publisher_client, self.stranger_client):
-            resp = post_json(client, self.owner_path,
-                             {'account_id': self.editor.id})
+        self.assertEqual(self.manual.owner_id, self.owner.id)
+        # 超管接管给自己（不同账号）允许；接管后再次指给自己被拒
+        resp = self._assign_owner(self.admin_client, self.admin.id)
+        self.assertFalse(has_error(resp), resp.content)
+        resp = self._assign_owner(self.admin_client, self.admin.id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('相同', resp.json()['error'])
+        self.manual.refresh_from_db()
+        self.assertEqual(self.manual.owner_id, self.admin.id)
+
+    def test_post_owner_denied_for_non_owner(self):
+        """非所有者非超管拒绝（编制/发布授权与无关账号）"""
+        self._assign_owner(self.admin_client, self.owner.id)
+        for client in (self.editor_client, self.publisher_client,
+                       self.stranger_client):
+            resp = self._assign_owner(client, self.editor.id)
             self.assertTrue(has_error(resp))
             self.assertIn('无权限', resp.json()['error'])
         self.manual.refresh_from_db()
         self.assertEqual(self.manual.owner_id, self.owner.id)
 
     def test_post_owner_rejects_inactive_or_missing_account(self):
-        resp = post_json(self.admin_client, self.owner_path,
-                         {'account_id': 999999})
+        resp = self._assign_owner(self.admin_client, 999999)
         self.assertTrue(has_error(resp))
         disabled = make_user('gone', tenant_id='deptA')
         disabled.is_active = False
         disabled.save()
-        resp = post_json(self.admin_client, self.owner_path,
-                         {'account_id': disabled.id})
+        resp = self._assign_owner(self.admin_client, disabled.id)
         self.assertTrue(has_error(resp))
         self.assertIn('停用', resp.json()['error'])
-
-    def test_new_owner_gains_management_not_editing(self):
-        """新所有者获得授权/分工管理权，但不自动取得编辑或发布权"""
-        post_json(self.admin_client, self.owner_path,
-                  {'account_id': self.owner.id})
-        resp = self.owner_client.get(self.path_owner_auth())
-        self.assertFalse(has_error(resp), resp.content)
-        row = next(x for x in get_data(self.owner_client.get(
-            '/institution/manuals/'))['items'] if x['id'] == self.manual.id)
-        self.assertTrue(row['is_owner'])
-        self.assertEqual(row['my_roles'], [])
-        # owner 不能开启文件会话（无 can_edit 授权）
-        self._tmp = tempfile.TemporaryDirectory()
-        patcher = patch.object(storage, 'get_institution_storage_base',
-                               return_value=self._tmp.name)
-        patcher.start()
-        self.addCleanup(patcher.stop)
-        self.addCleanup(self._tmp.cleanup)
-        file_entry = ManualFile.objects.create(
-            manual=self.manual, display_name='a.docx', sort_order=0)
-        from apps.institution.models import ManualDraft
-        ManualDraft.objects.create(
-            manual=self.manual, file=file_entry,
-            file_path='drafts/x/a.docx', revision=1)
-        resp = post_json(
-            self.owner_client,
-            f'/institution/manuals/{self.manual.id}/files/{file_entry.id}/'
-            f'draft/session/', {'password': 'whatever'})
-        self.assertTrue(has_error(resp))
-
-    def path_owner_auth(self):
-        return f'/institution/manuals/{self.manual.id}/authorizations/'
 
 
 class AccountOptionsTests(_AuthEnvBase):
@@ -421,7 +446,7 @@ class AccountOptionsTests(_AuthEnvBase):
 
     授权配置允许普通所有者管理自己的手册（GET/PUT authorizations 同
     门禁），添加授权行需要账号候选来源；口径与 owner-candidates 一致
-    （全部启用账号、仅 id+name 最小字段），但业务门禁为所有者/管理员。
+    （全部启用账号、仅 id+name 最小字段），但业务门禁为所有者/超管。
     """
 
     def setUp(self):
@@ -442,14 +467,14 @@ class AccountOptionsTests(_AuthEnvBase):
         for row in rows:
             self.assertEqual(set(row.keys()), {'id', 'name'})
 
-    def test_admin_lists_account_options_for_any_manual(self):
-        """制度管理员对任意手册可取账号候选"""
+    def test_platform_admin_lists_account_options_for_any_manual(self):
+        """平台超管对任意手册可取账号候选"""
         resp = self.admin_client.get(self.path)
         self.assertFalse(has_error(resp), resp.content)
         self.assertIn(self.viewer.id, [r['id'] for r in get_data(resp)])
 
     def test_grant_holder_without_owner_or_admin_denied(self):
-        """持编制授权但非所有者/管理员：拒绝（与 PUT authorizations 同门禁）"""
+        """持编制授权但非所有者/超管：拒绝（与 PUT authorizations 同门禁）"""
         make_grant(self.manual, self.editor, can_view=True, can_edit=True)
         resp = self.editor_client.get(self.path)
         self.assertTrue(has_error(resp))
@@ -460,7 +485,8 @@ class AccountOptionsTests(_AuthEnvBase):
 
 
 class ExclusiveEditingTests(DraftWorkflowBase):
-    """负责人独占编辑：同手册其他持 can_edit 编制授权账号全部写路径拒绝"""
+    """负责人独占编辑：非所有者同手册其他持 can_edit 编制授权账号全部
+    写路径拒绝；手册所有者例外（可编辑该手册任意文件）"""
 
     def setUp(self):
         super().setUp()
@@ -477,6 +503,41 @@ class ExclusiveEditingTests(DraftWorkflowBase):
         resp = post_json(client, f'{self.base}/draft/session/',
                          {'password': 'edit-pass-1'})
         return resp
+
+    def test_owner_edits_file_assigned_to_other(self):
+        """所有者例外：他人担任负责人的文件，所有者可开会话并保存"""
+        resp = self._session_for(self.manager_client)
+        self.assertFalse(has_error(resp), resp.content)
+        key = get_data(resp)['session_key']
+        upload = SimpleUploadedFile('owner-save.docx', DOCX)
+        resp = self.manager_client.post(
+            f'{self.base}/draft/save/',
+            {'file': upload, 'session_key': key, 'revision': 1})
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(get_data(resp)['revision'], 2)
+
+    def test_owner_editor_config_for_file_assigned_to_other(self):
+        """所有者例外：他人负责的文件可取编辑配置（权限门放行）"""
+        resp = self._session_for(self.manager_client)
+        key = get_data(resp)['session_key']
+        resp = self.manager_client.get(
+            f'{self.base}/draft/editor-config/?session_key={key}')
+        # 编辑服务已配置的测试环境返回完整配置（含 document_key）；
+        # 未配置时降级 editor_available=False——两种形态都说明权限门已通过
+        self.assertFalse(has_error(resp), resp.content)
+        data = get_data(resp)
+        self.assertTrue(data.get('editor_available') is False
+                        or 'document_key' in data, resp.content)
+
+    def test_owner_forcesave_gate_passed_for_file_assigned_to_other(self):
+        """所有者例外：forcesave 权限门对他人负责的文件放行（会话无在线
+        文档的业务错误而非权限拒绝，说明 can_edit_file 已通过）"""
+        resp = self._session_for(self.manager_client)
+        key = get_data(resp)['session_key']
+        resp = post_json(self.manager_client, f'{self.base}/draft/forcesave/',
+                         {'session_key': key})
+        self.assertTrue(has_error(resp))
+        self.assertNotIn('无权限', resp.json()['error'])
 
     def test_non_owner_session_start_rejected_despite_grant(self):
         resp = self._session_for(self.other_client)
@@ -535,7 +596,7 @@ class ExclusiveEditingTests(DraftWorkflowBase):
 
 
 class PublishedVisibilityTests(_AuthEnvBase):
-    """can_view_published 组合与发布域按 can_publish 授权"""
+    """can_view_published 组合与发布域按 can_publish 授权/所有者"""
 
     def setUp(self):
         super().setUp()
@@ -549,7 +610,6 @@ class PublishedVisibilityTests(_AuthEnvBase):
         self.manual_id = self.manual.id
         file_entry = ManualFile.objects.create(
             manual=self.manual, display_name='a.docx', sort_order=0)
-        from apps.institution.models import ManualDraft, ManualVersion
         ManualDraft.objects.create(
             manual=self.manual, file=file_entry,
             file_path='drafts/manual_x/202610/a.docx',
@@ -570,26 +630,27 @@ class PublishedVisibilityTests(_AuthEnvBase):
         resp = self._versions(self.viewer_client)
         self.assertFalse(has_error(resp), resp.content)
 
-    def test_edit_grant_sees_published_when_manual_allows(self):
+    def test_edit_only_grant_cannot_see_published(self):
+        """仅 can_edit 授权不再可见发布版（editor_can_view_published 开关
+        已删除，发布版可见性=所有者/超管/can_view 授权）"""
         make_grant(self.manual, self.editor, can_edit=True)
         resp = self._versions(self.editor_client)
-        self.assertFalse(has_error(resp), resp.content)
-        # editor_can_view_published=False 后编制授权不可见发布版
-        put_json(self.owner_client,
-                 f'/institution/manuals/{self.manual_id}/authorizations/',
-                 {'items': [], 'editor_can_view_published': False})
-        resp = self._versions(self.editor_client)
-        self.assertTrue(has_error(resp))
-
-    def test_owner_does_not_see_published_without_grant(self):
-        """owner 不自动可见发布版（所有权不等于 can_view/can_publish）"""
-        resp = self._versions(self.owner_client)
         self.assertTrue(has_error(resp))
         self.assertIn('无权限', resp.json()['error'])
 
+    def test_owner_sees_published_without_grant(self):
+        """owner 自动可见发布版（第二轮：所有者拥有范围内全部权限）"""
+        resp = self._versions(self.owner_client)
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(get_data(resp)['total'], 1)
+
+    def test_platform_admin_sees_published(self):
+        resp = self._versions(self.admin_client)
+        self.assertFalse(has_error(resp), resp.content)
+
     def test_publish_requires_publish_grant(self):
-        """发布域按 can_publish 授权：持 publish 页面权限但无逐本授权的
-        编制/所有者不能发布（页面门通过、业务门拒绝）"""
+        """发布域按 can_publish 授权/所有者：持 publish 页面权限但无逐本
+        授权的非所有者不能发布（页面门通过、业务门拒绝）"""
         page_editor = make_user('page-ed', tenant_id='deptB',
                                 perms=[PERM_PUBLISH, PERM_DRAFT, PERM_VIEW])
         make_grant(self.manual, page_editor, can_edit=True)
@@ -602,8 +663,8 @@ class PublishedVisibilityTests(_AuthEnvBase):
                 {'change_note': 'x'})
             self.assertTrue(has_error(resp))
             self.assertIn('无权限', resp.json()['error'])
-        # 持 can_publish 授权者越过权限门（后续业务校验与本用例无关，
-        # 草稿物理文件缺失的业务错误说明权限已放行）
+        # 持 can_publish 授权者越过权限门（草稿物理文件缺失的业务错误
+        # 说明权限已放行）
         make_grant(self.manual, self.publisher, can_publish=True)
         resp = post_json(
             self.publisher_client,
@@ -611,6 +672,25 @@ class PublishedVisibilityTests(_AuthEnvBase):
             {'change_note': '由发布授权发起'})
         self.assertTrue(has_error(resp))
         self.assertNotIn('无权限', resp.json()['error'])
+
+    def test_owner_publishes_without_grant_or_page_perm(self):
+        """所有者无 can_publish 授权、无 publish 页面权限也可发布
+        （manual_auth 对象级豁免 + can_publish 所有者分支）"""
+        no_perm_owner = make_user('no-perm-owner', tenant_id='deptA')
+        self.manual.owner = no_perm_owner
+        self.manual.save(update_fields=['owner'])
+        draft = ManualDraft.objects.get(manual=self.manual)
+        abs_path = storage.resolve_absolute_path(draft.file_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, 'wb') as f:
+            f.write(b'PK\x03\x04 owner-publish')
+        resp = post_json(
+            make_client(no_perm_owner),
+            f'/institution/manuals/{self.manual_id}/publish/',
+            {'change_note': '所有者直接发布'})
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertTrue(ManualVersion.objects.filter(
+            manual=self.manual, version_no=2).exists())
 
 
 class VisibilityFilterTests(_AuthEnvBase):
@@ -653,7 +733,7 @@ class VisibilityFilterTests(_AuthEnvBase):
         self.assertIn('跨租户手册戊',
                       [x['name'] for x in get_data(resp)['items']])
 
-    def test_admin_sees_all(self):
+    def test_platform_admin_sees_all(self):
         names = self._names(self.admin_client)
         for name in ('所有者手册甲', '授权手册乙', '发布授权手册丙',
                      '查看授权手册丁'):
@@ -671,7 +751,7 @@ class VisibilityFilterTests(_AuthEnvBase):
         self.assertTrue(has_error(resp))
 
     def test_work_status_visibility_per_manual(self):
-        """work_status：admin/owner/编制或发布授权可见；仅查看恒为 None"""
+        """work_status：超管/所有者/编制或发布授权可见；仅查看恒为 None"""
         rows = {x['id']: x for x in get_data(
             self.owner_client.get('/institution/manuals/'))['items']}
         self.assertIsNotNone(rows[self.owned.id]['work_status'])
@@ -698,3 +778,97 @@ class VisibilityFilterTests(_AuthEnvBase):
         admin_rows = {x['id']: x for x in get_data(
             self.admin_client.get('/institution/manuals/'))['items']}
         self.assertIsNotNone(admin_rows[self.viewed.id]['work_status'])
+
+
+class OwnerPagePermExemptionTests(TestCase):
+    """无任何 institution 页面码的所有者走 manual_auth 通道（第二轮核心）
+
+    所有者不需要角色权限：读详情、开编辑会话、发布、设密码全部成功；
+    仅持 config 页面码的非所有者设密码被拒（页面码不能覆盖对象级限制）。
+    """
+
+    def setUp(self):
+        setup_test_env()
+        self._tmp = tempfile.TemporaryDirectory()
+        patcher = patch.object(storage, 'get_institution_storage_base',
+                               return_value=self._tmp.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._tmp.cleanup)
+        # 无任何页面权限码的所有者
+        self.owner = make_user('bare-owner', tenant_id='deptA')
+        self.manual = _manual(owner=self.owner, name='裸所有者手册')
+        self.file_entry = ManualFile.objects.create(
+            manual=self.manual, display_name='a.docx', sort_order=0)
+        self.draft = ManualDraft.objects.create(
+            manual=self.manual, file=self.file_entry,
+            file_path='drafts/bare/202610/a.docx',
+            original_name='a.docx', revision=1)
+        self.owner_client = make_client(self.owner)
+
+    def _write_draft_file(self):
+        abs_path = storage.resolve_absolute_path(self.draft.file_path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        with open(abs_path, 'wb') as f:
+            f.write(b'PK\x03\x04 bare-owner')
+
+    def test_owner_sets_password_without_any_page_perm(self):
+        resp = put_json(self.owner_client,
+                        f'/institution/manuals/{self.manual.id}/password/',
+                        {'password': 'pass-1234'})
+        self.assertFalse(has_error(resp), resp.content)
+        self.manual.refresh_from_db()
+        self.assertTrue(self.manual.password_hash)
+
+    def test_super_admin_sets_password(self):
+        superuser = make_user('root', is_supper=True, tenant_id='root')
+        resp = put_json(make_client(superuser),
+                        f'/institution/manuals/{self.manual.id}/password/',
+                        {'password': 'pass-1234'})
+        self.assertFalse(has_error(resp), resp.content)
+
+    def test_config_page_perm_non_owner_cannot_set_password(self):
+        """仅 config 页面码非所有者设密码被拒（对象级限制不被页面码覆盖）"""
+        config_only = make_user('cfg-only', tenant_id='deptA',
+                                perms=[PERM_CONFIG])
+        resp = put_json(make_client(config_only),
+                        f'/institution/manuals/{self.manual.id}/password/',
+                        {'password': 'pass-1234'})
+        self.assertTrue(has_error(resp))
+        self.assertIn('权限拒绝', resp.json()['error'])
+        self.manual.refresh_from_db()
+        self.assertFalse(self.manual.password_hash)
+
+    def test_owner_reads_detail_with_full_roles(self):
+        resp = self.owner_client.get(
+            f'/institution/manuals/{self.manual.id}/')
+        self.assertFalse(has_error(resp), resp.content)
+        data = get_data(resp)
+        self.assertTrue(data['is_owner'])
+        self.assertEqual(data['my_roles'], ['view', 'edit', 'publish'])
+
+    def test_owner_opens_edit_session_without_any_page_perm(self):
+        self.test_owner_sets_password_without_any_page_perm()
+        resp = post_json(
+            self.owner_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{self.file_entry.id}/draft/session/', {'password': 'pass-1234'})
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertTrue(get_data(resp)['session_key'])
+
+    def test_owner_publishes_without_any_page_perm(self):
+        self._write_draft_file()
+        resp = post_json(
+            self.owner_client,
+            f'/institution/manuals/{self.manual.id}/publish/',
+            {'change_note': '裸所有者发布'})
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertTrue(ManualVersion.objects.filter(
+            manual=self.manual).exists())
+
+    def test_owner_publish_preview_without_any_page_perm(self):
+        """发布预检同走 manual_auth(view) + can_publish 所有者分支"""
+        self._write_draft_file()
+        resp = self.owner_client.get(
+            f'/institution/manuals/{self.manual.id}/publish-preview/')
+        self.assertFalse(has_error(resp), resp.content)

@@ -18,7 +18,7 @@ from apps.institution.models import (Manual, ManualFile,
                                      ManualOperationLog, ManualOriginal)
 from apps.institution.models import ManualAuthorization
 from apps.institution.tests.base import (
-    ALL_PERMS, PERM_ADMIN, PERM_DOWNLOAD, PERM_EDIT, PERM_UPLOAD, PERM_VIEW,
+    ALL_PERMS, PERM_DOWNLOAD, PERM_EDIT, PERM_UPLOAD, PERM_VIEW,
     get_data, has_error, make_client, make_grant, make_user, setup_test_env,
 )
 
@@ -81,7 +81,7 @@ class OriginalUploadTests(TestCase):
         self.assertTrue(has_error(resp))
 
     def test_upload_requires_owner_or_admin(self):
-        """上传原稿业务门禁=手册所有者/制度管理员：编制授权与页面权限
+        """上传原稿业务门禁=手册所有者/平台超管：编制授权与页面权限
         均不足以放行（2026-10-31 授权模型改造）"""
         manual = self._make_manual()
         editor = make_user('editor', tenant_id='deptB', perms=[PERM_UPLOAD])
@@ -91,9 +91,8 @@ class OriginalUploadTests(TestCase):
             f'/institution/manuals/{manual.id}/files/{self.file_entry.id}/originals/upload/', {'file': upload})
         self.assertTrue(has_error(resp))
         self.assertIn('无权限', resp.json()['error'])
-        # 制度管理员可以上传
-        admin = make_user('admin', tenant_id='deptA',
-                          perms=[PERM_UPLOAD, PERM_ADMIN])
+        # 平台超管（is_supper）可以上传（"制度管理员"码已废除）
+        admin = make_user('admin', is_supper=True, tenant_id='deptA')
         upload.seek(0)
         resp = make_client(admin).post(
             f'/institution/manuals/{manual.id}/files/{self.file_entry.id}/originals/upload/', {'file': upload})

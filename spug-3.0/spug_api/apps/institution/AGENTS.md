@@ -20,6 +20,20 @@
 > 回滚仅恢复结构（移除 owner/授权表、以空 M2M 还原角色字段、字段更名回来），
 > 已清数据不可恢复（模块未上线，fail-closed：owner 保持 NULL、授权表空，
 > 由管理员在新模型下重新指定）。
+> **2026-10-31 第二轮权限模型改造已落地**（迁移 0009）：**所有者自动拥有该
+> 手册范围内全部权限**（查看正式版本和草稿、管理账号授权与文件分工、设置/
+> 重置编辑密码、编辑任意文件草稿、提交编制、发布/废止/回退），按对象范围
+> 生效且不要求持有任何页面权限码或逐本授权；所有者可把手册移交给任一启用
+> 账号、平台超管（is_supper）可接管，原所有者移交后不再因所有者身份保有
+> 权能（其活跃编辑会话被撤销留痕）；**"制度管理员"权限码
+> （institution.manual.admin）废除**，"admin"概念收敛为平台超管；**删除
+> `editor_can_view_published` 开关**（字段+接口参数+序列化，迁移 0009 仅
+> RemoveField、回滚=AddField(default=True)），查看发布版=所有者/平台超管/
+> can_view 授权；手册级路由的 `@auth` 全部换为对象级变体 `manual_auth`
+> （views.py 内定义：页面权限码 或 手册所有者 任一通过，超管经 has_perms
+> 短路），非所有者账号=页面权限码（功能资格）∩ 逐本授权；新增提交编制
+> 待发布菜单红点 `GET manuals/badge/`（@auth publish + 所有者∪can_publish
+> 授权并集口径，响应键与 layout/expiryBadgeStoreBase.js 契约一致）。
 
 ## 〇、生产延迟上线门控（2026-10-28）
 
@@ -45,24 +59,28 @@
 - **DS 主实例升级 10.0（2026-10-30，dev 已切换，生产未迁移）**：dev 主实例（compose 服务 `onlyoffice`，容器名不变 `tdyw-onlyoffice-test`）已从 8.1 升级到 `onlyoffice/documentserver:10.0`（10.0.0 Build 169），经隔离对照实例 `oo-10`（dev/docker-compose.onlyoffice-10.yml）全链路验证后切换：后端 333 例/前端 259 例回归全过、真实手册（.doc 与复杂表格 .docx）打开/编辑/保存/重开/下载零错误，且 8.1 的两处渲染缺陷（复杂表格 .docx 页眉乱码、表格单元格文字塌缩）在 10.0 痊愈、页脚页码渲染改善。**架构变化（生产迁移时必须照做）**：10.0 社区版镜像不内置 PostgreSQL/RabbitMQ（`DB_AVAILABLE` 为商业版限定），且**忽略** `DB_HOST`/`AMQP_URI` 环境变量——必须新增外部 postgres（表结构用镜像内 `server/schema/postgresql/createdb.sql` 初始化，10.0 仅 2 张表）与 rabbitmq（guest 仅限 localhost，须独立账号），并经 `local.json` 覆盖连接配置；`local.json` **不可直接 bind-mount**（官方入口 `json -I` 原地重写会 EBUSY），须用入口包装脚本先拷贝再交回官方入口（dev/onlyoffice-main/ds-entrypoint.sh，含 token/secret 骨架——镜像自带 local.json 的 token/secret 段是 `json -e` 深路径赋值的前提，缺骨架则 JWT 写入静默失败）；数据全部落 `*-10` 新卷，8.1 旧卷保留**仅作数据保险**——2026-10-31 起应用层不再兼容 8.1（forcesave 仅 `/command` 直连），回退到 8.1 需连同后端代码一起回退。10.0 中 `USE_UNAUTHORIZED_STORAGE` 仅剩 `rejectUnauthorized=false` 语义，私网回源依赖"JWT 签名 URL 绕过过滤"（`externalRequest.directIfIn.jwtToken` 默认 true，document.url/callbackUrl 必在签名载荷内，已实测）；若未来出现未签名 URL 回源私网，需改用 10.0 新变量 `ALLOW_PRIVATE_IP_ADDRESS=true`。后端 `editor_services` 回调 JWT 的 `{"payload":...}` 包裹处理在 10.0 延续（与 body.token 平铺两种形态并存）。生产 10.0 部署配置落在 docker/docker-compose.yml + docker/onlyoffice-main/（入口包装脚本以环境变量渲染 local.json，凭据走 docker/.env，不复制 dev 值）；oo-next(9.0.4) 已标历史对照。
 - **后端转换容器的 LibreOffice 与字体（2026-10-29）**：`.doc→.docx` 转换跑在 tdyw 后端容器。dev 镜像 `tdyw:django42-stage2` 原构建配方已失传，现由容器 `docker commit` 固化（2026-10-29 容器内补装 `libreoffice-writer + fonts-noto-cjk` 后 commit；旧镜像备份标签 `tdyw:stage2-backup-20261029`）——**用旧镜像或删容器重建会同时丢 LibreOffice 与中文字体，`soffice` 缺失时 .doc 上传直接走降级报错分支**。字体走 `dev/onlyoffice-fonts/` 挂载（与 onlyoffice 共用目录），后端无需 AllFonts.js 等价物。生产镜像按 `docker/Dockerfile` 构建（已含 fonts-noto-cjk + libreoffice-writer），发布前须确认生产镜像实际包含两者。真实手册样本的版式保真（页眉页脚/复杂表格/域/批注/修订/分页）仍属待真实样本验证项，字体齐备只保证不出方框与度量接近，不承诺复杂版式一致。
 
-## 二、授权模型（最重要的不变量，2026-10-31 改造）
+## 二、授权模型（最重要的不变量，2026-10-31 第二轮改造）
 
-1. **两层模型**：系统角色（页面权限码 `institution.manual.*`）只授予功能资格（入口能否打开，@auth 门控）；具体可操作哪本手册由 `Manual.owner`（所有者）与 `ManualAuthorization`（逐本账号授权 can_view/can_edit/can_publish，(manual, account) 唯一，全 False 不落行）决定。判定唯一实现 `authorization_services.py`（services 不反向引用），后端每个入口分别校验，不信任前端按钮。
-2. **`tenant_id` 不参与任何归属/可见/编辑判断**（模块铁律，测试钉死）。跨租户持授权/所有者是预期行为。
-3. **关键判定**（admin=超管或持 institution.manual.admin；owner=Manual.owner 本人）：
-   - 可见手册元数据/详情入口 = admin or owner or 授权任一 True；
-   - can_view_published（发布域）= admin or 授权 can_view or（授权 can_edit 且本手册 editor_can_view_published）——**owner 不自动可见发布版**；
-   - can_edit_manual_files（工作区编制资格/草稿域读）= 授权 can_edit；
-   - can_edit_file（内容写路径：会话/保存/editor-config/forcesave/开始修订/草稿建立重建恢复）= can_edit 授权 **且该文件负责人**（ManualFile.owner）——**负责人独占编辑**，密码只是附加验证，已验密不赋予编辑权；
-   - can_publish（发布/废止/预检/长期保留标记）= 授权 can_publish（admin/owner 不因身份可发布）；
-   - 工作区可见（draft-status/files 草稿域/work_status）= admin or owner or（can_edit or can_publish）；仅查看授权不下发草稿域信息。
-4. **管理操作门禁**：手册元数据/类别/密码/删除走模块权限码（edit/config/add/delete）；授权整体替换（PUT authorizations）与所有者指定/接管/移交（POST owner，仅管理员；所有者本人不能移交）= 手册所有者或制度管理员；文件条目维护/原稿上传/批量分工/整套回退 = 手册所有者或制度管理员；提交编制 = 文件负责人或所有者或制度管理员。**失权撤销会话**：失去 can_edit 的账号（含授权行删除/清空）撤销其在本手册全部文件的活跃编辑会话（未落盘内容显式丢弃并留痕）。
-5. **权限码清单**：view/add/edit/delete/config/upload/download/draft_edit/publish/**admin**（admin=制度管理员码，2026-10-31 新增），定义在 `spug_web/src/pages/system/role/codes.js` 的 `institution.manual` 组。平台级角色（tenant_id=''）仅超管可维护/分配。
-6. 创建人即所有者（POST manuals/create）；account-options（授权界面账号候选=全部启用账号，所有者/制度管理员）、owner-candidates（所有者候选，仅管理员）与 assignment-owners（文件分工候选=持该手册 can_edit 的启用账号）只回 id+name 最小字段，**禁止改拉账号管理清单 `/api/account/user/`**（其 GET 要求 system.account.view）。
+1. **两层模型**：系统角色（页面权限码 `institution.manual.*`）只授予功能资格（入口能否打开）；具体可操作哪本手册由 `Manual.owner`（所有者）与 `ManualAuthorization`（逐本账号授权 can_view/can_edit/can_publish，(manual, account) 唯一，全 False 不落行）决定。判定唯一实现 `authorization_services.py`（services 不反向引用），后端每个入口分别校验，不信任前端按钮。**手册级路由的入口门一律用 views.py 的 `manual_auth(perm_list)`**（@auth 的对象级变体：页面码或手册所有者任一通过；空串=仅所有者/超管；kwargs 无 pk 退化为纯页面码）；模块级路由（categories/cleanup）仍用 `@auth`。
+2. **所有者全权（2026-10-31 第二轮）**：`Manual.owner` 自动拥有该手册范围内全部权限——查看正式版本和草稿、管理账号授权与文件分工、设置/重置编辑密码、编辑任意文件草稿（负责人独占的唯一例外）、提交编制、发布/废止/回退——按对象范围生效，**不要求所有者持有任何页面权限码或逐本授权**（my_roles 恒下发 view/edit/publish）。所有者可把手册移交给任一启用账号（kind=transfer）；平台超管可接管（kind=takeover）；**原所有者移交后不再因所有者身份保有权能**（其在该手册全部活跃编辑会话被撤销留痕，reason='所有者移交，原所有者编辑会话失效'；log/audit 含 kind/previous_owner_id/revoked_sessions）。移交/接管=当前所有者或超管；同账号移交明确拒绝。
+3. **admin 收敛为平台超管**：`institution.manual.admin` 权限码废除（后端零识别，判定函数更名 `is_platform_admin`=is_supper）。超管除可见性（可见全部手册、可见发布版）外**不自动取得**编辑/发布等对象级权能——接管所有者是唯一路径。
+4. **`tenant_id` 不参与任何归属/可见/编辑判断**（模块铁律，测试钉死）。跨租户持授权/所有者是预期行为。
+5. **关键判定**（owner=Manual.owner 本人；grant=ManualAuthorization 行）：
+   - 可见手册元数据/详情入口 = 超管 or owner or 授权任一 True；
+   - can_view_published（发布域）= 超管 or owner or 授权 can_view（**仅 can_edit 授权不再可见**——editor_can_view_published 开关已删）；
+   - can_edit_manual_files（工作区编制资格/草稿域读）= owner or 授权 can_edit；
+   - can_edit_file（内容写路径：会话/保存/editor-config/forcesave/开始修订/草稿建立重建恢复）= **owner（可编辑该手册任意文件）** or（授权 can_edit **且该文件负责人** ManualFile.owner）——非所有者**负责人独占编辑**，密码只是附加验证，已验密不赋予编辑权；
+   - can_publish（发布/废止/预检/长期保留标记）= owner or 授权 can_publish（超管不因超管身份可发布）；
+   - 工作区可见（draft-status/files 草稿域/work_status）= 超管 or owner or（can_edit or can_publish）；仅查看授权不下发草稿域信息。
+6. **管理操作门禁**：手册元数据/类别/删除走模块权限码（edit/add/delete，manual_auth 后所有者亦过）；**密码=手册所有者或平台超管**（manual_auth('') 页面门 + 视图内业务校验，config 码不能覆盖此对象级限制）；授权整体替换（PUT authorizations）、所有者移交/接管（POST owner）= 手册所有者或平台超管；文件条目维护/原稿上传/批量分工/整套回退 = 手册所有者或平台超管；提交编制 = 文件负责人或所有者或超管。**失权撤销会话**：失去 can_edit 的账号（含授权行删除/清空）与被移交的原所有者，撤销其在本手册全部文件的活跃编辑会话（未落盘内容显式丢弃并留痕）。
+7. **权限码清单**：view/add/edit/delete/config/upload/download/draft_edit/publish（**admin 已废除**，勿再授予/引用），定义在 `spug_web/src/pages/system/role/codes.js` 的 `institution.manual` 组。平台级角色（tenant_id=''）仅超管可维护/分配。
+8. 创建人即所有者（POST manuals/create）；account-options（授权界面账号候选=全部启用账号，所有者/超管）、owner-candidates（所有者候选，所有者/超管）与 assignment-owners（文件分工候选=持该手册 can_edit 的启用账号）只回 id+name 最小字段，**禁止改拉账号管理清单 `/api/account/user/`**（其 GET 要求 system.account.view）。
+9. **提交编制红点**：`GET manuals/badge/`（@auth publish 功能资格门，注册在 manuals/<pk>/ re_path 之前）= 所有者∪can_publish 授权的启用手册中 未移除且提交有效（submission_revision==draft.revision 且 draft.file_path 非空）的文件数；轻量提示计数不做物理文件 stat；响应 `{'count','expiring_count':0,'expired_count':0}`（expiryBadgeStoreBase 契约键）。
+10. **前端消费契约（2026-10-31 第二轮）**：`spug_web/src/pages/institution/ManualAuthButton.js`（props 同 antd Button + `manual`/`auth`）是「页面码或所有者豁免」的按钮分支，用于写路径与编辑配套按钮（开始编辑/上传保存/提交编制/文件管理/恢复草稿/回退/长期保留/删除手册/草稿工作台等）；view/download 类模块级读按钮维持 `AuthButton`（模块入口仍按 view 码门控，纯无角色所有者本就无法进入模块——UI 豁免不外溢到模块入口）。菜单红点 `layout/InstitutionBadgeStore.js`（perm=institution.manual.publish）挂 `/institution` 菜单；提交编制与发布真实成功后由页面调用 `fetch()` 刷新（事件驱动，禁轮询）。`codes.js` 的 institution.manual 组已无 admin 码（存量角色 JSON 中该码惰性失效，保存时自然剪除）。
 
 ## 三、密码与会话
 
-- `Manual.password_hash` 只存 Django 密码哈希器结果；接口/日志/序列化一律不回传（详情只给 `has_password`）。
+- `Manual.password_hash` 只存 Django 密码哈希器结果；接口/日志/序列化一律不回传（详情只给 `has_password`）；**设置/重置仅限手册所有者或平台超管（2026-10-31 第二轮）**。
 - 连续错 5 次锁 15 分钟（`PASSWORD_MAX_FAILS/PASSWORD_LOCK_MINUTES`）；重置密码使全部有效编辑会话失效（`set_manual_password → revoke_manual_sessions`）。
 - 单写约束：`ManualEditSession` 每手册同一时间一个活跃会话；同账号复用同一会话（多标签），他人开启被拒；保存时实时重校验 会话+编制资格+负责人独占+修订序号。**（2026-10-29 多文件改造后按文件生效：见第七节第 2 条；2026-10-31 起写路径按负责人独占判定）**
 - 修订序号 `ManualDraft.revision` 单调递增（创建/保存/回退各 +1），迟到回调、旧标签页、过期会话凭旧修订号一律拒绝。**（2026-10-29 起按文件递增）**
@@ -230,8 +248,8 @@
 ## 七·补、文件分工与提交编制（2026-10-29，迁移 0005）
 
 1. **分工单位=整份制度文件**：负责人（owner/owner_name）、分工说明（assign_note）、最近分工（assigned_at/assigned_by）与提交编制（submission_revision/submitted_at/submitted_by）都在 `ManualFile` 条目上——每份文件至多一名负责人，**结构上不存在同一文件多条互相冲突的"当前分工"**；owner 为空即"未分配"。owner_name/submitted_by_name 等账号名快照在账号删除后仍可读（SET_NULL + 落库快照，序列化优先快照、回退关联账号昵称）。
-2. **接口**：`files/create/` 接受可选 multipart `owner_id`/`note`（新增时即可指定）；`POST files/<fid>/assignment/` 指定/改派/清空（owner_id 必须显式携带，null=清空；note ≤500 字）；**`POST files/batch-assignment/`（2026-10-30）批量分工**（file_ids 非空整数列表 + owner_id 显式携带 + note；`_validate_batch_assignment` 逐文件校验归属，任一文件不属于该制度整批拒绝，事务内全成功或全失败；逐文件 `assign_file_owner(batch=True)` 写 file_assign 操作记录 + 单条模块审计事件）；`POST files/<fid>/submit/` 提交编制。前两者权限=`@auth draft_edit` +（手册所有者或制度管理员），`assignment` 与 `rename/move/remove` 同口径；`submit` 页面权限=view（负责人可能仅持查看权限），业务放行=**文件负责人 或 手册所有者 或 制度管理员**（提交是状态交接而非编辑操作；2026-10-31 起被指派负责人必持 can_edit 编制授权——分工写路径已校验）。所有入口先经 `_file_from_request` 校验文件归属，跨制度文件 ID 一律拒绝。
-   - **负责人候选接口（2026-10-30，最重要）**：`GET manuals/<pk>/assignment-owners/`（`AssignmentOwnerOptionsView`）是分工弹窗与新增文件负责人下拉的**唯一候选来源**——`@auth draft_edit|upload`（与两条携带 owner 的写路径对齐）+（手册所有者或制度管理员）；候选=持有该手册 can_edit 编制授权的启用账号（与 `_resolve_assignee` 的校验口径一致，2026-10-31 起负责人独占编辑要求被指派账号具备编制资格；本模块授权按账号授权行判定、tenant_id 不参与归属，**跨租户账号可作负责人是预期行为**，测试钉死）；只回传 `id+name`（昵称，空则账号名）最小字段。**禁止改回拉账号管理列表 `/api/account/user/`**（GET 要求 `system.account.view`，无账号查看权的分工用户打开弹窗即"权限拒绝"且候选被吞成空列表——本接口为修复该缺陷而设），也不得以放宽账号接口权限为替代方案。
+2. **接口**：`files/create/` 接受可选 multipart `owner_id`/`note`（新增时即可指定）；`POST files/<fid>/assignment/` 指定/改派/清空（owner_id 必须显式携带，null=清空；note ≤500 字）；**`POST files/batch-assignment/`（2026-10-30）批量分工**（file_ids 非空整数列表 + owner_id 显式携带 + note；`_validate_batch_assignment` 逐文件校验归属，任一文件不属于该制度整批拒绝，事务内全成功或全失败；逐文件 `assign_file_owner(batch=True)` 写 file_assign 操作记录 + 单条模块审计事件）；`POST files/<fid>/submit/` 提交编制。前两者权限=`manual_auth draft_edit` +（手册所有者或平台超管），`assignment` 与 `rename/move/remove` 同口径；`submit` 页面权限=view（负责人可能仅持查看权限），业务放行=**文件负责人 或 手册所有者 或 平台超管**（提交是状态交接而非编辑操作；2026-10-31 起被指派负责人必持 can_edit 编制授权——分工写路径已校验）。所有入口先经 `_file_from_request` 校验文件归属，跨制度文件 ID 一律拒绝。
+   - **负责人候选接口（2026-10-30，最重要）**：`GET manuals/<pk>/assignment-owners/`（`AssignmentOwnerOptionsView`）是分工弹窗与新增文件负责人下拉的**唯一候选来源**——`manual_auth draft_edit|upload`（与两条携带 owner 的写路径对齐）+（手册所有者或平台超管）；候选=持有该手册 can_edit 编制授权的启用账号（与 `_resolve_assignee` 的校验口径一致，2026-10-31 起负责人独占编辑要求被指派账号具备编制资格；本模块授权按账号授权行判定、tenant_id 不参与归属，**跨租户账号可作负责人是预期行为**，测试钉死）；只回传 `id+name`（昵称，空则账号名）最小字段。**禁止改回拉账号管理列表 `/api/account/user/`**（GET 要求 `system.account.view`，无账号查看权的分工用户打开弹窗即"权限拒绝"且候选被吞成空列表——本接口为修复该缺陷而设），也不得以放宽账号接口权限为替代方案。
 3. **指定负责人不授予任何权限**：编辑要求 模块权限+can_edit 编制授权+该文件负责人身份+密码会话（负责人独占）；`assignment.is_mine` 只是责任标记（`_assignment_payload` 按请求者计算），不得据此放行任何写操作。改派/清空负责人（owner 变化）清除提交记录并撤销该文件活跃会话。
 4. **提交编制的限制**（`services.submit_file_compilation`）：手册未归档；该文件有有效草稿（记录存在、`resolve_absolute_path` 合法、物理文件存在）；无活跃编辑会话。可重复提交（以提交时最新修订号覆盖）。记录 `submission_revision`+`submitted_at`+`submitted_by`，操作记录 action=`file_submit`（file 外键+detail JSON）。
 5. **提交状态为计算式失效（最重要）**：`services.file_submission_state` 是唯一判定实现——`submission_revision == 当前草稿 revision` 且草稿有效 = submitted；否则 stale（"提交已失效"，绝不显示"已完成"）。草稿所有变更路径（multipart 保存、ONLYOFFICE 回调保存、原稿重建、版本回退、恢复）都经 `_create_draft_record` 推进 revision，提交状态随之自动失效，**不依赖任何写路径清除提交**；新增会改草稿修订号的路径必须保持经 `_create_draft_record`。**显式清除（2026-10-30，回到"未提交"而非 stale）**：① `assign_file_owner` 在 owner 变化（改派/清空；负责人未变仅改说明不清）时清除提交记录——旧负责人的交接随负责人变更失效；② 整套发布成功时对发布清单内文件清除——提交随本版被消费，绝不误显示为下一轮的待交接。历史交接保留在操作记录（file_assign detail 带 submission_reset，file_submit 记录不动）。

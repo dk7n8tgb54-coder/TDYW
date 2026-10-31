@@ -19,6 +19,9 @@ urlpatterns = [
     # 手册
     path('manuals/', views.ManualListView.as_view()),
     path('manuals/create/', views.ManualCreateView.as_view()),
+    # 提交编制待发布红点统计（ExpiryBadgeStore 契约键；发布域功能资格门，
+    # 注册在 manuals/(?P<pk>\d+)/ re_path 之前）
+    path('manuals/badge/', views.InstitutionBadgeView.as_view()),
     re_path(r'^manuals/(?P<pk>\d+)/$', views.ManualDetailView.as_view()),
     re_path(r'^manuals/(?P<pk>\d+)/password/$', views.ManualPasswordView.as_view()),
     # 逐本账号授权与所有者管理（2026-10-31 授权模型改造，替代旧

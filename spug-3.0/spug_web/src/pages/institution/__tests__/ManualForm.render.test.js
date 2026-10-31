@@ -24,8 +24,7 @@ jest.mock('libs', () => ({
 
 jest.mock('../store', () => ({
   record: {id: 3, name: '部门管理手册', org_type: 'section',
-    org_name: '某科室', status: 'active',
-    editor_can_view_published: true},
+    org_name: '某科室', status: 'active'},
   categories: [{id: 1, name: '部门手册', is_active: true}],
   formVisible: false,
   fetchCategories: jest.fn(),
@@ -86,8 +85,10 @@ describe('ManualForm 渲染（org 字段与旧角色字段移除）', () => {
     const text = renderForm();
     expect(text).toContain('手册名称');
     expect(text).toContain('业务归属');
-    expect(text).toContain('编制者可见发布版');
+    // 2026-10-31 二轮权限模型：「编制者可见发布版」开关随字段整体退役，
+    // 手册表单不再渲染该表单项
+    expect(text).not.toContain('编制者可见发布版');
     store.record = {id: 3, name: '部门管理手册', org_type: 'section',
-      org_name: '某科室', status: 'active', editor_can_view_published: true};
+      org_name: '某科室', status: 'active'};
   });
 });

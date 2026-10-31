@@ -38,7 +38,7 @@ import InstitutionManualDetail from '../detail';
 import store from '../detail/store';
 
 const MANUAL = {id: 7, name: '跳转验证手册', status: 'active',
-  my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
+  my_roles: ['view', 'edit', 'publish'],
   current_version: {id: 9, version_no: 3,
     published_at: '2026-03-01T09:00:00', published_by_name: '张三'},
   files_count: 2,

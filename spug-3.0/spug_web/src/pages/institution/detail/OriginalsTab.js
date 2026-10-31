@@ -21,6 +21,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { Table, Tag, Modal, message, Input, Alert, Button, Empty, Tooltip } from 'antd';
 import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import { http } from 'libs';
 import { downloadFile, formatSize, formatDateTime } from '../utils';
 import PreviewModal from './PreviewModal';
@@ -243,9 +244,10 @@ class OriginalsTab extends React.Component {
           onClick={() => this.downloadOriginal(row, o)}>下载</AuthButton>
         {/* 已发布过版本：重建按钮收进"高级恢复操作"，默认不显示 */}
         {this.canRebuild(row) && (
-          <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+          <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
+            type="link" size="small"
             danger={!!(store.manual && store.manual.has_versions)}
-            onClick={() => this.createDraft(row, o)}>从原始上传文件重建草稿</AuthButton>
+            onClick={() => this.createDraft(row, o)}>从原始上传文件重建草稿</ManualAuthButton>
         )}
       </span>
     );
@@ -340,15 +342,17 @@ class OriginalsTab extends React.Component {
                 <Tooltip title={canManageFiles
                   ? '为该文件上传一条新的初始来源记录（不改动当前草稿）'
                   : '更换来源仅限手册所有者或制度管理员'}>
-                  <AuthButton auth="institution.manual.upload" type="link" size="small"
+                  <ManualAuthButton manual={manual} auth="institution.manual.upload"
+                    type="link" size="small"
                     disabled={this.state.uploading || !canManageFiles}
-                    onClick={() => this.pickReplaceSource(row)}>更换来源</AuthButton>
+                    onClick={() => this.pickReplaceSource(row)}>更换来源</ManualAuthButton>
                 </Tooltip>
                 {/* 主行重建入口基于最初原稿；后续来源记录的重建在展开历史内 */}
                 {first && !first.is_cleaned && this.canRebuild(row) && (
-                  <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+                  <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+                    type="link" size="small"
                     danger={!!manual.has_versions}
-                    onClick={() => this.createDraft(row, first)}>重建草稿</AuthButton>
+                    onClick={() => this.createDraft(row, first)}>重建草稿</ManualAuthButton>
                 )}
               </span>
             );
@@ -383,14 +387,15 @@ class OriginalsTab extends React.Component {
           <input ref={el => { this.fileInput = el; }} type="file"
             accept=".doc,.docx" multiple style={{display: 'none'}}
             onChange={this.handleInputChange}/>
-          <AuthButton auth="institution.manual.upload" type="primary" size="small"
+          <ManualAuthButton manual={manual} auth="institution.manual.upload"
+            type="primary" size="small"
             loading={this.state.uploading}
             disabled={!canManageFiles}
             onClick={() => this.fileInput && this.fileInput.click()}>
             {rows.length
               ? '新增制度文件（.doc/.docx，可多选，每份各建一个制度文件）'
               : '上传文件（.doc/.docx，可多选，每份各建一个制度文件与草稿）'}
-          </AuthButton>
+          </ManualAuthButton>
           {!canManageFiles && (
             <span style={{color: '#999', fontSize: 12}}>
               新增制度文件与更换来源仅限手册所有者或制度管理员

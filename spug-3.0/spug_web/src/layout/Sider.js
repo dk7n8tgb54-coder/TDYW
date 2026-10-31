@@ -8,6 +8,7 @@ import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
+import institutionBadge from './InstitutionBadgeStore';
 import logo from './logo-spug-white.png';
 
 let selectedKey = window.location.pathname;
@@ -27,12 +28,15 @@ function buildOpenKeysMap(items, parents = []) {
 buildOpenKeysMap(routes);
 
 // 子菜单 path -> 对应 badge store 的映射（仅当用户有对应权限时 store 才会拉取）
-// 台站频率批复红点为全局到期统计（2026-09 第二轮恢复），无个人提醒语义
+// 台站频率批复红点为全局到期统计（2026-09 第二轮恢复），无个人提醒语义；
+// 制度管理红点=待核对提交数（2026-10-31 二轮权限模型改造，口径=所有者或
+// 持 can_publish 授权手册中已提交编制待核对的文件数）
 const CHILD_BADGE_STORES = {
   '/radio-license': () => radioLicenseBadge,
   '/station-frequency-approval': () => approvalBadge,
   '/coop-task': () => coopTaskBadge,
   '/contract-agreement': () => contractAgreementBadge,
+  '/institution': () => institutionBadge,
 };
 
 // 父菜单 title -> 需要合计的子菜单 badge store 列表

@@ -2,17 +2,17 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 权限配置页签行为测试（2026-10-31 授权模型改造，替代旧「角色关联」配置）：
- * - 手册所有者卡：admin 可指定/接管/移交（Modal.confirm 明确语义 →
- *   POST owner/）；owner 只读展示；ownerCandidates 仅 admin 请求。
+ * 权限配置页签行为测试（2026-10-31 授权模型改造；同日二轮权限模型改造）：
+ * - 手册所有者卡：owner 可移交（候选请求 + 确认窗明确提示原所有者失权 →
+ *   POST owner/）；admin 可指定/接管（确认窗说明接管语义）；未选账号拦截。
  * - 账号授权卡（AuthorizationCard）：仅 owner/admin 渲染与读写；挂载即
  *   拉授权清单与账号候选；行=账号名+查看/编制/发布 Checkbox+行删除；
  *   「添加账号」从候选追加行；「保存授权」整体替换（PUT authorizations，
- *   items 全量 + 卡内「编制授权者可查看发布版」Switch）；保存成功提示
- *   含 revoked_sessions 追加说明；清单/候选失败在卡片内展示错误+重试
+ *   items 全量，二轮改造起不再携带 editor_can_view_published）；保存成功
+ *   提示含 revoked_sessions 追加说明；清单/候选失败在卡片内展示错误+重试
  *   （候选请求抑制拦截器弹错，错误只展示一次）。
- * - 编辑密码卡：仅持 config 权限码渲染表单；owner/admin 无 config 码时
- *   显示说明文案；仅持 config 码（非 owner/admin）不渲染授权卡操作。
+ * - 编辑密码卡：仅 owner/平台超管渲染表单（config 码不再足够）；仅持
+ *   config 码（非 owner/admin）只见说明文案，不渲染授权卡操作。
  * - 页签可见性（config 码 或 is_owner 或 is_admin）钉死在
  *   detail.index.tabs.test.js。
  */
@@ -64,7 +64,6 @@ jest.mock('../detail/store', () => {
           {account_id: 12, account_name: '李四', can_view: true,
             can_edit: false, can_publish: true},
         ],
-        editor_can_view_published: true,
       };
       return Promise.resolve();
     });
@@ -78,10 +77,9 @@ jest.mock('../detail/store', () => {
       this.ownerCandidates = [{id: 13, name: '王五'}, {id: 14, name: '赵六'}];
       return Promise.resolve();
     });
-    saveAuthorizations = jest.fn(function (id, items, editorVisible) {
+    saveAuthorizations = jest.fn(function (id, items) {
       return Promise.resolve({
         items: items.map(x => ({account_name: `账号${x.account_id}`, ...x})),
-        editor_can_view_published: editorVisible,
         revoked_sessions: 0,
       });
     });
@@ -113,7 +111,6 @@ beforeEach(() => {
         {account_id: 12, account_name: '李四', can_view: true,
           can_edit: false, can_publish: true},
       ],
-      editor_can_view_published: true,
     };
     return Promise.resolve();
   });
@@ -127,10 +124,10 @@ beforeEach(() => {
     this.ownerCandidates = [{id: 13, name: '王五'}, {id: 14, name: '赵六'}];
     return Promise.resolve();
   });
-  store.saveAuthorizations.mockImplementation(function (id, items, ev) {
+  store.saveAuthorizations.mockImplementation(function (id, items) {
     return Promise.resolve({
       items: items.map(x => ({account_name: `账号${x.account_id}`, ...x})),
-      editor_can_view_published: ev, revoked_sessions: 0,
+      revoked_sessions: 0,
     });
   });
   store.setManualOwner.mockImplementation(function (id, accountId) {
@@ -195,16 +192,14 @@ function findCard(root, titleText) {
 }
 
 describe('权限配置页签（手册所有者卡）', () => {
-  it('显示所有者账号；非 admin 的所有者只读（无候选请求与移交操作）', async () => {
+  it('owner 渲染候选下拉与「移交所有者」按钮（候选请求对 owner 放行）', async () => {
     renderTab();
     await flush();
     const ownerCard = findCard(container, '手册所有者');
     expect(ownerCard.textContent).toContain('王五');
-    expect(store.fetchOwnerCandidates).not.toHaveBeenCalled();
-    expect(findButton(ownerCard, '移交')).toBeUndefined();
-    expect(findButton(ownerCard, '指定所有者')).toBeUndefined();
-    // 所有者提示移交须由管理员操作
-    expect(ownerCard.textContent).toContain('移交所有者须由制度管理员操作');
+    // 二轮权限模型改造：所有者本人可移交（候选=owner-candidates）
+    expect(store.fetchOwnerCandidates).toHaveBeenCalledWith(7);
+    expect(findButton(ownerCard, '移交所有者')).not.toBeUndefined();
   });
 
   it('无主手册（owner_name 空）显示「未指定」', async () => {
@@ -213,6 +208,47 @@ describe('权限配置页签（手册所有者卡）', () => {
     await flush();
     const ownerCard = findCard(container, '手册所有者');
     expect(ownerCard.textContent).toContain('未指定');
+  });
+
+  it('owner 未选账号时拦截不发请求', async () => {
+    renderTab();
+    await flush();
+    const ownerCard = findCard(container, '手册所有者');
+    await act(async () => {
+      findButton(ownerCard, '移交所有者').dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    // 未选择账号时拦截并提示（不发请求）
+    expect(message.warning).toHaveBeenCalledWith('请先选择新的所有者账号');
+    expect(store.setManualOwner).not.toHaveBeenCalled();
+  });
+
+  it('owner 选择候选后经确认窗移交：明确提示原所有者失权并调用 setManualOwner', async () => {
+    renderTab();
+    await flush();
+    const ownerCard = findCard(container, '手册所有者');
+    await pickSelectOption(ownerCard, '赵六');
+    await act(async () => {
+      findButton(ownerCard, '移交所有者').dispatchEvent(
+        new MouseEvent('click', {bubbles: true}));
+      await new Promise(resolve => setTimeout(resolve, 0));
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    const confirm = document.querySelector('.ant-modal-confirm');
+    expect(confirm).not.toBeNull();
+    // 移交确认窗：标题=移交、明确提示原所有者（本人）失去所有者权限
+    expect(confirm.textContent).toContain('移交手册所有者');
+    expect(confirm.textContent).toContain('赵六');
+    expect(confirm.textContent).toContain('失去本手册所有者权限');
+    store.setManualOwner.mockResolvedValueOnce({...store.manual});
+    await act(async () => {
+      confirm.querySelector('.ant-btn-primary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(store.setManualOwner).toHaveBeenCalledWith(7, 14);
+    expect(message.success).toHaveBeenCalledWith('手册所有者已移交');
   });
 
   it('admin 渲染候选下拉与「移交 / 接管」，未选账号时拦截不发请求', async () => {
@@ -232,7 +268,7 @@ describe('权限配置页签（手册所有者卡）', () => {
     expect(store.setManualOwner).not.toHaveBeenCalled();
   });
 
-  it('admin 选择候选后经确认窗移交：确认说明接管/移交语义并调用 setManualOwner', async () => {
+  it('admin 经确认窗接管/指定：说明所有者全权语义与原所有者失权', async () => {
     store.manual = {...store.manual, is_owner: false, is_admin: true};
     renderTab();
     await flush();
@@ -246,9 +282,11 @@ describe('权限配置页签（手册所有者卡）', () => {
     });
     const confirm = document.querySelector('.ant-modal-confirm');
     expect(confirm).not.toBeNull();
-    // 确认窗明确语义：所有者职责 + 身份不自动给编辑/发布权/可见发布版
+    // 接管语义：所有者自动拥有全权；原所有者（王五）移交后失权
     expect(confirm.textContent).toContain('赵六');
-    expect(confirm.textContent).toContain('所有者身份不自动获得');
+    expect(confirm.textContent).toContain('所有者自动拥有本手册全部权限');
+    expect(confirm.textContent).toContain('原所有者');
+    expect(confirm.textContent).toContain('失去所有者权限');
     store.setManualOwner.mockResolvedValueOnce({...store.manual});
     await act(async () => {
       confirm.querySelector('.ant-btn-primary').click();
@@ -276,7 +314,7 @@ describe('权限配置页签（账号授权卡）', () => {
     expect(checks[2].checked).toBe(false);
   });
 
-  it('切换授权位与删除行后保存：PUT 载荷为全量 items + editor_can_view_published', async () => {
+  it('切换授权位与删除行后保存：PUT 载荷为全量 items（两参，无 editor 开关键）', async () => {
     renderTab();
     await flush();
     // 取消张三的编制（第 2 个勾选框）
@@ -294,9 +332,11 @@ describe('权限配置页签（账号授权卡）', () => {
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     await flush();
+    // toHaveBeenCalledWith 全参匹配：恰好 (id, items) 两参，钉死不再携带
+    // editor_can_view_published（2026-10-31 二轮权限模型改造废除该开关）
     expect(store.saveAuthorizations).toHaveBeenCalledWith(7, [
       {account_id: 11, can_view: true, can_edit: false, can_publish: false},
-    ], true);
+    ]);
     expect(message.success).toHaveBeenCalledWith('授权已保存');
   });
 
@@ -304,7 +344,7 @@ describe('权限配置页签（账号授权卡）', () => {
     renderTab();
     await flush();
     store.saveAuthorizations.mockImplementationOnce(() => Promise.resolve({
-      items: [], editor_can_view_published: true, revoked_sessions: 2,
+      items: [], revoked_sessions: 2,
     }));
     await act(async () => {
       findButton(container, '保存授权').click();
@@ -313,25 +353,6 @@ describe('权限配置页签（账号授权卡）', () => {
     await flush();
     expect(message.success).toHaveBeenCalledWith(
       '授权已保存；已撤销 2 个进行中的编辑会话');
-  });
-
-  it('「编制授权者可查看发布版」Switch 取自服务端值并随保存提交', async () => {
-    renderTab();
-    await flush();
-    const card = findCard(container, '账号授权');
-    const sw = card.querySelector('.ant-switch');
-    expect(sw).not.toBeNull();
-    expect(sw.className).toContain('ant-switch-checked');
-    await act(async () => {
-      sw.click();
-    });
-    await act(async () => {
-      findButton(container, '保存授权').click();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-    await flush();
-    const payload = store.saveAuthorizations.mock.calls[0];
-    expect(payload[2]).toBe(false);
   });
 });
 
@@ -408,7 +429,7 @@ describe('权限配置页签（账号增删与失败态）', () => {
 });
 
 describe('权限配置页签（按身份收窄）', () => {
-  it('仅持 config 码（非 owner/admin）：不渲染账号授权卡操作，显示说明文案', async () => {
+  it('仅持 config 码（非 owner/admin）：不渲染账号授权卡与密码表单，只显示说明', async () => {
     store.manual = {...store.manual, is_owner: false, is_admin: false,
       owner_id: 99, owner_name: '别人'};
     hasPermission.mockImplementation(
@@ -416,30 +437,33 @@ describe('权限配置页签（按身份收窄）', () => {
         code === 'institution.manual.config');
     renderTab();
     await flush();
-    // config-only 也非 admin：授权卡不挂载、不发请求
+    // config-only 也非 owner/admin：授权卡不挂载、不发请求
     expect(store.fetchAuthorizations).not.toHaveBeenCalled();
     expect(store.fetchAccountOptions).not.toHaveBeenCalled();
     expect(store.fetchOwnerCandidates).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('由手册所有者或制度管理员维护');
-    // 密码卡对 config 码账号可维护（表单渲染）
-    expect(container.querySelector('input[type="password"]')).not.toBeNull();
+    expect(container.textContent).toContain('由手册所有者或平台超级管理员维护');
+    // 密码卡对 config 码不再放行（二轮改造）：只见说明，不渲染表单
+    expect(container.querySelector('input[type="password"]')).toBeNull();
+    expect(container.textContent)
+      .toContain('编辑密码仅手册所有者或平台超级管理员可设置/重置');
   });
 
-  it('owner/admin 无 config 码：授权卡可读写，密码卡只读并说明维护方', async () => {
+  it('owner 无 config 码：授权卡可读写，密码卡渲染表单（is_owner 足够）', async () => {
     hasPermission.mockImplementation(code => code === 'institution.manual.view');
     renderTab();
     await flush();
     expect(store.fetchAuthorizations).toHaveBeenCalled();
-    // 密码表单不渲染
-    expect(container.querySelector('input[type="password"]')).toBeNull();
-    expect(container.textContent).toContain('密码由持配置权限的账号维护');
+    // 密码表单对 owner 渲染（不再要求 config 码）
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
   });
 
-  it('admin（is_admin）挂载 owner 候选请求；owner（非 admin）不请求', async () => {
+  it('admin（is_admin）同样渲染密码表单；owner 与 admin 均请求 owner 候选', async () => {
     store.manual = {...store.manual, is_owner: false, is_admin: true};
+    hasPermission.mockImplementation(code => code === 'institution.manual.view');
     renderTab();
     await flush();
     expect(store.fetchOwnerCandidates).toHaveBeenCalledWith(7);
+    expect(container.querySelector('input[type="password"]')).not.toBeNull();
     ReactDOM.unmountComponentAtNode(container);
     container = document.createElement('div');
     document.body.appendChild(container);
@@ -447,7 +471,7 @@ describe('权限配置页签（按身份收窄）', () => {
     store.manual = {...store.manual, is_owner: true, is_admin: false};
     renderTab();
     await flush();
-    expect(store.fetchOwnerCandidates).not.toHaveBeenCalled();
+    expect(store.fetchOwnerCandidates).toHaveBeenCalledWith(7);
   });
 });
 

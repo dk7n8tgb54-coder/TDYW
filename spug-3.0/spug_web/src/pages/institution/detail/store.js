@@ -73,19 +73,20 @@ class DetailStore {
   @observable logsPage = 1;
   @observable isFetchingLogs = false;
 
-  // 逐本账号授权（2026-10-31 授权模型改造，替代旧角色关联）：
-  // {items: [{account_id, account_name, can_view, can_edit, can_publish}],
-  //  editor_can_view_published}；仅手册所有者/制度管理员可读写
+  // 逐本账号授权（2026-10-31 授权模型改造，替代旧角色关联；二轮改造起
+  // 仅 items 清单，「编制授权者可查看发布版」开关已废除）：
+  // {items: [{account_id, account_name, can_view, can_edit, can_publish}]}；
+  // 仅手册所有者/平台超级管理员可读写
   @observable authorizations = null;
   @observable isFetchingAuthorizations = false;
   // 授权清单加载失败置位（拦截器已提示），卡片内展示错误与重试
   @observable authorizationsError = '';
-  // 授权界面账号候选（全部启用账号，仅 id+name；所有者/制度管理员）。
+  // 授权界面账号候选（全部启用账号，仅 id+name；所有者/平台超级管理员）。
   // 候选加载失败置错误态（skipErrorNotification，由卡片内展示+重试），
   // 绝不把失败静默表现为空候选列表
   @observable accountOptions = [];
   @observable accountOptionsError = '';
-  // 所有者候选（仅制度管理员；指定/接管/移交所有者用）；同上失败置错误态
+  // 所有者候选（所有者移交/超管接管用；启用账号最小清单）；失败置错误态
   @observable ownerCandidates = [];
   @observable ownerCandidatesError = '';
 
@@ -341,7 +342,7 @@ class DetailStore {
   }
 
   /**
-   * 逐本账号授权清单（GET authorizations/，所有者或制度管理员）。
+   * 逐本账号授权清单（GET authorizations/，所有者或平台超级管理员）。
    * 失败置错误态可重试，不以空清单冒充成功（拦截器已提示一次）。
    */
   @action.bound
@@ -365,23 +366,21 @@ class DetailStore {
   }
 
   /**
-   * 整体替换授权（PUT authorizations/，所有者或制度管理员）：
-   * items 全量 + editor_can_view_published；返回 revoked_sessions（失去
-   * 编制授权被撤销的进行中编辑会话数），由调用方提示。成功后以响应
-   * 刷新本地授权状态。失败向上抛（拦截器已提示）。
+   * 整体替换授权（PUT authorizations/，所有者或平台超级管理员）：
+   * items 全量；返回 revoked_sessions（失去编制授权被撤销的进行中编辑
+   * 会话数），由调用方提示。成功后以响应刷新本地授权状态。失败向上抛
+   * （拦截器已提示）。
    */
   @action.bound
-  saveAuthorizations(id, items, editorCanViewPublished) {
-    return http.put(`/api/institution/manuals/${id}/authorizations/`, {
-      items, editor_can_view_published: editorCanViewPublished,
-    }).then(data => {
-      this.authorizations = {
-        items: (data && data.items) || [],
-        editor_can_view_published: !!(data && data.editor_can_view_published),
-      };
-      this.authorizationsError = '';
-      return data;
-    });
+  saveAuthorizations(id, items) {
+    return http.put(`/api/institution/manuals/${id}/authorizations/`, {items})
+      .then(data => {
+        this.authorizations = {
+          items: (data && data.items) || [],
+        };
+        this.authorizationsError = '';
+        return data;
+      });
   }
 
   /**
@@ -404,7 +403,7 @@ class DetailStore {
       });
   }
 
-  /** 所有者候选（仅制度管理员；启用账号最小清单；错误卡片内展示+重试） */
+  /** 所有者候选（所有者移交/超管接管；启用账号最小清单；错误卡片内展示+重试） */
   @action.bound
   fetchOwnerCandidates(id) {
     return http.get(`/api/institution/manuals/${id}/owner-candidates/`,
@@ -421,9 +420,9 @@ class DetailStore {
   }
 
   /**
-   * 指定/接管/移交手册所有者（POST owner/，仅制度管理员）。
-   * 成功后用返回的手册详情刷新 manual（owner_name/is_owner 随之更新）。
-   * 失败向上抛（拦截器已提示）。
+   * 所有者移交/超管接管（POST owner/；所有者可移交启用账号，平台超管
+   * 可指定/接管，原所有者移交后失权）。成功后用返回的手册详情刷新
+   * manual（owner_name/is_owner 随之更新）。失败向上抛（拦截器已提示）。
    */
   @action.bound
   setManualOwner(id, accountId) {

@@ -513,8 +513,12 @@ describe('草稿工作台（文件分工展示与提交编制）', () => {
   });
 
   it('非负责人行不渲染提交编制按钮', async () => {
+    // 非所有者夹具：二轮权限模型起所有者对任意文件有提交入口，
+    // 负责人独占语义只对非所有者成立
     mockFetch([makeFile(1, {assignment: {owner_id: 8, owner_name: '丙',
-      note: '', is_mine: false}})]);
+      note: '', is_mine: false}})],
+      {id: 5, name: '测试手册', my_roles: ['edit'], is_owner: false,
+        is_admin: false});
     const container = renderPage();
     await flush();
     store.passwordVerified = true;
@@ -524,9 +528,12 @@ describe('草稿工作台（文件分工展示与提交编制）', () => {
 });
 
 describe('草稿工作台（负责人独占与文件管理门控，2026-10-31）', () => {
-  it('非负责人（含持编制授权未指派者）：无开始编辑入口，显示明确指派提示', async () => {
+  it('非负责人且非所有者（含持编制授权未指派者）：无开始编辑入口，显示明确指派提示', async () => {
+    // 二轮权限模型改造：所有者例外可编辑任意文件，本用例收窄为非所有者
     mockFetch([makeFile(1, {assignment: {owner_id: 8, owner_name: '丙',
-      note: '', is_mine: false}})]);
+      note: '', is_mine: false}})],
+      {id: 5, name: '测试手册', my_roles: ['edit'], is_owner: false,
+        is_admin: false});
     const container = renderPage();
     await flush();
     store.passwordVerified = true;
@@ -537,6 +544,23 @@ describe('草稿工作台（负责人独占与文件管理门控，2026-10-31）
     expect(findButton(container, '下载草稿')).toBeUndefined();
     expect(findButton(container, '预览草稿')).toBeUndefined();
     expect(container.textContent).toContain('下载/预览草稿仅限文件负责人');
+  });
+
+  it('owner 对非本人负责文件出现开始编辑入口（所有者例外可编辑任意文件）', async () => {
+    mockFetch([makeFile(1, {assignment: {owner_id: 8, owner_name: '丙',
+      note: '', is_mine: false}})]);
+    const container = renderPage();
+    await flush();
+    store.passwordVerified = true;
+    await flush();
+    // 默认夹具手册 is_owner=true：所有者对非本人负责文件渲染编辑入口
+    //（后端 can_edit_file 已放行 owner），不再出现「编辑仅限文件负责人」
+    expect(findButton(container, '开始编辑')).not.toBeUndefined();
+    expect(container.textContent)
+      .not.toContain('编辑仅限文件负责人，请先由手册所有者指派');
+    // 下载/预览草稿与编辑入口同域：所有者同样可见
+    expect(findButton(container, '下载草稿')).not.toBeUndefined();
+    expect(findButton(container, '预览草稿')).not.toBeUndefined();
   });
 
   it('非所有者/管理员：文件管理行的 改名/移除/新增 不可见（下载预览由负责人可见）', async () => {

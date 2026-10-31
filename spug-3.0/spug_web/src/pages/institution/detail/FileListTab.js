@@ -40,6 +40,7 @@ import { observer } from 'mobx-react';
 import { Table, Tag, Modal, message, Alert, Button, Tooltip, Checkbox,
   Segmented } from 'antd';
 import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import { hasPermission, history } from 'libs';
 import { http } from 'libs';
 import {
@@ -50,6 +51,7 @@ import PreviewModal from './PreviewModal';
 import FileAssignmentModal from './FileAssignmentModal';
 import { buildFileState } from './draftStatusShared';
 import store from './store';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
 // 提交编制状态文案（服务端 submission.state：none/submitted/stale）。
 // 提交是"负责人→发布者"的交接标记，不代表已发布生效；系统不保存提交
@@ -189,19 +191,22 @@ class FileListTab extends React.Component {
     if (!draft) return null;
     const name = draft.file_name || file.name;
     const revision = draft.revision;
+    const manual = store.manual || {};
     return (
       <span>
-        <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+        <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+          type="link" size="small"
           onClick={() => this.showPreview(
             http.get(`/api/institution/manuals/${store.id}/files/${file.id}/draft/preview-url/`),
             name, `预览待发布草稿 r${revision}：${name}`)}>
           预览草稿 r{revision}
-        </AuthButton>
+        </ManualAuthButton>
         <Tooltip title={`下载待发布草稿 r${revision}（尚未生效的工作副本）`}>
-          <AuthButton auth="institution.manual.download" type="link" size="small"
+          <ManualAuthButton manual={manual} auth="institution.manual.download"
+            type="link" size="small"
             onClick={() => downloadFile(
               `/api/institution/manuals/${store.id}/files/${file.id}/draft/download/`,
-              name)}>下载</AuthButton>
+              name)}>下载</ManualAuthButton>
         </Tooltip>
       </span>
     );
@@ -301,6 +306,9 @@ class FileListTab extends React.Component {
           const state = data && data.submission && data.submission.state;
           message.success(state === 'submitted'
             ? '已提交编制，等待发布核对' : '已更新提交记录');
+          // 后端真实成功后立即刷新菜单红点（待核对提交数；fetch 静默失败，
+          // 不影响本流程）
+          institutionBadge.fetch();
         }),
     });
   };
@@ -348,38 +356,45 @@ class FileListTab extends React.Component {
   }
 
   /** 草稿视图行操作：开始修订/继续编辑 与 预览/下载待发布草稿
-   *  （负责人独占：编制授权 + 该文件负责人；非负责人的编制授权账号
-   *  不渲染编辑入口，占位提示指引先获得分工）+ 提交编制（负责人）+
-   *  变更记录 */
+   *  （负责人独占：编制授权 + 该文件负责人；例外：手册所有者可编辑任意
+   *  文件——后端 can_edit_file 同口径。非负责人的编制授权账号不渲染编辑
+   *  入口，占位提示指引先获得分工）+ 提交编制（负责人或所有者）+ 变更记录 */
   renderDraftRowActions(row, canEdit, manualActive) {
     const file = row.file;
-    // 负责人独占编辑：can_edit 授权 且 该文件负责人（后端 can_edit_file
-    // 同口径）；非负责人不渲染，避免点开必然被拒的入口
-    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine);
+    const isOwner = !!(store.manual && store.manual.is_owner);
+    // 负责人独占编辑：can_edit 授权 且 该文件负责人；手册所有者例外
+    // （可编辑该手册任意文件，后端 can_edit_file 同口径）；非负责人
+    // 不渲染，避免点开必然被拒的入口
+    const isAssignee = isOwner ||
+      !!(canEdit && file.assignment && file.assignment.is_mine);
+    const editEntry = (label, onClick) => (isOwner ? (
+      // 所有者对象级豁免：不要求 draft_edit 页面权限码（规则：所有者
+      // 不需要再获得角色权限；后端 manual_auth 同口径）
+      <Button type="link" size="small" onClick={onClick}>{label}</Button>
+    ) : (
+      <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
+        onClick={onClick}>{label}</AuthButton>
+    ));
     return (
       <span>
         {isAssignee && manualActive && (
           file.revision_open ? (
             // 修订进行中：直接复用现有工作副本（绝不覆盖），不调状态接口
-            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              onClick={() => history.push(
-                `/institution/manuals/${store.id}/draft?file=${file.id}`)}>
-              继续编辑
-            </AuthButton>
+            editEntry('继续编辑',
+              () => history.push(
+                `/institution/manuals/${store.id}/draft?file=${file.id}`))
           ) : (
             // 已结束修订的开始修订是真实状态动作：先开启修订再进入工作台
-            <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-              onClick={() => this.handleStartRevision(file)}>
-              开始修订
-            </AuthButton>
+            editEntry('开始修订', () => this.handleStartRevision(file))
           )
         )}
-        {canEdit && manualActive && !isAssignee && (
+        {canEdit && !isOwner && manualActive && !isAssignee && (
           <Tooltip title="编辑仅限文件负责人（须持本手册编制资格）。你持编制授权但不是该文件负责人，请先由手册所有者指派分工。">
             <span style={{color: '#999', fontSize: 12}}>编辑限负责人</span>
           </Tooltip>
         )}
-        {manualActive && file.assignment && file.assignment.is_mine && (
+        {manualActive && (isOwner ||
+          (file.assignment && file.assignment.is_mine)) && (
           <Button type="link" size="small"
             onClick={() => this.handleSubmitCompile(file)}>
             提交编制

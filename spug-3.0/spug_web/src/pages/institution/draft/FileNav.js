@@ -14,7 +14,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Card, Tag, Tooltip } from 'antd';
-import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import store from './store';
 
 // 提交编制状态文案（与详情页文件清单页签同一口径）
@@ -96,10 +96,11 @@ class FileNav extends React.Component {
         {store.files.map((file, index) => this.renderItem(file, index))}
         {canAddFile && (
           <div style={{padding: '8px 4px 0'}}>
-            <AuthButton auth="institution.manual.upload" size="small" block
+            <ManualAuthButton manual={manual} auth="institution.manual.upload"
+              size="small" block
               loading={this.props.adding} onClick={this.props.onPickAddFile}>
               新增文件（.doc/.docx）
-            </AuthButton>
+            </ManualAuthButton>
           </div>
         )}
       </Card>

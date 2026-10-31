@@ -49,7 +49,7 @@ jest.mock('../detail/store', () => {
   class DetailStore {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
-      my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
+      my_roles: ['view', 'edit', 'publish'],
       current_version: {id: 9, version_no: 3}};
     @observable files = [];
     @observable isFetchingFiles = false;
@@ -66,7 +66,7 @@ jest.mock('../detail/store', () => {
     fetchDetail = jest.fn(function () {
       this.manual = Object.assign({id: 7, name: '科室操作手册',
         status: 'active', my_roles: ['view', 'edit', 'publish'],
-        editor_can_view_published: true, is_owner: true, is_admin: false,
+        is_owner: true, is_admin: false,
         current_version: {id: 9, version_no: 3}});
       return Promise.resolve();
     });
@@ -199,7 +199,7 @@ beforeEach(() => {
   const {hasPermission} = require('libs');
   hasPermission.mockImplementation(() => true);
   store.manual = {id: 7, name: '科室操作手册', status: 'active',
-    my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
+    my_roles: ['view', 'edit', 'publish'],
     // 2026-10-31 授权模型：批量分工业务门=所有者/制度管理员
     is_owner: true, is_admin: false,
     current_version: {id: 9, version_no: 3}};
@@ -496,8 +496,11 @@ describe('FileListTab（草稿视图：入口权限与状态异常）', () => {
     switchView(container, '修订草稿');
   });
 
-  /** 全部行改为非我负责（负责人独占收窄用例的夹具） */
+  /** 全部行改为非我负责（负责人独占收窄用例的夹具）。
+   *  同时收窄 is_owner=false：二轮权限模型起所有者对任意文件有编辑/
+   *  提交入口，负责人独占语义只对非所有者成立 */
   function unassignAll() {
+    store.manual = {...store.manual, is_owner: false};
     store.files = FILES.map(f => ({
       ...f, assignment: {...f.assignment, is_mine: false,
         owner_name: f.assignment.owner_id ? '别人' : ''},
@@ -540,7 +543,7 @@ describe('FileListTab（草稿视图：入口权限与状态异常）', () => {
     act(() => {
       ReactDOM.render(<FileListTab/>, container);
     });
-    // 无生效查看权（editor_can_view_published 仅对 edit 角色生效）→ 只有草稿视图
+    // 仅 view 授权（无 can_view 授权位时不可见发布版，开关已退役）→ 只有草稿视图
     const text = container.textContent;
     expect(text).toContain('甲.docx');
     expect(findButton(container, '预览草稿 r5')).toBeUndefined();

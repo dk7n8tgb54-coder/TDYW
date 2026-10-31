@@ -21,12 +21,13 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Modal, message, Alert, Tag, Tooltip } from 'antd';
+import { Modal, message, Alert, Tag, Tooltip, Button } from 'antd';
 import { AuthButton } from 'components';
 import { history } from 'libs';
 import { http } from 'libs';
 import { formatSize } from '../utils';
 import store from './store';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
 // 发布确认窗口的分组（与后端 publish-preview 分组一一对应）
 const PLAN_GROUPS = [
@@ -220,6 +221,9 @@ class PublishButton extends React.Component {
           .then(() => {
             message.success('发布成功');
             store.refreshAfterLifecycle(store.id);
+            // 后端真实成功后立即刷新菜单红点（发布后待核对提交清零；
+            // fetch 静默失败，不影响本流程）
+            institutionBadge.fetch();
           });
       },
     });
@@ -227,14 +231,24 @@ class PublishButton extends React.Component {
 
   render() {
     const manual = store.manual || {};
-    const canPublish = (manual.my_roles || []).includes('publish');
+    const isOwner = !!manual.is_owner;
+    // 发布资格：持发布授权（页面码 + 逐本授权）；例外：手册所有者对象级
+    // 豁免（规则：所有者不需要再获得角色权限或逐本授权；后端 manual_auth
+    // 与 can_publish 同口径）
+    const canPublish = (manual.my_roles || []).includes('publish') || isOwner;
     if (!canPublish || manual.status !== 'active') return null;
     // 整套状态弱化发布入口：已生效且无待发布变化时不再以主按钮突出
     // （预检/发布端都会拒绝无变化的重复发布；发布者仍可点开核对）
     const summary = store.draftStatus && store.draftStatus.summary;
     const noPending = !!(summary && summary.has_current_version &&
       !summary.has_pending_changes);
-    const button = (
+    const button = isOwner ? (
+      // 所有者对象级豁免：不要求 publish 页面权限码
+      <Button type={noPending ? 'default' : 'primary'} size="small"
+        loading={store.isFetchingPublishPreview} onClick={this.handlePublish}>
+        发布新版本
+      </Button>
+    ) : (
       <AuthButton auth="institution.manual.publish"
         type={noPending ? 'default' : 'primary'} size="small"
         loading={store.isFetchingPublishPreview} onClick={this.handlePublish}>

@@ -14,6 +14,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { Table, Tag, Modal, message, Alert, Button, Tooltip } from 'antd';
 import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import { http } from 'libs';
 import { canViewPublished, downloadFile, formatSize, formatDateTime } from '../utils';
 import PreviewModal from './PreviewModal';
@@ -226,10 +227,11 @@ class VersionsTab extends React.Component {
       );
     }
     const canPublish = (manual.my_roles || []).includes('publish');
-    // 整套回退业务门=手册所有者或制度管理员（2026-10-31 授权模型：
-    // 后端 DraftFromVersionView 不再放行仅持编制授权的账号）；
+    // 整套回退业务门=手册所有者或平台超管（2026-10-31 二轮权限模型：
+    // 所有者对象级全权；后端 DraftFromVersionView 同口径，manual_auth
+    // 放行所有者）；
     // 「设为/取消长期保留」仍按发布授权（my_roles.publish，发布域操作
-    // 不走管理权限码）
+    // 不走管理权限码；所有者经 my_roles 下发与 ManualAuthButton 豁免）
     const canRollback = !!manual.is_owner || !!manual.is_admin;
     return (
       <div>
@@ -296,14 +298,16 @@ class VersionsTab extends React.Component {
                     </Tooltip>
                   )}
                   {canRollback && !cleaned && (
-                    <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-                      onClick={() => this.handleRollback(v)}>从历史版本回退</AuthButton>
+                    <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
+                      type="link" size="small"
+                      onClick={() => this.handleRollback(v)}>从历史版本回退</ManualAuthButton>
                   )}
                   {canPublish && !v.is_current && (
-                    <AuthButton auth="institution.manual.publish" type="link" size="small"
+                    <ManualAuthButton manual={manual} auth="institution.manual.publish"
+                      type="link" size="small"
                       onClick={() => this.handleProtect(v)}>
                       {v.long_term_protected ? '取消长期保留' : '设为长期保留'}
-                    </AuthButton>
+                    </ManualAuthButton>
                   )}
                 </span>
               );

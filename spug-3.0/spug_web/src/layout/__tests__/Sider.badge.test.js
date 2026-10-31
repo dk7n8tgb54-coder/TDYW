@@ -4,11 +4,13 @@
  * 真实渲染 Sider（ReactDOM + jsdom），mock 徽标 store 与 routes，验证：
  * - 无线电台执照子菜单显示执照徽标
  * - 台站频率批复子菜单显示全局红点数字（所有 approval.view 账户相同）
+ * - 制度管理菜单显示待核对提交红点（2026-10-31 二轮权限模型改造，
+ *   CHILD_BADGE_STORES 新增 /institution 映射）
  * - 父菜单"无线电执照管理"合计 = 执照 + 批复红点数量
  * - count 为 0 或首次成功加载前（loaded=false）不显示红圈
  *
  * 注意：不使用 jest.resetModules（会产生两份 React 导致 hooks 报错），
- * 三个徽标 store 是被 mock 的单例对象，各用例直接改字段后重新渲染。
+ * 徽标 store 是被 mock 的单例对象，各用例直接改字段后重新渲染。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -26,11 +28,13 @@ const mockBadgeStore = (count, loaded) => ({
 
 const mockLicenseStore = mockBadgeStore(2, true);
 const mockApprovalStore = mockBadgeStore(5, true);
+const mockInstitutionStore = mockBadgeStore(8, true);
 
 jest.mock('../RadioLicenseBadgeStore', () => mockLicenseStore);
 jest.mock('../ApprovalBadgeStore', () => mockApprovalStore);
 jest.mock('../CoopTaskBadgeStore', () => mockBadgeStore(0, true));
 jest.mock('../ContractAgreementBadgeStore', () => mockBadgeStore(0, true));
+jest.mock('../InstitutionBadgeStore', () => mockInstitutionStore);
 
 jest.mock('libs', () => ({
   hasPermission: jest.fn(() => true),
@@ -49,6 +53,12 @@ jest.mock('../../routes', () => ([
       {title: '无线电台执照', auth: 'radio_license.license.view', path: '/radio-license'},
       {title: '台站频率批复', auth: 'radio_license.approval.view', path: '/station-frequency-approval'},
     ],
+  },
+  {
+    icon: 'book',
+    title: '制度管理',
+    auth: 'institution.manual.view',
+    path: '/institution',
   },
 ]));
 
@@ -74,6 +84,8 @@ beforeEach(() => {
   mockLicenseStore.loaded = true;
   mockApprovalStore.count = 5;
   mockApprovalStore.loaded = true;
+  mockInstitutionStore.count = 8;
+  mockInstitutionStore.loaded = true;
   container = document.createElement('div');
   document.body.appendChild(container);
 });
@@ -153,5 +165,28 @@ describe('Sider 菜单红点（批复全局红点恢复）', () => {
     expect(approvalItem.querySelector('.ant-badge')).toBeNull();
     // 父菜单合计要求组内全部 store 已成功加载：批复未加载前整体不显示
     expect(parentSubmenu().querySelector('.ant-menu-submenu-title .ant-badge-count')).toBeNull();
+  });
+
+  it('制度管理菜单显示待核对提交红点数字（/institution 映射）', () => {
+    renderSiderAt('/institution');
+    const item = menuItemByText('制度管理');
+    expect(item).toBeTruthy();
+    const badge = item.querySelector('.ant-badge-count');
+    expect(badge).toBeTruthy();
+    expect(badge.textContent).toContain('8');
+  });
+
+  it('制度管理红点 count 为 0 或 loaded 前不显示红圈', () => {
+    mockInstitutionStore.count = 0;
+    renderSiderAt('/institution');
+    expect(menuItemByText('制度管理').querySelector('.ant-badge')).toBeNull();
+    ReactDOM.unmountComponentAtNode(container);
+    container.remove();
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    mockInstitutionStore.count = 8;
+    mockInstitutionStore.loaded = false;
+    renderSiderAt('/institution');
+    expect(menuItemByText('制度管理').querySelector('.ant-badge')).toBeNull();
   });
 });

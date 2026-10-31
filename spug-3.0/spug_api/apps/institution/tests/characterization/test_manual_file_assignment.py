@@ -27,7 +27,7 @@ from apps.institution.models import (Manual, ManualChapter, ManualDraft,
                                      ManualEditSession, ManualFile,
                                      ManualOperationLog, ManualVersion)
 from apps.institution.tests.base import (
-    ALL_PERMS, PERM_ADMIN, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH,
+    ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH,
     PERM_UPLOAD, PERM_VIEW,
     delete_json, get_data, has_error, make_client, make_grant, make_user,
     post_json, put_json, setup_test_env,
@@ -607,10 +607,9 @@ class AssignmentOwnerOptionsTests(FileAssignmentBase):
         for row in rows:
             self.assertEqual(set(row.keys()), {'id', 'name'})
 
-    def test_admin_gets_candidates_for_any_manual(self):
-        """制度管理员（institution.manual.admin）对任意手册可取候选"""
-        admin = make_user('inst-admin', tenant_id='deptA',
-                          perms=[PERM_VIEW, PERM_UPLOAD, PERM_ADMIN])
+    def test_platform_admin_gets_candidates_for_any_manual(self):
+        """平台超管（is_supper）对任意手册可取候选（"制度管理员"码已废除）"""
+        admin = make_user('inst-admin', is_supper=True, tenant_id='deptA')
         resp = self._owners(make_client(admin))
         self.assertFalse(has_error(resp), resp.content)
         self.assertIn(self.editor.id, [r['id'] for r in get_data(resp)])
@@ -640,6 +639,46 @@ class AssignmentOwnerOptionsTests(FileAssignmentBase):
         resp = self._assign(self.manager_client, data['id'],
                             owner_id=self.editor2.id)
         self.assertTrue(has_error(resp))
+
+
+class OwnerFileManagementExemptionTests(FileAssignmentBase):
+    """第二轮权限模型：无任何 institution 页面码的所有者可用文件管理
+    写路径（manual_auth 对象级豁免：所有者不需要角色权限）"""
+
+    def test_owner_without_page_perm_manages_files(self):
+        owner = make_user('bare-owner', tenant_id='deptA')
+        # 超管把手册移交给无页面码账号（当前所有者或超管可移交）
+        resp = post_json(
+            self.manager_client,
+            f'/institution/manuals/{self.manual.id}/owner/',
+            {'account_id': owner.id})
+        self.assertFalse(has_error(resp), resp.content)
+        client = make_client(owner)
+        # 新增制度文件（upload 门）
+        resp = client.post(
+            f'/institution/manuals/{self.manual.id}/files/create/',
+            {'file': SimpleUploadedFile('裸.docx', DOCX)})
+        self.assertFalse(has_error(resp), resp.content)
+        file_id = get_data(resp)['id']
+        # 分工（draft_edit 门）
+        resp = post_json(
+            client,
+            f'/institution/manuals/{self.manual.id}/files/{file_id}/'
+            f'assignment/', {'owner_id': self.editor.id, 'note': '分工'})
+        self.assertFalse(has_error(resp), resp.content)
+        # 改名（draft_edit 门）
+        resp = post_json(
+            client,
+            f'/institution/manuals/{self.manual.id}/files/{file_id}/rename/',
+            {'name': '改名.docx'})
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(ManualFile.objects.get(pk=file_id).display_name,
+                         '改名.docx')
+        # 负责人候选（draft_edit|upload 门）
+        resp = client.get(
+            f'/institution/manuals/{self.manual.id}/assignment-owners/')
+        self.assertFalse(has_error(resp), resp.content)
+        self.assertIn(self.editor.id, [r['id'] for r in get_data(resp)])
 
 
 class MultiFileParallelAssignmentTests(FileAssignmentBase):

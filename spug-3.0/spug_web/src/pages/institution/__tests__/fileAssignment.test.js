@@ -45,7 +45,7 @@ jest.mock('../detail/store', () => {
   class DetailStore {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
-      my_roles: ['view', 'edit', 'publish'], editor_can_view_published: true,
+      my_roles: ['view', 'edit', 'publish'],
       // 2026-10-31 授权模型：分工业务门=所有者/制度管理员（默认夹具为所有者）
       is_owner: true, is_admin: false,
       current_version: {id: 9, version_no: 3}};
@@ -104,6 +104,14 @@ import {http} from 'libs';
 import FileListTab from '../detail/FileListTab';
 import FileAssignmentModal from '../detail/FileAssignmentModal';
 import store from '../detail/store';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
+
+// 提交编制成功后的菜单红点刷新钩子单独 mock：本套件聚焦分工/提交流程，
+// 红点 store 契约钉死在 layout/__tests__
+jest.mock('../../../layout/InstitutionBadgeStore', () => ({
+  __esModule: true,
+  default: {fetch: jest.fn()},
+}));
 
 function makeFile(id, over = {}) {
   return Object.assign({
@@ -286,6 +294,9 @@ describe('文件清单页签（分工过滤与提交编制入口）', () => {
   });
 
   it('提交编制按钮仅在负责人（is_mine）行渲染，确认后经 store.submitCompile 提交', async () => {
+    // 非所有者夹具：二轮权限模型起所有者对任意文件有提交入口，
+    // "仅负责人行"语义只对非所有者成立
+    store.manual = {...store.manual, is_owner: false};
     store.files = [
       makeFile(1, {draft: {revision: 5},
         assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true},
@@ -314,10 +325,18 @@ describe('文件清单页签（分工过滤与提交编制入口）', () => {
     });
     await flush();
     expect(store.submitCompile).toHaveBeenCalledWith(1);
+    // 提交真实成功后立即刷新菜单红点（待核对提交数）
+    expect(institutionBadge.fetch).toHaveBeenCalled();
   });
 });
 
 describe('文件清单页签（批量分工）', () => {
+  beforeEach(() => {
+    // 批量分工是所有者/超管的业务门：显式恢复所有者夹具（前组用例
+    // 收窄过 is_owner，mock store 跨用例共享）
+    store.manual = {...store.manual, is_owner: true};
+  });
+
   function checkRow(container, rowIndex) {
     const checkboxes = Array.from(
       container.querySelectorAll('.ant-table-tbody input[type="checkbox"]'));
@@ -467,7 +486,9 @@ describe('文件清单页签（旧章节过渡与仅查看口径）', () => {
       code => code === 'institution.manual.view' ||
         code === 'institution.manual.download' ||
         code === 'institution.manual.draft_edit');
-    store.manual = Object.assign({}, store.manual, {my_roles: ['edit'],
+    // 二轮权限模型改造：编制授权不再经开关获得发布版可见性，补 view 角色
+    // 保持「可见两个视图的非负责人」用例口径（本用例主题=负责人列只读）
+    store.manual = Object.assign({}, store.manual, {my_roles: ['view', 'edit'],
       is_owner: false, is_admin: false});
     store.files = [makeFile(1, {assignment: {owner_id: 9, owner_name: '乙',
       note: '', is_mine: false}})];

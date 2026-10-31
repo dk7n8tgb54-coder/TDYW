@@ -83,7 +83,6 @@ jest.mock('../detail/store', () => {
       this.id = id;
       this.manual = Object.assign({id, name: '科室操作手册', status: 'active',
         files_count: 2, my_roles: ['view', 'edit', 'publish'],
-        editor_can_view_published: true,
         current_version: {id: 9, version_no: 3}},
         this._manualOverrides || {});
       return Promise.resolve();
@@ -193,7 +192,7 @@ describe('制度详情页（信息层级与页签结构）', () => {
     hasPermission.mockImplementation(
       code => code === 'institution.manual.view');
     store._manualOverrides = {
-      my_roles: ['view'], editor_can_view_published: true,
+      my_roles: ['view'],
       current_version: {id: 9, version_no: 2},
     };
     container = renderPage();
@@ -203,11 +202,13 @@ describe('制度详情页（信息层级与页签结构）', () => {
     expect(activeTabText()).toContain('FILE_LIST_TAB');
   });
 
-  it('纯编制角色且手册不允许编制者查看发布版：仍渲染文件清单（列内容由组件收窄）', async () => {
+  it('纯编制授权（无查看授权，不可见发布版）：仍渲染文件清单（列内容由组件收窄）', async () => {
+    // 2026-10-31 二轮权限模型：editor_can_view_published 开关已删，
+    // 仅 can_edit 授权不再可见发布版
     hasPermission.mockImplementation(
       code => code === 'institution.manual.view');
     store._manualOverrides = {
-      my_roles: ['edit'], editor_can_view_published: false,
+      my_roles: ['edit'],
       current_version: {id: 9, version_no: 3},
     };
     container = renderPage();
@@ -265,7 +266,7 @@ describe('挂载链发布内容拉取守卫', () => {
     // can_view_published 拒绝；挂载链不得产生注定失败的调用（不弹
     // 「手册不存在或无权限访问」toast）
     store._manualOverrides = {
-      my_roles: ['edit'], editor_can_view_published: false,
+      my_roles: ['edit'],
       current_version: {id: 9, version_no: 3},
     };
     container = renderPage();

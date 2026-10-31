@@ -73,14 +73,14 @@ from django.views.generic import View
 from apps.evidence.attachment_preview_token import (
     generate_attachment_preview_token, validate_attachment_preview_token)
 from apps.logs.audit import record_audit_event
-from libs import Argument, JsonParser, auth, json_response
+from libs import Argument, JsonParser, json_response
 from libs.pagination import paginate
 
 from . import authorization_services, editor_services, serializers, \
     services, storage, version_compare
 from .models import (Manual, ManualDraft, ManualFile, ManualOriginal,
                      ManualVersion, ManualVersionFile)
-from .views import _download_response, _manual_from_request
+from .views import _download_response, _manual_from_request, manual_auth
 from .views_files import (_assignment_payload, _can_view_workspace,
                           _file_from_request, _session_payload)
 
@@ -174,7 +174,7 @@ def _draft_or_error(file_entry):
 
 
 class FileDraftDetailView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -244,7 +244,7 @@ class FileDraftCreateView(View):
             return None, None, json_response(error=err)
         return draft, services.ACTION_CREATE_DRAFT, None
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -336,7 +336,7 @@ class FileDraftSessionView(View):
     该文件负责人）；编辑密码只是附加验证，不能单独赋予编辑权。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -368,7 +368,7 @@ class FileDraftSessionView(View):
             session_key=session.session_key, file_revision=draft.revision)
         return json_response(data=serializers.to_session_dict(session, draft))
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def delete(self, request, pk, fid):
         """主动退出编辑会话
 
@@ -413,7 +413,7 @@ class FileDraftSaveView(View):
     （can_edit_file：编制授权 + 该文件负责人）。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     @transaction.atomic
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
@@ -458,7 +458,7 @@ class FileDraftSaveView(View):
 
 
 class FileDraftDownloadView(View):
-    @auth('institution.manual.download')
+    @manual_auth('institution.manual.download')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -480,7 +480,7 @@ class FileDraftDownloadView(View):
 
 
 class FileDraftPreviewUrlView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -501,7 +501,7 @@ class FileDraftPreviewUrlView(View):
 
 
 class OriginalPreviewUrlView(View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, oid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -522,17 +522,17 @@ class DraftFromVersionView(View):
     """整套回退：以历史版本的快照清单重建待发布草稿集合
 
     回退重建全部文件的草稿并撤销全部活跃会话（覆盖他人工作副本的
-    整册管理动作）：业务放行=手册所有者或制度管理员（2026-10-31 起；
-    与文件条目管理同口径，不再放行仅持编制授权的账号）。
+    整册管理动作）：业务放行=手册所有者或平台超管（2026-10-31 第二轮
+    起；与文件条目管理同口径，不再放行仅持编制授权的账号）。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
             return resp
         if not (authorization_services.is_manual_owner(request.user, manual)
-                or authorization_services.is_institution_admin(request.user)):
+                or authorization_services.is_platform_admin(request.user)):
             return json_response(error='手册不存在或无权限访问')
         form, error = JsonParser(
             Argument('version_id', type=int, required=True, help='请选择要回退的版本'),
@@ -572,47 +572,47 @@ def _delegate_file_view(file_view_cls, request, pk, *args, **kwargs):
 
 
 class DraftDetailView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk):
         return _delegate_file_view(FileDraftDetailView, request, pk)
 
 
 class DraftCreateView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk):
         return _delegate_file_view(FileDraftCreateView, request, pk)
 
 
 class DraftSessionView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk):
         return _delegate_file_view(FileDraftSessionView, request, pk)
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def delete(self, request, pk):
         return _delegate_file_view(FileDraftSessionView, request, pk)
 
 
 class DraftSaveView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk):
         return _delegate_file_view(FileDraftSaveView, request, pk)
 
 
 class DraftDownloadView(View):
-    @auth('institution.manual.download')
+    @manual_auth('institution.manual.download')
     def get(self, request, pk):
         return _delegate_file_view(FileDraftDownloadView, request, pk)
 
 
 class DraftPreviewUrlView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk):
         return _delegate_file_view(FileDraftPreviewUrlView, request, pk)
 
 
 class EditorConfigView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk):
         return _delegate_file_view(FileEditorConfigView, request, pk)
 
@@ -630,7 +630,7 @@ class PublishView(View):
     任一步失败旧生效版保持完整。
     """
 
-    @auth('institution.manual.publish')
+    @manual_auth('institution.manual.publish')
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -661,7 +661,7 @@ class PublishView(View):
 
 
 class VersionListView(View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -689,7 +689,7 @@ class VersionFilesListView(View):
     不静默隐藏。变更状态全部由版本快照与哈希比较得出。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, vid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -722,7 +722,7 @@ class FileVersionHistoryView(View):
     变更状态全部由版本快照 SHA256 服务端计算，前端不得推断。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -754,7 +754,7 @@ class DraftStatusView(View):
     权威校验在 publish_whole_set。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -774,7 +774,7 @@ class PublishPreviewView(View):
     行锁内复核为权威。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -788,7 +788,7 @@ class PublishPreviewView(View):
 
 
 class VersionFileDownloadView(View):
-    @auth('institution.manual.download')
+    @manual_auth('institution.manual.download')
     def get(self, request, pk, vid, sfid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -810,7 +810,7 @@ class VersionFileDownloadView(View):
 
 
 class VersionFilePreviewUrlView(View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, vid, sfid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -849,7 +849,7 @@ class _VersionSingleSnapshotMixin:
 
 
 class VersionDownloadView(_VersionSingleSnapshotMixin, View):
-    @auth('institution.manual.download')
+    @manual_auth('institution.manual.download')
     def get(self, request, pk, vid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -868,7 +868,7 @@ class VersionDownloadView(_VersionSingleSnapshotMixin, View):
 
 
 class VersionPreviewUrlView(_VersionSingleSnapshotMixin, View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, vid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -887,7 +887,7 @@ class VersionPreviewUrlView(_VersionSingleSnapshotMixin, View):
 
 
 class DeprecateView(View):
-    @auth('institution.manual.publish')
+    @manual_auth('institution.manual.publish')
     @transaction.atomic
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
@@ -918,7 +918,7 @@ class FileEditorConfigView(View):
     →上传降级。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:

@@ -13,13 +13,13 @@ from django.views.generic import View
 
 from apps.account.models import User
 from apps.logs.audit import record_audit_event
-from libs import Argument, JsonParser, auth, json_response
+from libs import Argument, JsonParser, json_response
 
 from . import authorization_services, revision_services, serializers, \
     services, storage
 from .models import Manual, ManualAuthorization, ManualDraft, ManualFile, \
     ManualOriginal
-from .views import _check_owner_or_admin, _manual_from_request
+from .views import _check_owner_or_admin, _manual_from_request, manual_auth
 logger = logging.getLogger(__name__)
 
 
@@ -108,7 +108,7 @@ class ManualFileListView(View):
     快照或初始原稿），供草稿工作台渲染对应恢复入口，不静默回退到原稿。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -142,7 +142,7 @@ class ManualFileCreateView(View):
     必须持有该手册 can_edit 编制授权。
     """
 
-    @auth('institution.manual.upload')
+    @manual_auth('institution.manual.upload')
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -191,7 +191,7 @@ class AssignmentOwnerOptionsView(View):
     其权限：
     - 页面权限与分工写路径一致：draft_edit（单/批量分工）或 upload
       （新增文件携带负责人）任一；
-    - 业务口径与写接口相同：手册所有者或制度管理员
+    - 业务口径与写接口相同：手册所有者或平台超管
       （_check_owner_or_admin，2026-10-31 起）；
     - 候选=持有该手册 can_edit 编制授权的启用账号（2026-10-31 起）——
       负责人独占编辑要求被指派账号具备编制资格，与
@@ -200,7 +200,7 @@ class AssignmentOwnerOptionsView(View):
     - 只返回 id + name（昵称，空则账号名），不回传其他账号字段。
     """
 
-    @auth('institution.manual.draft_edit|institution.manual.upload')
+    @manual_auth('institution.manual.draft_edit|institution.manual.upload')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -221,11 +221,11 @@ class ManualFileAssignmentView(View):
     """指定/改派/清空文件负责人（文件分工；分工单位=整份文件）
 
     请求体 owner_id 必须显式携带（null=清空为"未分配"）+ note 分工说明。
-    权限=模块 draft_edit 权限 +（手册所有者或制度管理员）；被指派账号
+    权限=模块 draft_edit 权限 +（手册所有者或平台超管）；被指派账号
     必须持有该手册 can_edit 编制授权，此后仅负责人可编辑该文件。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     @transaction.atomic
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
@@ -301,7 +301,7 @@ class ManualFileBatchAssignmentView(View):
       null=清空）+ note（≤500 字，统一应用到所选文件）。
     - 逐文件校验归属：任一文件不存在或不属于 URL 中的制度，整批拒绝
       （全成功或全失败，绝不部分生效）；权限与单文件分工同口径
-      （draft_edit + 手册所有者或制度管理员）；被指派账号必须持有
+      （draft_edit + 手册所有者或平台超管）；被指派账号必须持有
       该手册 can_edit 编制授权。
     - 事务内逐文件复用 services.assign_file_owner（负责人变化时同步
       清除"提交编制"交接记录并撤销该文件活跃编辑会话），每份文件写
@@ -309,7 +309,7 @@ class ManualFileBatchAssignmentView(View):
       事件。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     @transaction.atomic
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
@@ -368,7 +368,7 @@ class FileRevisionStartView(View):
       改用初始来源或覆盖工作副本。
     """
 
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -408,12 +408,12 @@ class ManualFileSubmitView(View):
     后端记录提交时草稿修订号与时间；草稿再次保存/重建后提交状态按
     修订号比对自动失效（计算式，见 services.file_submission_state）。
     无有效草稿或仍有活跃编辑会话时拒绝。放行口径=文件负责人 或
-    手册所有者 或 制度管理员（提交是状态交接而非编辑操作；2026-10-31
+    手册所有者 或 平台超管（提交是状态交接而非编辑操作；2026-10-31
     起负责人必持编制授权——分工写路径已校验，但提交本身不要求
     draft_edit 页面权限）；不新增发布阻断条件。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     @transaction.atomic
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
@@ -425,7 +425,7 @@ class ManualFileSubmitView(View):
         is_assignee = file_entry.owner_id == request.user.id
         if not (is_assignee or
                 authorization_services.is_manual_owner(request.user, manual) or
-                authorization_services.is_institution_admin(request.user)):
+                authorization_services.is_platform_admin(request.user)):
             return json_response(error='手册不存在或无权限访问')
         file_entry, err = services.submit_file_compilation(
             file_entry, request.user)
@@ -446,7 +446,7 @@ class ManualFileSubmitView(View):
 
 
 class ManualFileRenameView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -474,7 +474,7 @@ class ManualFileRenameView(View):
 
 
 class ManualFileMoveView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -502,7 +502,7 @@ class ManualFileMoveView(View):
 
 
 class ManualFileRemoveView(View):
-    @auth('institution.manual.draft_edit')
+    @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -536,7 +536,7 @@ class OriginalsOverviewView(View):
     可见权的调用方附加（与 files/ 清单口径一致，后端仍独立校验）。
     """
 
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -561,7 +561,7 @@ class OriginalsOverviewView(View):
 
 
 class FileOriginalListView(View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -584,7 +584,7 @@ class FileOriginalUploadView(View):
     防线），原稿记录本身也永不覆盖。
     """
 
-    @auth('institution.manual.upload')
+    @manual_auth('institution.manual.upload')
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -632,7 +632,7 @@ class FileOriginalUploadView(View):
 
 
 class FileOriginalDownloadView(View):
-    @auth('institution.manual.download')
+    @manual_auth('institution.manual.download')
     def get(self, request, pk, fid, oid):
         manual, resp = _manual_from_request(request, pk)
         if resp:

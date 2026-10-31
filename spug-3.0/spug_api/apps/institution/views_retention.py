@@ -23,7 +23,7 @@ from libs import Argument, JsonParser, auth, json_response
 
 from . import authorization_services, retention_services, serializers, services
 from .models import ManualVersion
-from .views import _manual_from_request
+from .views import _manual_from_request, manual_auth
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ class CleanupExecuteView(View):
 class VersionProtectView(View):
     """设置/取消发布版本的长期保留标记（受保护版本不成为清理候选）"""
 
-    @auth('institution.manual.publish')
+    @manual_auth('institution.manual.publish')
     @transaction.atomic
     def post(self, request, pk, vid):
         manual, resp = _manual_from_request(request, pk)

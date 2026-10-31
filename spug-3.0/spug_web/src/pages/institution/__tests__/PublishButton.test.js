@@ -53,11 +53,19 @@ jest.mock('../detail/store', () => {
   return new DetailStore();
 });
 
+// 发布成功后的菜单红点刷新钩子（InstitutionBadgeStore 单例）单独 mock：
+// 本套件聚焦发布流程本身，红点 store 契约钉死在 layout/__tests__
+jest.mock('../../../layout/InstitutionBadgeStore', () => ({
+  __esModule: true,
+  default: {fetch: jest.fn()},
+}));
+
 import PublishButton from '../detail/PublishButton';
 import {message} from 'antd';
 import {history} from 'libs';
 import {http} from 'libs';
 import store from '../detail/store';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
 function setupPublishPreview(over = {}) {
   store.fetchPublishPreview.mockImplementation(function () {
@@ -265,6 +273,8 @@ describe('PublishButton（受阻处理与确认发布）', () => {
       '/api/institution/manuals/7/publish/', {change_note: '整套核对后发布'});
     expect(message.success).toHaveBeenCalled();
     expect(store.refreshAfterLifecycle).toHaveBeenCalledWith(7);
+    // 发布真实成功后立即刷新菜单红点（待核对提交数清零）
+    expect(institutionBadge.fetch).toHaveBeenCalled();
   });
 
   it('发布失败不显示成功、不刷新（错误由拦截器统一提示）', async () => {
@@ -275,6 +285,8 @@ describe('PublishButton（受阻处理与确认发布）', () => {
     await fillNoteAndConfirm('受阻发布');
     expect(message.success).not.toHaveBeenCalled();
     expect(store.refreshAfterLifecycle).not.toHaveBeenCalled();
+    // 业务失败不得刷新红点
+    expect(institutionBadge.fetch).not.toHaveBeenCalled();
   });
 });
 
@@ -292,6 +304,14 @@ describe('PublishButton（入口可见性与弱化）', () => {
       ReactDOM.render(<PublishButton/>, container);
     });
     expect(container.textContent).toBe('');
+  });
+
+  it('owner 的 my_roles 由后端下发含 publish：发布按钮可见（前端透传不特判）', () => {
+    // 二轮权限模型改造：所有者全部权限由后端经 my_roles 下发，前端不特判
+    store.manual = Object.assign({}, store.manual,
+      {my_roles: ['view', 'edit', 'publish'], is_owner: true});
+    container = renderButton();
+    expect(findButton(container, '发布新版本')).not.toBeUndefined();
   });
 
   it('已生效且无待发布变化：发布入口弱化为非主按钮（仍可点开核对）', () => {

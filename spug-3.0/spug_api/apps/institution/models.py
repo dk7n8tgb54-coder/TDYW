@@ -7,8 +7,9 @@
   org_name，展示字段）、状态、所有者账号与编辑密码哈希；业务授权 =
   页面权限码（系统角色功能资格）∩ 逐本账号授权（ManualAuthorization）
   与所有者身份；tenant_id 仅作为数据模型约定保留，不参与任何归属、
-  可见范围或编辑权判断。所有者负责该手册的账号授权与文件分工，
-  不因所有者身份自动取得正文编辑或发布权。
+  可见范围或编辑权判断。所有者自动拥有该手册范围内全部权限（查看/
+  编辑/发布/授权/分工/密码，2026-10-31 第二轮），"制度管理员"权限码
+  已废除，admin 概念收敛为平台超管。
 - 原稿（ManualOriginal）永不覆盖：每次上传都新落一条记录与新文件，
   原稿归属具体制度文件（历史数据回填到主文件）。
 - 制度文件（ManualFile）是制度下 Word 文件的稳定条目：改名/排序/移除
@@ -64,7 +65,16 @@ class ManualCategory(models.Model, TenantModelMixin):
 
 
 class Manual(models.Model, TenantModelMixin):
-    """手册主记录"""
+    """手册主记录
+
+    授权模型（2026-10-31 第二轮改造）：所有者（owner）自动拥有该手册
+    范围内全部权限——查看正式版本和草稿、管理账号授权与文件分工、
+    设置/重置编辑密码、编辑任意文件草稿、提交编制、发布/废止/回退，
+    按对象范围生效且不要求持有页面权限码或逐本授权；所有者可把手册
+    移交给任一启用账号，平台超管（is_supper）可接管，原所有者移交后
+    不再因所有者身份保有权能。"制度管理员"页面权限码已废除，
+    后端不再识别任何管理权限码。
+    """
     objects = TenantModelManager()
 
     STATUS_ACTIVE = 'active'        # 启用
@@ -95,8 +105,8 @@ class Manual(models.Model, TenantModelMixin):
         default=OWNER_DEPARTMENT, verbose_name='业务归属类型',
     )
     org_name = models.CharField(max_length=255, blank=True, default='', verbose_name='归属单位')
-    # 所有者账号（2026-10-31）：负责该手册的账号授权与文件分工；
-    # 不因所有者身份自动取得正文编辑或发布权。账号删除时置空不阻塞。
+    # 所有者账号（2026-10-31）：自动拥有该手册范围内全部权限（查看/
+    # 编辑/发布/授权/分工/密码），移交后失权；账号删除时置空不阻塞。
     owner = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.SET_NULL,
         related_name='institution_owned_manuals', verbose_name='所有者账号')
@@ -104,9 +114,8 @@ class Manual(models.Model, TenantModelMixin):
         max_length=20, choices=STATUS_CHOICES, default=STATUS_ACTIVE,
         db_index=True, verbose_name='状态',
     )
-    # 逐本配置：仅有编制角色的跨部门参与者是否可见已发布版（方案 §3）
-    editor_can_view_published = models.BooleanField(default=True, verbose_name='编制者可查看发布版')
-    # 编辑密码只存 Django 密码哈希器结果，接口与日志不回传
+    # 编辑密码只存 Django 密码哈希器结果，接口与日志不回传；
+    # 设置/重置仅限手册所有者或平台超管（2026-10-31 第二轮）。
     password_hash = models.CharField(max_length=128, blank=True, default='', verbose_name='编辑密码哈希')
     password_updated_at = models.DateTimeField(null=True, blank=True, verbose_name='密码更新时间')
     password_fail_count = models.PositiveIntegerField(default=0, verbose_name='密码连续失败次数')
@@ -153,14 +162,18 @@ class ManualAuthorization(models.Model, TenantModelMixin):
 
     系统角色（页面权限码）只决定功能资格（查看/编制/发布等入口能否
     打开）；具体可操作哪本手册由本表的逐本授权决定：
-    - can_view：可查看手册元数据与详情入口（工作区之外的信息）。
-    - can_edit：编制资格——配合文件负责人（ManualFile.owner）独占编辑，
-      资格本身不等于可编辑任意文件。
+    - can_view：可查看手册元数据与详情入口及发布版（工作区之外的信息）。
+    - can_edit：编制资格——非所有者的内容写路径要求文件负责人
+      （ManualFile.owner）独占，资格本身不等于可编辑任意文件；
+      仅 can_edit 不带来发布版可见性。
     - can_publish：发布域操作（发布/废止/回退/预检/长期保留标记）。
-    全 False 的行由服务层落为删除，不保留空授权行。管理操作
-    （整体替换授权、指定所有者）见 authorization_services.replace_manual_authorizations
-    与 views_authorization；页面权限码 institution.manual.admin 的
-    制度管理员可管理任意手册，普通所有者只管自己的手册。
+    手册所有者（Manual.owner）不依赖本表自动拥有该手册范围内全部
+    权限（2026-10-31 第二轮）；平台超管（is_supper）除可见性外不
+    自动取得编辑/发布等对象级权能；原"制度管理员"页面权限码已废除，
+    后端不再识别。全 False 的行由服务层落为
+    删除，不保留空授权行。管理操作见
+    authorization_services.replace_manual_authorizations 与
+    views_authorization。
     """
     objects = TenantModelManager()
     tenant_id = make_tenant_id()

@@ -24,7 +24,7 @@ import React from 'react';
 import { observer } from 'mobx-react';
 import { Alert, Button, Segmented, Spin, Tooltip } from 'antd';
 import { ZoomInOutlined, ZoomOutOutlined } from '@ant-design/icons';
-import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import OnlyOfficeEditor from './OnlyOfficeEditor';
 import store from './store';
 
@@ -132,17 +132,19 @@ const EditorArea = observer(({file, hasSession, expanded, onToggleExpanded,
       <div style={{marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap',
         alignItems: 'center'}}>
         {modeSwitch}
-        <AuthButton auth="institution.manual.download" size="small"
+        <ManualAuthButton manual={store.manual} auth="institution.manual.download"
+          size="small"
           disabled={!file.draft} onClick={onDownloadDraft}>
           下载草稿
-        </AuthButton>
+        </ManualAuthButton>
         <Tooltip title="需要该文件的编辑会话才能保存">
           <span style={{display: 'inline-block'}}>
-            <AuthButton auth="institution.manual.draft_edit" type="primary"
+            <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
+              type="primary"
               size="small" loading={store.saving} disabled={!file.draft}
               onClick={onPickUploadFile}>
               上传保存（.docx）
-            </AuthButton>
+            </ManualAuthButton>
           </span>
         </Tooltip>
       </div>

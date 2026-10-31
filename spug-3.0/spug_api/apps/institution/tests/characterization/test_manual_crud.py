@@ -15,7 +15,8 @@ from unittest.mock import patch
 from django.test import TestCase
 
 from apps.institution import storage
-from apps.institution.models import (Manual, ManualCategory, ManualOperationLog,
+from apps.institution.models import (Manual, ManualCategory, ManualDraft,
+                                     ManualFile, ManualOperationLog,
                                      ManualVersion, ManualOriginal)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_ADD, PERM_CONFIG, PERM_DELETE, PERM_EDIT, PERM_UPLOAD,
@@ -147,9 +148,15 @@ class ManualCrudTests(TestCase):
         self.assertIn(manual.name, names)
 
     def test_list_row_carries_owner_and_grant_flags(self):
-        """列表行下发 org_*/owner_*/is_owner/is_admin/my_roles 新契约"""
+        """列表行下发 org_*/owner_*/is_owner/is_admin/my_roles 新契约；
+        所有者行 my_roles=['view','edit','publish'] 且 include_draft"""
         manual = _make_manual(owner=self.manager)
         make_grant(manual, self.manager, can_edit=True)
+        file_entry = ManualFile.objects.create(
+            manual=manual, display_name='a.docx', sort_order=0)
+        ManualDraft.objects.create(
+            manual=manual, file=file_entry,
+            file_path='drafts/crud/202610/a.docx', revision=1)
         resp = self.manager_client.get('/institution/manuals/')
         row = next(x for x in get_data(resp)['items'] if x['id'] == manual.id)
         self.assertEqual(row['org_type'], 'section')
@@ -158,10 +165,15 @@ class ManualCrudTests(TestCase):
         self.assertEqual(row['owner_id'], self.manager.id)
         self.assertTrue(row['is_owner'])
         self.assertFalse(row['is_admin'])
-        self.assertEqual(row['my_roles'], ['edit'])
+        # 所有者自动拥有全部角色（不依赖逐本授权行）
+        self.assertEqual(row['my_roles'], ['view', 'edit', 'publish'])
+        # 所有者行 include_draft=True（草稿摘要在列表行下发）
+        self.assertIsNotNone(row['draft'])
+        self.assertEqual(row['draft']['revision'], 1)
         self.assertNotIn('view_roles', row)
         self.assertNotIn('edit_roles', row)
         self.assertNotIn('publish_roles', row)
+        self.assertNotIn('editor_can_view_published', row)
 
     def test_list_keyword_filter(self):
         _make_manual(name='应急救援手册', owner=self.manager)
@@ -187,13 +199,12 @@ class ManualCrudTests(TestCase):
         resp = put_json(self.manager_client, f'/institution/manuals/{manual.id}/', {
             'name': '改名手册', 'code': 'GL-002', 'category_id': cat.id,
             'org_type': 'department', 'org_name': '部门',
-            'status': 'archived', 'editor_can_view_published': False,
+            'status': 'archived',
         })
         self.assertFalse(has_error(resp))
         manual.refresh_from_db()
         self.assertEqual(manual.name, '改名手册')
         self.assertEqual(manual.status, 'archived')
-        self.assertFalse(manual.editor_can_view_published)
 
     def test_edit_requires_edit_perm(self):
         viewer = make_user('v', perms=[PERM_VIEW])
@@ -274,11 +285,14 @@ class ManualCrudTests(TestCase):
         self.assertNotIn('secret123', json.dumps(data))
 
     def test_password_requires_config_perm(self):
+        """非所有者（即使持 config/draft_edit 页面码）设密码被拒：
+        密码设置=手册所有者或平台超管（manual_auth('') 对象级门）"""
         editor = make_user('e2', perms=['institution.manual.draft_edit'])
         manual = _make_manual()
         resp = put_json(make_client(editor), f'/institution/manuals/{manual.id}/password/',
                         {'password': 'abcd'})
         self.assertTrue(has_error(resp))
+        self.assertIn('权限拒绝', resp.json()['error'])
 
     def test_password_too_short(self):
         manual = _make_manual(owner=self.manager)

@@ -22,6 +22,7 @@ import radioLicenseBadge from './RadioLicenseBadgeStore';
 import approvalBadge from './ApprovalBadgeStore';
 import coopTaskBadge from './CoopTaskBadgeStore';
 import contractAgreementBadge from './ContractAgreementBadgeStore';
+import institutionBadge from './InstitutionBadgeStore';
 import alertStore from './AlertStore';
 import { hasPermission } from 'libs';
 import styles from './layout.module.less';
@@ -66,11 +67,13 @@ export default function () {
     initRoutes(Routes, routes);
     setRoutes(Routes)
     // 启动菜单红点 Store（事件驱动：登录立即获取 + 跨自然日恢复可见时获取，
-    // 无固定轮询；批复红点为全局到期统计，2026-09 第二轮恢复）
+    // 无固定轮询；批复红点为全局到期统计，2026-09 第二轮恢复；制度管理红点
+    // 为待核对提交数，2026-10-31 二轮权限模型改造新增）
     radioLicenseBadge.start();
     approvalBadge.start();
     coopTaskBadge.start();
     contractAgreementBadge.start();
+    institutionBadge.start();
     alertStore.start();
     // 登录后初始化：拉取系统版本 + 未读更新（ReleaseNoteNotification 负责弹窗）
     releaseNoteStore.fetchVersion();
@@ -79,6 +82,7 @@ export default function () {
       approvalBadge.stop();
       coopTaskBadge.stop();
       contractAgreementBadge.stop();
+      institutionBadge.stop();
       alertStore.stop();
     }
   }, [])

@@ -619,13 +619,11 @@ describe('detail store（逐本账号授权与所有者，2026-10-31 授权模�
     http.get.mockResolvedValueOnce({
       items: [{account_id: 11, account_name: '张三', can_view: true,
         can_edit: true, can_publish: false}],
-      editor_can_view_published: true,
     });
     await detailStore.fetchAuthorizations(7);
     expect(http.get).toHaveBeenCalledWith(
       '/api/institution/manuals/7/authorizations/');
     expect(detailStore.authorizations.items).toHaveLength(1);
-    expect(detailStore.authorizations.editor_can_view_published).toBe(true);
     expect(detailStore.authorizationsError).toBe('');
     expect(detailStore.isFetchingAuthorizations).toBe(false);
     http.get.mockRejectedValueOnce(new Error('network'));
@@ -634,22 +632,19 @@ describe('detail store（逐本账号授权与所有者，2026-10-31 授权模�
     expect(detailStore.authorizationsError).toContain('加载失败');
   });
 
-  it('saveAuthorizations PUT 全量 items + editor_can_view_published，缓存响应并透传 revoked_sessions', async () => {
+  it('saveAuthorizations PUT 全量 items（二轮改造：不再携带 editor_can_view_published），缓存响应并透传 revoked_sessions', async () => {
     const payload = [{account_id: 11, can_view: true, can_edit: true,
       can_publish: false}];
-    http.put.mockResolvedValueOnce({
-      items: payload, editor_can_view_published: false, revoked_sessions: 2,
-    });
-    const data = await detailStore.saveAuthorizations(7, payload, false);
+    http.put.mockResolvedValueOnce({items: payload, revoked_sessions: 2});
+    const data = await detailStore.saveAuthorizations(7, payload);
     expect(http.put).toHaveBeenCalledWith(
-      '/api/institution/manuals/7/authorizations/',
-      {items: payload, editor_can_view_published: false});
-    expect(detailStore.authorizations.editor_can_view_published).toBe(false);
+      '/api/institution/manuals/7/authorizations/', {items: payload});
+    expect(detailStore.authorizations.items).toEqual(payload);
+    expect(detailStore.authorizations.editor_can_view_published).toBeUndefined();
     expect(data.revoked_sessions).toBe(2);
     // 失败向上抛（拦截器已提示），本地已缓存状态不动
     http.put.mockRejectedValueOnce(new Error('denied'));
-    await expect(
-      detailStore.saveAuthorizations(7, [], true)).rejects.toBeTruthy();
+    await expect(detailStore.saveAuthorizations(7, [])).rejects.toBeTruthy();
   });
 
   it('fetchAccountOptions/fetchOwnerCandidates：skipErrorNotification，失败置错误态由卡片内重试', async () => {

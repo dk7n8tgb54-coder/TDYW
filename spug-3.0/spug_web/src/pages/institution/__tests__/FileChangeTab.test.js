@@ -37,7 +37,7 @@ jest.mock('../detail/store', () => {
   class DetailStore {
     @observable id = 7;
     @observable manual = {id: 7, name: '科室操作手册', status: 'active',
-      my_roles: ['view'], editor_can_view_published: true};
+      my_roles: ['view']};
     @observable originalsOverview = [];
     @observable isFetchingOriginalsOverview = false;
     @observable originalsOverviewError = '';

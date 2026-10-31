@@ -211,11 +211,15 @@ def to_oplog_dict(oplog):
     }
 
 
-def my_manual_roles(grant):
-    """当前账号对该手册的授权角色类别列表（授权行推导；语义沿用）
+def my_manual_roles(grant, is_owner=False):
+    """当前账号对该手册的有效角色类别列表（前端按 my_roles 渲染按钮）
 
     grant 为该账号在本手册的 ManualAuthorization 行（无授权为 None）。
+    所有者自动拥有该手册范围内全部权限：返回 ['view','edit','publish']，
+    不依赖逐本授权行（2026-10-31 第二轮权限模型）。
     """
+    if is_owner:
+        return ['view', 'edit', 'publish']
     if not grant:
         return []
     roles = []
@@ -230,11 +234,12 @@ def my_manual_roles(grant):
 
 def to_manual_list_item(manual, grant=None, is_owner=False, is_admin=False,
                         include_draft=False, work_status=None):
-    """手册列表行；draft 摘要仅对管理者返回
+    """手册列表行；draft 摘要仅对超管与所有者返回
 
     grant 为当前账号在该手册的授权行（视图层预取，无额外查询）；
-    is_owner/is_admin 由视图层按授权模型计算。my_roles 由授权行推导
-    （view/edit/publish）。归属字段为 org_type/org_type_display/org_name
+    is_owner/is_admin 由视图层按授权模型计算（is_admin=平台超管，
+    "制度管理员"权限码已废除）。my_roles：所有者恒为 view/edit/publish，
+    否则由授权行推导。归属字段为 org_type/org_type_display/org_name
     （2026-10-31 由 owner_* 更名），所有者账号字段 owner_id/owner_name
     与 is_owner/is_admin 同时下发。
     files_count 优先取视图层注解 _active_file_count，未注解时回退查询。
@@ -260,10 +265,9 @@ def to_manual_list_item(manual, grant=None, is_owner=False, is_admin=False,
         'is_admin': bool(is_admin),
         'status': manual.status,
         'status_display': manual.get_status_display(),
-        'editor_can_view_published': manual.editor_can_view_published,
         'files_count': active_file_count,
         'current_version': None,
-        'my_roles': my_manual_roles(grant),
+        'my_roles': my_manual_roles(grant, is_owner),
         'work_status': work_status,
         'created_at': manual.created_at,
         'created_by_name': _user_name(manual.created_by),

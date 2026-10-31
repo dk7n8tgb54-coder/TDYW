@@ -12,9 +12,11 @@
   GET    /manuals/<pk>/                      手册详情
   PUT    /manuals/<pk>/                      编辑手册元数据/状态（institution.manual.edit）
   DELETE /manuals/<pk>/                      删除手册（institution.manual.delete）
-  PUT    /manuals/<pk>/password/             设置/重置编辑密码（institution.manual.config）
+  PUT    /manuals/<pk>/password/             设置/重置编辑密码（手册所有者
+                                             或平台超管；页面码不能覆盖）
+  GET    /manuals/badge/                     提交编制待发布红点（institution.manual.publish）
   GET    /manuals/<pk>/originals/            原稿列表
-  POST   /manuals/<pk>/originals/upload/     上传原稿（institution.manual.upload；所有者/管理员）
+  POST   /manuals/<pk>/originals/upload/     上传原稿（institution.manual.upload；所有者/超管）
   GET    /manuals/<pk>/originals/<oid>/download/   下载原稿（institution.manual.download）
   GET    /manuals/<pk>/originals/<oid>/preview-url/ 预览原稿
   GET    /manuals/<pk>/chapters/             旧章节分工清单（遗留只读，供人工核对）
@@ -31,6 +33,7 @@
 """
 import logging
 import os
+from functools import wraps
 
 from django.db import transaction
 from django.db.models import Prefetch
@@ -45,11 +48,38 @@ from libs.pagination import paginate
 from . import authorization_services, serializers, services, storage, \
     version_compare
 from .models import Manual, ManualAuthorization, ManualCategory, \
-    ManualOriginal
+    ManualFile, ManualOriginal
 
 logger = logging.getLogger(__name__)
 
 PAGE_PERM_PREFIX = 'institution.manual'
+
+
+def manual_auth(perm_list=''):
+    """@auth 的对象级变体：页面权限码 或 手册所有者 任一通过（规则：所有者不需要角色权限）
+
+    - perm_list 语义同 libs.auth（'|' 分隔）；空串=仅 手册所有者/超管 可过。
+    - 手册定位：URL kwargs['pk']（institution 全部手册级路由均含 pk）；仅当
+      页面码不通过时才查库判所有者（Manual.objects.filter(pk=...).first()）。
+    - kwargs 无 pk 时退化为纯页面码校验（防御）。超管经 has_perms 短路通过。
+    - 失败返回与 @auth 一致：json_response(error='权限拒绝')。
+    """
+    codes = [c for c in (perm_list or '').split('|') if c]
+
+    def decorate(view_func):
+        @wraps(view_func)
+        def wrapper(self, request, *args, **kwargs):
+            user = request.user
+            if user and user.has_perms(codes):
+                return view_func(self, request, *args, **kwargs)
+            manual = None
+            if kwargs.get('pk'):
+                manual = Manual.objects.filter(pk=kwargs['pk']).first()
+            if manual and authorization_services.is_manual_owner(user, manual):
+                return view_func(self, request, *args, **kwargs)
+            return json_response(error='权限拒绝')
+        return wrapper
+    return decorate
 
 
 def _request_grant(manual, user):
@@ -81,9 +111,9 @@ def _get_manage_manual(request, pk):
 
 
 def _check_owner_or_admin(manual, user):
-    """文件条目/原稿/分工等维护操作：手册所有者或制度管理员"""
+    """文件条目/原稿/分工等维护操作：手册所有者或平台超管"""
     if (authorization_services.is_manual_owner(user, manual) or
-            authorization_services.is_institution_admin(user)):
+            authorization_services.is_platform_admin(user)):
         return None
     return json_response(error='手册不存在或无权限访问')
 
@@ -197,13 +227,13 @@ def _validate_org_fields(form):
 
 
 def _serialize_manual(request, manual, include_draft):
-    """手册 dict 组装（授权行/所有者/管理员标志统一在这里算）"""
+    """手册 dict 组装（授权行/所有者/超管标志统一在这里算）"""
     user = request.user
     return serializers.to_manual_detail(
         manual,
         grant=_request_grant(manual, user),
         is_owner=authorization_services.is_manual_owner(user, manual),
-        is_admin=authorization_services.is_institution_admin(user),
+        is_admin=authorization_services.is_platform_admin(user),
         include_draft=include_draft)
 
 
@@ -243,8 +273,7 @@ class ManualListView(View):
         page, page_size = paginate(request, default_page_size=20, max_page_size=100)
         total = qs.count()
         page_items = list(qs[(page - 1) * page_size: page * page_size])
-        is_admin = authorization_services.is_institution_admin(user)
-        include_draft = is_admin
+        is_admin = authorization_services.is_platform_admin(user)
         # 整套工作状态（列表页"打开即知下一步"）：仅对具备草稿访问权的
         # 账号逐手册下发（工作区可见口径 = 管理员/所有者/编制或发布授权；
         # 授权行已 prefetch，就地取值无额外查询）；仅查看授权行内
@@ -264,7 +293,8 @@ class ManualListView(View):
                     grant=_request_grant(m, user),
                     is_owner=authorization_services.is_manual_owner(user, m),
                     is_admin=is_admin,
-                    include_draft=include_draft,
+                    include_draft=is_admin or
+                    authorization_services.is_manual_owner(user, m),
                     work_status=work_status_map.get(m.id))
                 for m in page_items
             ],
@@ -281,7 +311,6 @@ class ManualCreateView(View):
             Argument('category_id', type=int, required=False, default=None),
             Argument('org_type', type=str, default=Manual.OWNER_DEPARTMENT),
             Argument('org_name', type=str, required=False, default=''),
-            Argument('editor_can_view_published', type=bool, default=True),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -299,12 +328,12 @@ class ManualCreateView(View):
                 pk=form.category_id, is_active=True).first()
             if not category:
                 return json_response(error='所选类别不存在或已停用')
-        # 创建人即所有者：持 add 权限码者创建手册后负责其账号授权与分工
+        # 创建人即所有者：持 add 权限码者创建手册后自动拥有该手册范围内
+        # 全部权限（查看/编辑/发布/授权/分工/密码）
         manual = Manual.objects.create(
             name=name, code=(form.code or '').strip(),
             category=category, org_type=form.org_type,
             org_name=(form.org_name or '').strip(),
-            editor_can_view_published=form.editor_can_view_published,
             owner=request.user,
             created_by=request.user,
         )
@@ -317,7 +346,7 @@ class ManualCreateView(View):
 
 
 class ManualDetailView(View):
-    @auth('institution.manual.view')
+    @manual_auth('institution.manual.view')
     def get(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -331,7 +360,7 @@ class ManualDetailView(View):
         include_draft = authorization_services.can_view_workspace(request.user, manual)
         return json_response(data=_serialize_manual(request, manual, include_draft))
 
-    @auth('institution.manual.edit')
+    @manual_auth('institution.manual.edit')
     @transaction.atomic
     def put(self, request, pk):
         manual, resp = _get_manage_manual(request, pk)
@@ -344,8 +373,6 @@ class ManualDetailView(View):
             Argument('org_type', type=str, default=manual.org_type),
             Argument('org_name', type=str, required=False, default=''),
             Argument('status', type=str, default=manual.status),
-            Argument('editor_can_view_published', type=bool,
-                     default=manual.editor_can_view_published),
         ).parse(request.body)
         if error:
             return json_response(error=error)
@@ -366,7 +393,6 @@ class ManualDetailView(View):
             'name': manual.name, 'code': manual.code,
             'category_id': manual.category_id, 'org_type': manual.org_type,
             'org_name': manual.org_name, 'status': manual.status,
-            'editor_can_view_published': manual.editor_can_view_published,
         }
         manual.name = name
         manual.code = (form.code or '').strip()
@@ -374,21 +400,19 @@ class ManualDetailView(View):
         manual.org_type = form.org_type
         manual.org_name = (form.org_name or '').strip()
         manual.status = form.status
-        manual.editor_can_view_published = form.editor_can_view_published
         manual.save()
         _log_and_audit(request, manual, services.ACTION_CONFIG_CHANGE,
                        detail={'fields': ['name', 'code', 'category', 'org',
-                                          'status', 'editor_can_view_published']},
+                                          'status']},
                        before=before, after=before | {
                            'name': manual.name, 'code': manual.code,
                            'category_id': manual.category_id,
                            'org_type': manual.org_type,
                            'org_name': manual.org_name,
-                           'status': manual.status,
-                           'editor_can_view_published': manual.editor_can_view_published})
+                           'status': manual.status})
         return json_response(data=_serialize_manual(request, manual, True))
 
-    @auth('institution.manual.delete')
+    @manual_auth('institution.manual.delete')
     @transaction.atomic
     def delete(self, request, pk):
         manual, resp = _get_manage_manual(request, pk)
@@ -414,14 +438,21 @@ class ManualDetailView(View):
 
 
 class ManualPasswordView(View):
-    """设置/重置编辑密码（重置使所有有效编辑会话失效）"""
+    """设置/重置编辑密码（重置使所有有效编辑会话失效）
 
-    @auth('institution.manual.config')
+    对象级限制（2026-10-31 第二轮）：仅手册所有者或平台超管可设置/
+    重置——页面 config 权限码不能覆盖此限制（@manual_auth('') 门）。
+    """
+
+    @manual_auth('')
     @transaction.atomic
     def put(self, request, pk):
         manual, resp = _get_manage_manual(request, pk)
         if resp:
             return resp
+        if not (authorization_services.is_manual_owner(request.user, manual)
+                or request.user.is_supper):
+            return json_response(error='手册不存在或无权限访问')
         form, error = JsonParser(
             Argument('password', type=str, required=True, help='密码不能为空'),
         ).parse(request.body)
@@ -439,6 +470,39 @@ class ManualPasswordView(View):
             detail={'action_kind': services.ACTION_PASSWORD_RESET,
                     'module': 'institution'})
         return json_response()
+
+
+# ---------------------------------------------------------------------------
+# 菜单红点统计
+
+
+class InstitutionBadgeView(View):
+    """提交编制待发布红点统计（ExpiryBadgeStore 契约键，2026-10-31 第二轮）
+
+    统计口径：当前用户为所有者或持 can_publish 逐本授权的启用手册中，
+    未移除且提交编制有效的制度文件数（submission_revision 非空且等于
+    关联草稿修订号、草稿工作文件在库）。轻量提示计数：不做物理文件
+    stat，权威核对仍在 publish-preview/publish。归档手册不计。
+    """
+
+    @auth('institution.manual.publish')
+    def get(self, request):
+        from django.db.models import F, Q
+        user = request.user
+        manual_ids = Manual.objects.filter(
+            status=Manual.STATUS_ACTIVE,
+        ).filter(
+            Q(owner=user) |
+            Q(account_grants__account=user,
+              account_grants__can_publish=True)
+        ).values_list('id', flat=True).distinct()
+        count = ManualFile.objects.filter(
+            manual_id__in=manual_ids, is_removed=False,
+            submission_revision__isnull=False,
+            submission_revision=F('draft__revision'),
+        ).exclude(draft__file_path='').count()
+        return json_response(data={
+            'count': count, 'expiring_count': 0, 'expired_count': 0})
 
 
 # ---------------------------------------------------------------------------
@@ -464,7 +528,7 @@ class OriginalListView(View):
 class OriginalUploadView(View):
     """过渡期旧接口：上传原稿并绑定唯一启用文件，多文件制度明确拒绝"""
 
-    @auth('institution.manual.upload')
+    @manual_auth('institution.manual.upload')
     def post(self, request, pk):
         manual, resp = _manual_from_request(request, pk)
         if resp:

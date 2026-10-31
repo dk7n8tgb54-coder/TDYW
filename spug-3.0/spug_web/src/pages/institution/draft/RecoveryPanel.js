@@ -16,7 +16,7 @@
 import React from 'react';
 import { observer } from 'mobx-react';
 import { Alert, Button, message, Modal } from 'antd';
-import { AuthButton } from 'components';
+import ManualAuthButton from '../ManualAuthButton';
 import store from './store';
 
 const RecoveryPanel = observer(({file}) => {
@@ -75,10 +75,11 @@ const RecoveryPanel = observer(({file}) => {
             该文件还没有草稿。当前生效版本为 v{hint.version_no}，
             可从该版本的完整文件快照恢复草稿。
           </div>
-          <AuthButton auth="institution.manual.draft_edit" type="primary" size="small"
+          <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
+            type="primary" size="small"
             onClick={recoverDraft}>
             从当前生效版本恢复草稿
-          </AuthButton>
+          </ManualAuthButton>
         </div>}/>
     );
   }
@@ -102,10 +103,11 @@ const RecoveryPanel = observer(({file}) => {
         <div style={{marginBottom: 8}}>
           该文件还没有草稿，可从初始原稿创建草稿。
         </div>
-        <AuthButton auth="institution.manual.draft_edit" type="primary" size="small"
+        <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
+          type="primary" size="small"
           onClick={recoverDraft}>
           从初始原稿创建草稿
-        </AuthButton>
+        </ManualAuthButton>
       </div>}/>
   );
 });
