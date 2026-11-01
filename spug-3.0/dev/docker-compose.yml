@@ -53,7 +53,7 @@ services:
   spug:
     # 使用本地镜像（含 Celery）
     # 阶段2升级：Django 3.2.25 -> 4.2.30
-    image: tdyw:1024
+    image: tdyw:1031
     # 容器名称
     container_name: tdyw-test
     # 特权模式：容器可以访问宿主机所有设备
@@ -169,7 +169,7 @@ services:
 
   # 独立于主应用的外部探活，结果通过共享卷交给 tdyw-test 聚合。
   health-probe:
-    image: tdyw:django42-stage2
+    image: tdyw:1031
     container_name: tdyw-health-probe-test
     restart: always
     entrypoint: ["python", "/opt/health_probe.py"]

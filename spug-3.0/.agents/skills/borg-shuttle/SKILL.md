@@ -20,7 +20,7 @@ description: 把生产服务器的 TDYW borg 备份快照经 U 盘搬运到本�
 - WSL 默认用户 `tdywuser`（在 docker 组），`/data` 归 root → 涉及 `/data` 的 borg 操作用 `wsl -u root bash -c '...'`
 - WSL 内 borg 1.2.0；本地仓库 `/data/borg_repo`（repokey-blake2，生产 repo 的副本）
 - 生产 archive 命名 `tdyw-YYYYMMDD-HHMMSS`；本段流程导入后的命名固定 `tdyw-restore-<MMDD>`
-- archive 内容结构（相对路径，无前导 /）：`tmp/tdyw-borg.*/{database.sql.gz,manifest.json,binlog/}`、`data/docker/volumes/docker_tdyw-documents/_data/`、`data/docker/volumes/docker_tdyw-media/_data/`
+- archive 内容结构（相对路径，无前导 /）：**生产原 archive** 为 `tmp/tdyw-borg.*/{database.sql.gz,manifest.json,binlog/}`、`data/docker/volumes/docker_tdyw-documents/_data/`、`data/docker/volumes/docker_tdyw-media/_data/`；**经第 3 段重打包后路径整体多一层前缀 `mnt/e/TDYW/borg<MMDD>/`**（如 `mnt/e/TDYW/borg1031/tmp/tdyw-borg.xPwRRJ/manifest.json`）——通配提取前先 `borg list ::archive | grep -E 'manifest.json|database.sql.gz'` 定位真实路径，勿按生产结构直接猜
 - 生产容器/卷名与本地 dev 栈同名：`tdyw`、`tdyw-db`、`docker_tdyw-documents`、`docker_tdyw-media`
 - passphrase 在仓库文件 `borgbackup/borg.env`（BORG_REPO=/data/borg_repo，已与本地 repo 匹配）
 - 备份元数据以 U 盘导出物中的 `tmp/tdyw-borg.*/manifest.json` 为权威：`backup_set_id` 是真实生产快照名（U 盘目录名 MMDD 只是搬运标签，可能与快照日期不同），`database_name` / `documents_mountpoint` / `media_mountpoint` 是第 4 段计划摘要的来源
@@ -125,7 +125,13 @@ borg extract -v --list /data/borg_repo::<tdyw-YYYYMMDD-HHMMSS>
 
 ### 预检（全部通过才继续）
 
-1. **容器在位**：`wsl bash -c 'docker inspect -f "{{.State.Running}}" tdyw tdyw-db'`。缺失时（常见：本地常驻的只有 test 栈，生产栈容器可能从未创建过）不要盲跑命令——按序启动，向用户说明后再执行：
+1. **容器身份三查**（存在 → 归属 → 镜像，全过才继续；2026-10-31 教训：预检只查了 Running，实为 rehearsal 演练残留的 1031 错位容器，还原后 migrate 假失败）：
+   - 存在性：`wsl bash -c 'docker inspect -f "{{.State.Running}}" tdyw tdyw-db'`
+   - 归属项目：`wsl bash -c 'docker inspect -f "{{index .Config.Labels \"com.docker.compose.project\"}}" tdyw tdyw-db'` → 必须是主项目 `docker`；rehearsal（tdyw-release 演练）来源的残骸容器——尤其**退出状态的演练失败容器**——会占着 `tdyw` 名，须先处理（引号嵌套报错就退回 `docker inspect tdyw | grep compose.project`）
+   - 镜像一致：`wsl bash -c 'docker inspect -f "{{.Image}}" tdyw'` 对照 compose 当前 `image:` 引用解析出的镜像 ID，不一致即错位
+   - 任一不符 → 停下向用户报告再动（通常解法：`docker rm -f tdyw` 删残骸后由主 compose 重建；容器无状态，卷数据不受影响。注意：容器已存在时 `up -d` **不会**因镜像变化自动 recreate，必须先 rm）
+
+   全部缺失时（常见：本地常驻的只有 test 栈，生产栈容器可能从未创建过）不要盲跑命令——按序启动，向用户说明后再执行：
 
    ```
    wsl bash -c 'cd /mnt/e/TDYW/spug-3.0 && docker compose -f docker/docker-compose.yml up -d tdyw-db'
@@ -134,7 +140,7 @@ borg extract -v --list /data/borg_repo::<tdyw-YYYYMMDD-HHMMSS>
    wsl bash -c 'cd /mnt/e/TDYW/spug-3.0 && docker compose -f docker/docker-compose.yml up -d tdyw'
    ```
 
-   三个要点：① 必须在 WSL 内执行（Windows 侧无 docker 命令）；② 必须 cd 到仓库挂载路径再 compose——项目名取自 compose 文件所在目录名 `docker`，卷名才会是 `docker_tdyw-*`，env 也取自 `docker/.env`（不是仓库根 `.env`，那个不存在）；③ 还原只需 `tdyw-db` + `tdyw` 两个服务（不需要 kkfileview/onlyoffice），依赖镜像 `mysql:0601` + `tdyw:1024`。**严禁碰任何带 -test 的容器/卷（tdyw-test 栈常驻运行）**。
+   三个要点：① 必须在 WSL 内执行（Windows 侧无 docker 命令）；② 必须 cd 到仓库挂载路径再 compose——项目名取自 compose 文件所在目录名 `docker`，卷名才会是 `docker_tdyw-*`，env 也取自 `docker/.env`（不是仓库根 `.env`，那个不存在）；③ 还原只需 `tdyw-db` + `tdyw` 两个服务（不需要 kkfileview/onlyoffice）；**镜像 tag 每次发布都会换**（用户不固定命名），以 compose 当前 `image:` 引用为准，绝不写死任何具体 tag——发现容器镜像与用户预期不符时先问用户，勿按本文旧记载推断（2026-10-31 教训：skill 记 1024、compose 实为 0917、容器却是 rehearsal 起的 1031，migrate 假失败险误导）。**严禁碰任何带 -test 的容器/卷（tdyw-test 栈常驻运行）**。
 2. **本地 borg.env**：第 3 段已建则复用。
 3. **恢复用 cnf `/data/borgbackup/tdyw_restore.cnf`**（缺失才建，0600）。本地容器 root 密码可能与生产不同，必须从容器内读，不照抄生产 cnf：
    - 读密码（`printenv` 免 `$`，绕开内联双引号问题）：`pw=$(wsl bash -c 'docker exec tdyw-db printenv MYSQL_ROOT_PASSWORD')`
@@ -155,7 +161,14 @@ borg extract -v --list /data/borg_repo::<tdyw-YYYYMMDD-HHMMSS>
    ```
    wsl -u root bash -c 'cd /mnt/e/TDYW/spug-3.0 && BORG_ENV_FILE=/data/borgbackup/borg.env RESTORE_CLIENT_CNF=/data/borgbackup/tdyw_restore.cnf ./borgbackup/borg_backup_set_restore.sh tdyw-restore-<MMDD>'
    ```
-   注意：verify-only 模式打出的计划**只有 archive/repo/容器名，目标库与两个卷只在 production 模式才打印**——给用户的计划摘要（目标库、两卷、源快照名）改从 U 盘导出物的 `tmp/tdyw-borg.*/manifest.json` 读（`database_name`、`documents_mountpoint`、`media_mountpoint`、`backup_set_id`）。空跑成功的判定 = 结尾出现 `Verification completed; no data was changed`（其文件清单刷屏会把计划段顶出 tail 窗口，抓计划用 `grep -A 12 "restore plan"`）。
+   注意：verify-only 模式打出的计划**只有 archive/repo/容器名，目标库与两个卷只在 production 模式才打印**——给用户的计划摘要（目标库、两卷、源快照名）改从 manifest.json 读（`database_name`、`documents_mountpoint`、`media_mountpoint`、`backup_set_id`）。manifest 获取顺序：U 盘/E 盘导出物还在就从盘上读；已被清理（U 盘拔除、E 盘目录删除）则从 archive 直接提取（1KB 小文件秒出）：
+
+   ```
+   wsl -u root bash -c 'set -a; . /data/borgbackup/borg.env; set +a; borg list /data/borg_repo::tdyw-restore-<MMDD>' | grep manifest.json   # 先定位真实路径（重打包前缀见环境事实）
+   wsl -u root bash -c 'set -a; . /data/borgbackup/borg.env; set +a; borg extract --stdout /data/borg_repo::tdyw-restore-<MMDD> <上一步路径>'
+   ```
+
+   空跑成功的判定 = 结尾出现 `Verification completed; no data was changed`（其文件清单刷屏会把计划段顶出 tail 窗口，抓计划用 `grep -A 12 "restore plan"`）。
 
 ### 确认与执行
 
@@ -169,12 +182,18 @@ wsl -u root bash -c 'cd /mnt/e/TDYW/spug-3.0 && ASSUME_YES=YES BORG_ENV_FILE=/da
 
 ### 完成后
 
-1. 报告脚本输出的恢复结果（库表数量、卷条目数、健康检查）
-2. **提示可选 migrate**（本地代码 schema 可能领先生产，恢复的是生产 schema）：
+1. **还原完成判定（脚本 SUCCESS ≠ 还原成功）**：脚本输出 database/documents/media 三项 SUCCESS 只代表数据落盘。必须再验证 `tdyw` 容器 Running + healthy、`docker logs tdyw` 尾部无 migrate 报错（如 `Applying ... [ERROR] 数据库迁移失败`），齐了才向用户报"还原成功"——2026-10-31 实测三项全 SUCCESS 而应用容器因镜像错位 migrate 失败退出。判定通过后报告脚本输出的恢复结果（库表数量、卷条目数、健康检查）。
+2. **migrate 提示与失败诊断顺序**（默认只提示不执行，是否执行由用户决定）：
+
    ```
    wsl bash -c 'docker exec -e PYTHONIOENCODING=utf-8 -w /data/spug/spug_api tdyw python manage.py migrate --noinput'
    ```
-   是否执行由用户决定，默认只提示不执行。
+
+   应用镜像与生产 schema 配对时（镜像 = 生产在跑版本）migrate 应为 no-op，**预期无需执行**。migrate 报错时，先核对"代码版本 ↔ 库 schema"是否配对，再怀疑迁移本身：
+   - 容器实际镜像：`docker inspect tdyw -f "{{.Image}}"` 对照 `docker images` 的镜像 ID——确认跑迁移的代码是哪一版
+   - 库 schema 版本：查 `django_migrations` 各 app 尾部记录（如 upgrade 应用到哪条）
+   - 二者错位（新镜像代码 + 旧生产库）时，`Unknown column ...`/1054 之类报错是预期错位，不是数据损坏——2026-10-31 案例：1031 新代码对 0917 schema 在 upgrade.0022 RenameField 上炸 1054，换回生产镜像即 healthy
+   - **边界**：borg-shuttle 的还原目标 = 生产镜像 + 生产数据的一致态；新镜像对快照的 migrate 演练属 tdyw-release 流程——若用户本意是演练新镜像，引导走 tdyw-release
 3. 提醒两条已知事项：登录账号密码已是生产库中的账号；document-chunks 卷不在备份内未被处理，若资料库向量检索异常需单独重建。
 
 ## 安全红线

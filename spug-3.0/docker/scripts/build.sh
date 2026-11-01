@@ -8,7 +8,7 @@
 #   wsl bash -c '/mnt/e/TDYW/spug-3.0/docker/scripts/build.sh'
 #
 # 产出：
-#   /mnt/e/TDYW/dyw-server/tdyw_YYYYMMDD-N.ta
+#   /mnt/e/TDYW/tdyw-server/tdyw_YYYYMMDD-N.tar
 #
 # 后续步骤：
 #   1. 将 tar 文件拷到生产服务器
@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DOCKER_DIR="$(dirname "$SCRIPT_DIR")"
 PROJECT_DIR="$(dirname "$DOCKER_DIR")"
-OUTPUT_DIR="/mnt/e/TDYW/dyw-server"
+OUTPUT_DIR="/mnt/e/TDYW/tdyw-server"
 
 # ---------- 颜色输出 ----------
 RED='\033[0;31m'
@@ -33,7 +33,7 @@ info()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 fatal() { echo -e "${RED}[FATAL]${NC} $*"; exit 1; }
-"""
+
 # ---------- 前置检查 ----------
 info "前置检查..."
 
@@ -62,7 +62,7 @@ fi
 
 # 3. 输出目录存在
 mkdir -p "$OUTPUT_DIR"
-"""
+
 # ---------- Django check（用 tdyw 容器）----------
 if docker inspect tdyw &>/dev/null; then
     info "运行 Django check（tdyw 容器）..."
@@ -106,7 +106,6 @@ if docker inspect tdyw &>/dev/null; then
         ok "无待执行迁移"
     fi
 fi
-"""
 # ---------- 构建镜像 ----------
 info "构建镜像 ${IMAGE_TAG}..."
 cd "$PROJECT_DIR"
@@ -140,4 +139,3 @@ echo "  1. 拷贝 tar 文件到生产服务器"
 echo "  2. 在生产服务器运行:"
 echo "     bash deploy_prod.sh ${TAR_FILE##*/}"
 echo "=========================================="
-"""

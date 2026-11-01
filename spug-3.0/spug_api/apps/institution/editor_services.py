@@ -30,7 +30,7 @@ import os
 import re
 import tempfile
 import uuid
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests as requests_lib
 from django.conf import settings
@@ -277,6 +277,29 @@ def _allowed_callback_origins():
     return hosts
 
 
+def _callback_direct_url(url, parsed):
+    """把回调 url 改写为 compose 网络内 DS 容器直连地址（http）。
+
+    回调 url 的 host 是 DS 从浏览器请求推断的外部地址——浏览器经 HTTPS
+    自签证书访问时，该 url 即 https+自签形态，后端容器内回流下载会撞
+    证书校验（SSLCertVerificationError），dev 为 HTTP 故历史上未暴露。
+    DS 缓存路径固定带浏览器同源代理前缀（/onlyoffice/），DS 容器自身
+    nginx 无此前缀，改写 = scheme 换 http、host 换 DS 容器名、path 去前缀。
+    调用前原 url 已过 _allowed_callback_origins 白名单（SSRF 防线）；
+    改写目标仅为受信内网 DS 容器，md5/expires/shardkey 等防篡改参数
+    原样保留。非同源代理形态（path 无前缀）不改写、按原 url 下载。
+    """
+    base = (getattr(settings, 'ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL', '')
+            or 'http://tdyw-onlyoffice')
+    parsed_base = urlparse(base)
+    path = parsed.path
+    prefix = '/onlyoffice'
+    if path == prefix or path.startswith(prefix + '/'):
+        path = path[len(prefix):] or '/'
+    return urlunparse(('http', parsed_base.netloc, path, parsed.params,
+                       parsed.query, ''))
+
+
 def _extract_callback_file(body):
     """把回调 url 指向的文档内容取回本地临时文件
 
@@ -299,7 +322,9 @@ def _extract_callback_file(body):
                        url[:200])
         return None, '回调文件地址不合法'
     try:
-        resp = requests_lib.get(url, timeout=CALLBACK_DOWNLOAD_TIMEOUT_SECONDS,
+        download_url = _callback_direct_url(url, parsed)
+        resp = requests_lib.get(download_url,
+                                timeout=CALLBACK_DOWNLOAD_TIMEOUT_SECONDS,
                                 stream=True, allow_redirects=False)
     except requests_lib.RequestException as e:
         logger.warning('[InstitutionEditor] download callback file failed: %s', e)

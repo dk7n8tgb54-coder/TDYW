@@ -114,6 +114,10 @@ scripts/
 database_maintenance/
 backups/
 .git/
+# 质量工程产物与授权字体（Dockerfile 不 COPY；字体经 compose bind mount 供运行时使用）
+quality/
+dev/onlyoffice-fonts/
+docker/onlyoffice-fonts/
 
 # 无关目录
 -p/
