@@ -45,6 +45,8 @@ class FileDraftForcesaveView(View):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能编辑')
+        if services.file_is_frozen(file_entry):
+            return json_response(error=services.FROZEN_EDIT_ERROR)
         draft, err = _draft_or_error(file_entry)
         if err:
             return err

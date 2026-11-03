@@ -2,16 +2,17 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 文件分工行为测试（详情页文件清单页签 + 分工弹窗 + 旧章节过渡展示，
- * 2026-10-30 交互更新版）：
- * - 负责人列：已分配显示账号名，未分配明确显示「未分配」；有分工权限者
- *   点击姓名/「未分配」直接打开分工弹窗（操作列不再有「文件分工」链接）；
+ * 文件分工行为测试（详情页文件清单页签 + 分工弹窗，2026-11-03 固定快照版）：
+ * - 负责人列：显示有效负责人（effective_owner_name），owner_assigned=false
+ *   注明「（手册所有者，默认）」，仅 effective_owner_id 为空才「未分配」；
+ *   有分工权限者点击姓名/「未分配」直接打开分工弹窗（操作列无「文件分工」链接）；
  * - 批量分工：勾选多份文件 → 批量弹窗明确已选数量与作用范围，经
- *   store.batchAssignFiles 提交（后端全成功或全失败）；
- * - 编制提交列：服务端 submission.state（submitted/stale/none）映射文案，
- *   前端不推断；submission 未下发（仅查看）显示占位；
+ *   store.batchAssignFiles 提交（后端全成功或全失败）；冻结文件行勾选禁用；
+ * - 编制状态列：服务端提交快照状态（pending/withdrawn/returned/legacy）映射
+ *   文案，前端不推断（不再出现「未提交」）；
  * - 「只看我负责的文件」筛选按服务端 is_mine 过滤行；
- * - 「提交编制」仅负责人行渲染，确认后经 store.submitCompile 提交；
+ * - 「提交待发布核对」仅有效负责人行渲染（陈旧快照→「重新提交」），确认后经
+ *   store.submitCompile 提交并刷新清单+菜单红点；
  * - 旧章节记录（遗留只读）仅在存在记录时过渡展示，无任何写入口。
  */
 import React from 'react';
@@ -106,7 +107,7 @@ import FileAssignmentModal from '../detail/FileAssignmentModal';
 import store from '../detail/store';
 import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
-// 提交编制成功后的菜单红点刷新钩子单独 mock：本套件聚焦分工/提交流程，
+// 提交待发布核对成功后的菜单红点刷新钩子单独 mock：本套件聚焦分工/提交流程，
 // 红点 store 契约钉死在 layout/__tests__
 jest.mock('../../../layout/InstitutionBadgeStore', () => ({
   __esModule: true,
@@ -116,7 +117,7 @@ jest.mock('../../../layout/InstitutionBadgeStore', () => ({
 function makeFile(id, over = {}) {
   return Object.assign({
     id, manual_id: 7, name: `文件${id}`, sort_order: id, is_removed: false,
-    revision_open: false, originals_count: 1, draft: null,
+    revision_open: false, draft: null,
     active_session: null,
     assignment: {owner_id: null, owner_name: '', note: '', is_mine: false},
     submission: {state: 'none', submitted_at: null, submitted_by_name: '',
@@ -124,10 +125,13 @@ function makeFile(id, over = {}) {
   }, over);
 }
 
-const SUBMITTED = {state: 'submitted', submitted_at: '2026-10-20T10:00:00',
-  submitted_by_name: '张三', submission_revision: 5, draft_revision: 5};
-const STALE = {state: 'stale', submitted_at: '2026-10-19T10:00:00',
-  submitted_by_name: '张三', submission_revision: 4, draft_revision: 6};
+const SUBMITTED = {status: 'pending', state: 'submitted', frozen: true,
+  submitted_at: '2026-10-20T10:00:00', submitted_by_name: '张三',
+  submission_revision: 5, draft_revision: 5,
+  snapshot: {file_name: '文件1_快照.docx'}};
+const STALE = {status: 'pending', state: 'stale', frozen: false,
+  submitted_at: '2026-10-19T10:00:00', submitted_by_name: '张三',
+  submission_revision: 4, draft_revision: 6};
 
 function renderTab() {
   const container = document.createElement('div');
@@ -256,22 +260,33 @@ describe('文件清单页签（文件分工展示）', () => {
     expect(document.querySelector('.ant-modal')).toBeNull();
   });
 
-  it('编制提交列：服务端状态映射文案，前端不推断', async () => {
+  it('编制状态列：服务端提交快照状态只映射不推断，不再显示「未提交」', async () => {
+    // 非所有者且无发布权：stale 提交的负责人行才落到「提交已失效」
+    store.manual = {...store.manual, is_owner: false, my_roles: ['view', 'edit']};
     store.files = [
-      makeFile(1, {draft: {revision: 5}, submission: SUBMITTED}),
-      makeFile(2, {draft: {revision: 6}, submission: STALE}),
-      makeFile(3, {draft: {revision: 1}}),
+      makeFile(1, {draft: {revision: 5}, revision_open: false,
+        submission: SUBMITTED,
+        assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true}}),
+      makeFile(2, {draft: {revision: 6}, revision_open: true,
+        submission: STALE,
+        assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true}}),
+      makeFile(3, {draft: {revision: 1}, revision_open: false}),
     ];
     container = renderTab();
     switchView(container, '修订草稿');
     const text = container.textContent;
-    expect(text).toContain('已提交');
-    expect(text).toContain('提交已失效');
-    expect(text).toContain('未提交');
+    // 2026-11-02：编制提交列合并为「编制状态」列（草稿修订列已删除）
+    expect(columnHeaderTexts(container)).toContain('编制状态');
+    expect(columnHeaderTexts(container)).not.toContain('编制提交');
+    expect(columnHeaderTexts(container)).not.toContain('草稿修订');
+    expect(text).toContain('待发布人核对');
+    expect(text).toContain('提交已失效（需重新提交）');
+    expect(text).toContain('无需提交');
+    expect(text).not.toContain('未提交');
   });
 });
 
-describe('文件清单页签（分工过滤与提交编制入口）', () => {
+describe('文件清单页签（分工过滤与提交待发布核对接入）', () => {
   it('只看我负责的文件：按服务端 is_mine 过滤行', async () => {
     store.files = [
       makeFile(1, {assignment: {owner_id: 9, owner_name: '乙', note: '',
@@ -293,23 +308,35 @@ describe('文件清单页签（分工过滤与提交编制入口）', () => {
     expect(text).toContain('只看我负责的文件（1）');
   });
 
-  it('提交编制按钮仅在负责人（is_mine）行渲染，确认后经 store.submitCompile 提交', async () => {
-    // 非所有者夹具：二轮权限模型起所有者对任意文件有提交入口，
-    // "仅负责人行"语义只对非所有者成立
+  it('提交待发布核对接入仅有效负责人行；有效快照显示不可点击「待发布人核对」，待提交行经 store.submitCompile', async () => {
+    // 非所有者夹具：提交入口唯一依据=该文件有效负责人身份
     store.manual = {...store.manual, is_owner: false};
     store.files = [
-      makeFile(1, {draft: {revision: 5},
-        assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true},
-        submission: SUBMITTED}),
-      makeFile(2, {draft: {revision: 2},
-        assignment: {owner_id: 8, owner_name: '丙', note: '', is_mine: false}}),
+      makeFile(1, {draft: {revision: 5}, submission: SUBMITTED,
+        assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true,
+          is_effective_owner: true, effective_owner_id: 9,
+          effective_owner_name: '乙'}}),
+      makeFile(2, {draft: {revision: 2}, revision_open: true,
+        assignment: {owner_id: 9, owner_name: '乙', note: '', is_mine: true,
+          is_effective_owner: true, effective_owner_id: 9,
+          effective_owner_name: '乙'}}),
+      makeFile(3, {draft: {revision: 2},
+        assignment: {owner_id: 8, owner_name: '丙', note: '', is_mine: false,
+          is_effective_owner: false, effective_owner_id: 8,
+          effective_owner_name: '丙'}}),
     ];
     container = renderTab();
     switchView(container, '修订草稿');
+    // 有效快照行：显示灰色不可点击「待发布人核对」，不再提供重复提交入口
+    const pendingBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent.replace(/\s+/g, '') === '待发布人核对');
+    expect(pendingBtn).not.toBeUndefined();
+    expect(pendingBtn.disabled).toBe(true);
+    // 只有待提交的有效负责人行（文件2）渲染「提交待发布核对」
     const submitBtns = Array.from(container.querySelectorAll('button'))
-      .filter(b => b.textContent.replace(/\s+/g, '') === '提交编制');
+      .filter(b => b.textContent.replace(/\s+/g, '') === '提交待发布核对');
     expect(submitBtns.length).toBe(1);
-    store.submitCompile.mockResolvedValue(makeFile(1, {submission: SUBMITTED}));
+    store.submitCompile.mockResolvedValue(makeFile(2, {submission: SUBMITTED}));
     await act(async () => {
       submitBtns[0].dispatchEvent(new MouseEvent('click', {bubbles: true}));
       // Modal.confirm 异步渲染：等待两轮宏任务后再查询
@@ -318,14 +345,19 @@ describe('文件清单页签（分工过滤与提交编制入口）', () => {
     });
     const confirm = document.querySelector('.ant-modal-confirm');
     expect(confirm).not.toBeNull();
-    expect(confirm.textContent).toContain('r5');
+    expect(confirm.textContent).toContain('提交待发布核对：文件2');
+    expect(confirm.textContent).toContain('当前草稿修订号 r2');
+    // 确认窗说明固定不可变快照 + 冻结语义（不再声称"不保存提交时刻副本"）
+    expect(confirm.textContent).toContain('固定不可变内容快照');
+    expect(confirm.textContent).not.toContain('系统不保存提交时刻的文件副本');
     await act(async () => {
       confirm.querySelector('.ant-btn-primary').click();
       await new Promise(resolve => setTimeout(resolve, 0));
     });
     await flush();
-    expect(store.submitCompile).toHaveBeenCalledWith(1);
-    // 提交真实成功后立即刷新菜单红点（待核对提交数）
+    expect(store.submitCompile).toHaveBeenCalledWith(2);
+    // 提交真实成功后立即刷新清单与菜单红点（待核对提交数）
+    expect(store.fetchFiles).toHaveBeenCalledWith(7);
     expect(institutionBadge.fetch).toHaveBeenCalled();
   });
 });
@@ -451,7 +483,7 @@ describe('文件清单页签（旧章节过渡与仅查看口径）', () => {
     expect(text).not.toContain('编制提交');
     // 无任何分工点击入口
     expect(container.querySelector('.ant-table-tbody a')).toBeNull();
-    expect(findButton(container, '提交编制')).toBeUndefined();
+    expect(findButton(container, '提交待发布核对')).toBeUndefined();
   });
 
   it('无 draft_edit 页面权限：所有者打开分工也必然被拒，入口只读（保存必被拒不出现可点击入口）', async () => {

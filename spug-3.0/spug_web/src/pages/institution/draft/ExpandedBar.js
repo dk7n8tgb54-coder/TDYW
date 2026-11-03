@@ -5,7 +5,7 @@
  * 放大态顶部精简条（2026-10-30；2026-10-31 重试入口语境化）。放大编辑区
  * 时文件导航、元数据与次级操作全部收起，顶栏只保留离开工作台与保存主
  * 流程所需的最低信息：返回详情 / 当前文件名 / 修订号 / 独立保存状态 /
- * 提交编制状态 /「保存并结束编辑」；保存确认失败（finishingError）时在
+ * 提交待发布核对状态 /「保存并结束编辑」；保存确认失败（finishingError）时在
  * 顶栏下方展示重试入口（文案按 finishingErrorKind 语境化：重试保存/
  * 重试切换/重试下载，分发由工作台 onFinishingRetry 提供）与「不保存并
  * 退出」，保证保存确认与未保存保护流程在放大态依然可用。常规（非放大）
@@ -13,9 +13,9 @@
  */
 import React from 'react';
 import { observer } from 'mobx-react';
-import { Alert, Button, Tag } from 'antd';
+import { Alert, Button, Tag, Tooltip } from 'antd';
 import { ArrowLeftOutlined } from '@ant-design/icons';
-import { submissionTagFor } from './FileNav';
+import { compilationTagFor } from './FileNav';
 import SaveStatusTag from './SaveStatusTag';
 import { finishingErrorTitleOf, finishingRetryLabelOf } from './finishingShared';
 import store from './store';
@@ -24,6 +24,9 @@ const ExpandedBar = observer(({file, onBackToDetail, onSaveFinish,
   onDiscardExit, onFinishingRetry}) => {
   const finishing = store.finishingFileId === file.id;
   const showError = store.finishingError && store.finishingErrorFileId === file.id;
+  // 编制状态与详情页/导航同一口径（本人发布无需提交需要发布权）
+  const manual = store.manual || {};
+  const canPublish = !!manual.is_owner || (manual.my_roles || []).includes('publish');
   return (
     <div style={{flexShrink: 0}}>
       <div style={{display: 'flex', flexWrap: 'wrap', gap: '4px 12px',
@@ -34,10 +37,15 @@ const ExpandedBar = observer(({file, onBackToDetail, onSaveFinish,
         </Button>
         <span style={{fontWeight: 600}}>{file.name}</span>
         {file.draft
-          ? <Tag color="blue" style={{marginRight: 0}}>r{file.draft.revision}</Tag>
+          ? <Tooltip title={'内部修订号：草稿每次保存/重建递增，仅用于并发保护与提交失效判定，' +
+              '不是草稿版本号（正式版本号 vN 只在发布后产生）'}>
+              <span style={{color: '#999', fontSize: 12}}>
+                内部修订号 r{file.draft.revision}
+              </span>
+            </Tooltip>
           : <Tag style={{marginRight: 0}}>无草稿</Tag>}
         <SaveStatusTag file={file} hasSession={true}/>
-        {submissionTagFor(file.submission)}
+        {compilationTagFor(file, {canPublish})}
         <span style={{flex: 1}}/>
         <Button type="primary" size="small" loading={finishing}
           disabled={finishing} onClick={onSaveFinish}>

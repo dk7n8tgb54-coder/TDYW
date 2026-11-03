@@ -3,9 +3,12 @@
 """制度手册物理文件存储工具
 
 存储根目录：storage/institution/（独立于资料库与规章附件）
-- originals/manual_{id}/...  原稿（每次上传新文件，永不覆盖）
-- drafts/manual_{id}/...     草稿工作文件
-- versions/manual_{id}/...   发布版本（不可变）
+- drafts/manual_{id}/...     当前草稿工作文件（新增文件直接落此目录）
+- versions/manual_{id}/...   发布版本快照（不可变）
+- submissions/manual_{id}/... 提交待发布核对快照（不可变，2026-11-03）
+- originals/manual_{id}/...  已下线原稿体系的历史遗留目录：本模块不再写入，
+  仅由独立的幂等清理命令 `purge_institution_originals`
+  （original_cleanup.py）在限定目录内清理；整本手册删除时一并移除。
 
 数据库 file_path 只存相对路径（相对 storage/institution/）。
 
@@ -44,20 +47,21 @@ MAX_FILE_SIZE = getattr(settings, 'INSTITUTION_MAX_FILE_SIZE', 100 * 1024 * 1024
 # 预览令牌绑定的模块标识（与 evidence attachment_preview_token 的 module 字段一致）
 PREVIEW_MODULE = 'institution'
 
-# 已清理原稿的统一拒绝语义（下载/预览/重建入口共用）：物理文件已按
-# 保留策略删除，仅存来源元数据（名称/上传人/时间/哈希/清理时间）
-ORIGINAL_CLEANED_ERROR = ('原稿文件已按保留策略清理，仅存来源元数据，'
-                          '不可预览/下载/重建')
+# 已下线原稿体系的存储子目录（只读兼容：不再写入，仅供原稿清理命令
+# 与整本手册删除定位；普通文件读写一律不得使用该目录）
+LEGACY_ORIGINALS_SUBDIR = 'originals'
 
-FILE_KIND_ORIGINAL = 'original'
 FILE_KIND_DRAFT = 'draft'
 FILE_KIND_VERSION = 'version'
 FILE_KIND_VERSION_FILE = 'vfile'  # 版本文件快照（ManualVersionFile）
+FILE_KIND_SUBMISSION = 'submission'  # 提交待发布核对快照（ManualSubmission）
 
 _KIND_TO_SUBDIR = {
-    FILE_KIND_ORIGINAL: 'originals',
     FILE_KIND_DRAFT: 'drafts',
     FILE_KIND_VERSION: 'versions',
+    # 提交快照独立目录：与草稿替换、版本保留清理隔离，生命周期由提交
+    # 状态机（撤回/退回/发布消费）管理
+    FILE_KIND_SUBMISSION: 'submissions',
 }
 
 
@@ -108,8 +112,8 @@ def display_name(raw_name, fallback_stem='manual_file'):
     保留主体可读性（空/纯符号回退 fallback_stem）。
 
     存储名（build_stored_name，带唯一后缀防碰撞）与显示名（本函数）
-    必须分离：ManualOriginal/ManualDraft/ManualVersion.original_name
-    存显示名，file_path 存存储名，序列化 file_name 取显示名。
+    必须分离：ManualDraft/ManualVersion.original_name 存显示名，
+    file_path 存存储名，序列化 file_name 取显示名。
     """
     basename = os.path.basename(str(raw_name or '').replace('\\', '/')).strip()
     basename = UNSAFE_FILENAME_CHARS.sub('_', basename).strip(' .')
@@ -244,13 +248,17 @@ def safe_delete_file(abs_path):
 def safe_delete_manual_dir(manual_id):
     """删除整本手册的文件树（manual 删除时的兜底清理，含年月子目录）
 
+    同时清理已下线原稿体系的历史遗留目录（originals/），整本手册删除
+    时不允许留下孤儿目录；这不是原稿清理入口，常规清理走独立命令。
+
     Returns:
         tuple: (是否成功, 错误消息或 None)
     """
     base = get_institution_storage_base()
     removed = True
     err = None
-    for subdir in _KIND_TO_SUBDIR.values():
+    subdirs = list(_KIND_TO_SUBDIR.values()) + [LEGACY_ORIGINALS_SUBDIR]
+    for subdir in subdirs:
         dir_path = os.path.join(base, subdir, f'manual_{manual_id}')
         if not _is_safe_path(base, dir_path) or not os.path.isdir(dir_path):
             continue

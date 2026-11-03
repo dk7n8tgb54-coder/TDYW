@@ -25,8 +25,7 @@ from django.utils import timezone
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
                                      ManualFile, ManualOperationLog,
-                                     ManualOriginal, ManualVersion,
-                                     ManualVersionFile)
+                                     ManualVersion, ManualVersionFile)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DOWNLOAD, PERM_DRAFT, PERM_PUBLISH, PERM_VIEW, get_data,
     has_error, make_client, make_grant, make_user, post_json, put_json,
@@ -96,6 +95,25 @@ class MultiFileBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
+    def _ensure_handoff(self, actor):
+        """完整发布夹具：发布前由各文件负责人经真实接口提交编制
+
+        仅用于"预期发布成功"的用例；提交失败不断言（会话占用/缺草稿等
+        情况由真实发布自己报错）。owner==actor 的文件无需提交。
+        """
+        resp = self.manager_client.get(
+            f'/institution/manuals/{self.manual.id}/files/')
+        self.assertFalse(has_error(resp), resp.content)
+        for row in get_data(resp):
+            owner_id = row['assignment']['owner_id']
+            if not owner_id or owner_id == actor.id:
+                continue
+            owner = ManualFile.objects.get(pk=row['id']).owner
+            post_json(
+                make_client(owner),
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{row["id"]}/submit/', {})
+
     def _files_list(self):
         resp = self.manager_client.get(
             f'/institution/manuals/{self.manual.id}/files/')
@@ -121,17 +139,27 @@ class MultiFileBase(TestCase):
 class FileManageTests(MultiFileBase):
     """文件新增/列表/改名/排序/移除"""
 
-    def test_add_file_creates_entry_original_and_draft(self):
+    def test_add_file_creates_entry_and_draft_directly(self):
         data = self._add_file('操作规程.docx')
         self.assertEqual(data['name'], '操作规程.docx')
         self.assertEqual(data['sort_order'], 1)
         self.assertEqual(data['draft']['revision'], 1)
         self.assertEqual(ManualFile.objects.filter(manual=self.manual).count(), 1)
-        self.assertEqual(ManualOriginal.objects.filter(manual=self.manual).count(), 1)
-        # 操作记录同时落 file_add 与 upload_original，均带文件 ID
+        draft = ManualDraft.objects.get(file_id=data['id'])
+        self.assertEqual(draft.revision, 1)
+        self.assertIsNone(draft.base_version_id)
+        # 直接建草稿：不再产生原稿记录/原稿物理文件
+        originals_dir = os.path.join(self._tmp.name, 'originals')
+        original_files = []
+        for dirpath, _, filenames in os.walk(originals_dir):
+            original_files.extend(filenames)
+        self.assertEqual(original_files, [])
+        # 操作记录落 file_add，不再有 upload_original/create_draft
         actions = set(ManualOperationLog.objects.filter(
             manual=self.manual, file_id=data['id']).values_list('action', flat=True))
-        self.assertLessEqual({'file_add', 'upload_original'}, actions)
+        self.assertIn('file_add', actions)
+        self.assertNotIn('upload_original', actions)
+        self.assertNotIn('create_draft', actions)
 
     def test_list_ordered_with_draft_and_occupancy(self):
         # 会话开启要求负责人独占：甲指派 editor 为文件负责人
@@ -189,10 +217,10 @@ class FileManageTests(MultiFileBase):
         resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/files/{a["id"]}/remove/', {})
         self.assertFalse(has_error(resp), resp.content)
-        # 条目保留（软移除），原稿保留
+        # 条目保留（软移除），草稿工作副本保留（回退可重新纳入）
         entry = ManualFile.objects.get(pk=a['id'])
         self.assertTrue(entry.is_removed)
-        self.assertEqual(ManualOriginal.objects.filter(file_id=a['id']).count(), 1)
+        self.assertTrue(ManualDraft.objects.filter(file_id=a['id']).exists())
         # 待发布清单只剩乙
         names = [i['name'] for i in self._files_list()]
         self.assertEqual(names, ['乙.docx'])
@@ -248,7 +276,6 @@ class CrossManualFileAccessTests(MultiFileBase):
     def test_file_ops_reject_cross_manual_file_id(self):
         base = f'/institution/manuals/{self.manual.id}/files/{self.foreign_file_id}'
         self._assert_foreign_rejected(self.manager_client.get(f'{base}/draft/'))
-        self._assert_foreign_rejected(self.manager_client.get(f'{base}/originals/'))
         self._assert_foreign_rejected(post_json(
             self.manager_client, f'{base}/rename/', {'name': 'x.docx'}))
         self._assert_foreign_rejected(post_json(
@@ -374,6 +401,7 @@ class WholePublishTests(MultiFileBase):
         self._set_password()
 
     def _publish(self, note='整套发布'):
+        self._ensure_handoff(self.publisher)
         return post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})
@@ -562,6 +590,8 @@ class WholeRollbackTests(MultiFileBase):
         self.file_a = self._add_file('甲.docx', DOCX + b'-a', owner=self.editor)
         self.file_b = self._add_file('乙.docx', DOCX + b'-b')
         self._set_password()
+        # 首发交接：甲由负责人 editor 提交编制后发布 v1
+        self._ensure_handoff(self.publisher)
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': 'v1'})
@@ -569,6 +599,7 @@ class WholeRollbackTests(MultiFileBase):
         self.v1 = ManualVersion.objects.get(manual=self.manual)
 
     def _publish(self, note='再发布'):
+        self._ensure_handoff(self.publisher)
         return post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})
@@ -646,8 +677,8 @@ class WholeRollbackTests(MultiFileBase):
 class LegacySingleFileDelegationTests(MultiFileBase):
     """过渡期旧单文件接口：单文件委托、多文件拒绝"""
 
-    def test_legacy_apis_delegate_to_single_file(self):
-        data = self._add_file('唯一.docx', owner=self.editor)
+    def test_legacy_draft_apis_delegate_to_single_file(self):
+        self._add_file('唯一.docx', owner=self.editor)
         self._set_password()
         # 旧 draft 详情
         resp = self.editor_client.get(
@@ -664,31 +695,12 @@ class LegacySingleFileDelegationTests(MultiFileBase):
              'session_key': key, 'revision': 1})
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(get_data(resp)['revision'], 2)
-        # 旧原稿列表（文件的原稿）
-        resp = self.manager_client.get(
-            f'/institution/manuals/{self.manual.id}/originals/')
-        self.assertFalse(has_error(resp), resp.content)
-        self.assertEqual(len(get_data(resp)), 1)
-        # 旧原稿上传绑定唯一文件
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/originals/upload/',
-            {'file': SimpleUploadedFile('补充.docx', DOCX)})
-        self.assertFalse(has_error(resp), resp.content)
-        self.assertEqual(
-            ManualOriginal.objects.filter(file_id=data['id']).count(), 2)
 
     def test_legacy_apis_reject_multi_file_manual(self):
         self._add_file('甲.docx')
         self._add_file('乙.docx')
-        paths = ('draft/', 'originals/')
-        for path in paths:
-            resp = self.manager_client.get(
-                f'/institution/manuals/{self.manual.id}/{path}')
-            self.assertTrue(has_error(resp))
-            self.assertIn('多份文件', resp.json()['error'])
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/originals/upload/',
-            {'file': SimpleUploadedFile('x.docx', DOCX)})
+        resp = self.manager_client.get(
+            f'/institution/manuals/{self.manual.id}/draft/')
         self.assertTrue(has_error(resp))
         self.assertIn('多份文件', resp.json()['error'])
         resp = post_json(self.manager_client,

@@ -141,6 +141,11 @@ services:
       - ONLYOFFICE_JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-}
       - ONLYOFFICE_ALLOWED_URL_HOSTS=${ONLYOFFICE_ALLOWED_URL_HOSTS:-localhost,onlyoffice}
       - ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS=${ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS:-3600}
+      # 回调文件下载直连基址（2026-11-01）：DS 按浏览器访问形态生成回调缓存 url
+      # （HTTPS 自签部署下后端容器内回流下载必撞证书校验），后端统一改写为本栈
+      # DS 容器 http 直连；dev 栈 DS 容器名为 tdyw-onlyoffice-test（生产栈为
+      # tdyw-onlyoffice，代码缺省即生产值，两栈须各自显式对齐）
+      - ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL=${ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL:-http://tdyw-onlyoffice-test}
     # 依赖关系：spug 服务依赖 db 服务，确保数据库健康后才启动
     depends_on:
       db:

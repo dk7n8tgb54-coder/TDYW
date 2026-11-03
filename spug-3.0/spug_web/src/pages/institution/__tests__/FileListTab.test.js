@@ -2,17 +2,31 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 文件清单页签行为测试（2026-10-30 双视图版）：
+ * 文件清单页签行为测试（2026-10-30 双视图版；2026-11-03 固定快照交接）：
  * - 页签内两个内容视图：「当前生效版本 vN」（不可变发布快照；预览/下载
  *   始终打开发布快照并注明版本来源）与「修订草稿」（待发布工作内容；
- *   草稿修订号/负责人/状态/编制提交；预览/下载明确打开待发布草稿）；
+ *   列=顺序/文件名/大小/负责人/状态/编制状态/操作；未冻结文件的预览/下载
+ *   明确打开当前待发布草稿，rN 只出现在 Tooltip 内部）；
  * - 默认视图：有生效版本 → 当前生效版本；首次发布前 → 修订草稿；
  *   切换视图保留「只看我负责的文件」筛选并清空行勾选；
- * - 「编制提交」是交接状态：已提交（有效）/提交已失效/未提交，绝不冒充
- *   已发布；负责人列是责任归属（2026-10-31 授权模型：负责人独占编辑=
+ * - 「编制状态」列=提交待发布核对固定快照状态（2026-11-03）：待发布人核对/
+ *   可直接纳入整套发布/待提交待发布核对/待负责人提交待发布核对/已撤回/
+ *   已退回/提交已失效/旧版提交记录/编制中/无需提交，唯一渲染依据=
+ *   ../compilationStatusShared.buildCompilationState；草稿修订 rN 不再作为
+ *   列值；冻结文件（有效提交快照）的预览/下载改读 submission 快照端点，
+ *   标题=「预览待核对快照：文件名（提交人 X，提交时间 Y）」。提交入口
+ *   只对文件有效负责人（assignment.is_effective_owner，旧 payload 回退
+ *   is_mine）渲染，pending 显示不可点击「待发布人核对」+「撤回提交」，
+ *   持发布权且非有效负责人可「退回修改」（原因必填）；失效后「重新提交」，
+ *   编辑会话进行中禁用；手册所有者非文件有效负责人不得代提交；
+ * - 负责人列是责任归属（2026-10-31 授权模型：负责人独占编辑=
  *   编制授权 + assignment.is_mine，非负责人行无编辑入口并显示占位提示）；
- * - 行操作按视图分叉：生效视图=快照预览/下载/变更记录；草稿视图=
- *   继续编辑/开始修订/提交编制/草稿预览下载（负责人行）/变更记录；
+ * - 行操作按视图分叉：生效视图=快照预览/下载/文件历史；草稿视图=
+ *   继续编辑/开始修订/提交或重新提交编制/草稿预览下载（负责人行）/
+ *   文件历史（2026-11-01 简化：行内直接打开 FileHistoryModal，不再切
+ *   顶层页签；历史来源/高级恢复入口已取消）；
+ * - 新增制度文件：选择文件后先弹分工弹窗（负责人默认手册所有者，可改选/
+ *   清空），确认后逐份 files/create 并显式携带 owner_id/note；
  * - 权限：仅查看角色只有生效视图（无切换、不请求 draft-status）；
  *   仅发布角色（无编制角色）在草稿视图看不到编辑/草稿预览下载入口；
  *   批量分工与负责人列编辑=draft_edit 页面码 + 手册所有者/制度管理员；
@@ -43,6 +57,19 @@ jest.mock('antd', () => {
     }),
   };
 });
+
+jest.mock('../detail/FileHistoryModal', () =>
+  function FileHistoryModal(props) {
+    FileHistoryModal.lastProps = props;
+    return null;
+  });
+
+// 提交编制成功后的菜单红点刷新钩子单独 mock：本套件聚焦清单/编制状态，
+// 红点 store 契约钉死在 layout/__tests__
+jest.mock('../../../layout/InstitutionBadgeStore', () => ({
+  __esModule: true,
+  default: {fetch: jest.fn()},
+}));
 
 jest.mock('../detail/store', () => {
   const {observable} = require('mobx');
@@ -77,6 +104,19 @@ jest.mock('../detail/store', () => {
     batchAssignFiles = jest.fn(function (fileIds, ownerId, note) {
       return Promise.resolve({count: fileIds.length, files: []});
     });
+    submitCompile = jest.fn(function (fileId) {
+      const idx = this.files.findIndex(f => f.id === fileId);
+      return Promise.resolve(idx >= 0 ? this.files[idx] : null);
+    });
+    // 2026-11-03 固定快照交接：撤回/退回/快照预览（真实成功后由 store
+    // 刷新清单与菜单红点；组件只负责确认与成功提示）
+    withdrawSubmission = jest.fn(function () { return Promise.resolve({}); });
+    returnSubmission = jest.fn(function () { return Promise.resolve({}); });
+    fetchSubmissionPreviewUrl = jest.fn(function () {
+      return Promise.resolve({
+        preview_url: 'http://snapshot', file_name: '甲快照.docx',
+        submitted_by_name: '张三', submitted_at: '2026-01-05T09:00:00'});
+    });
   }
   return new DetailStore();
 });
@@ -84,7 +124,9 @@ jest.mock('../detail/store', () => {
 import {history} from 'libs';
 import {http} from 'libs';
 import FileListTab from '../detail/FileListTab';
+import FileHistoryModal from '../detail/FileHistoryModal';
 import store from '../detail/store';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
 const SNAP_MODIFIED = {id: 101, manual_file_id: 11, file_name: '甲.docx',
   sort_order: 0, file_size: 2048, file_hash: 'aaaa1111', change_type: 'modified'};
@@ -102,23 +144,23 @@ const CURRENT_FILES = {
 
 const FILES = [
   {id: 11, manual_id: 7, name: '甲.docx', sort_order: 0, is_removed: false,
-    revision_open: true, originals_count: 1,
+    revision_open: true,
     draft: {revision: 5, file_name: '甲.docx', last_saved_by_name: '张三',
       last_saved_at: '2026-01-02T10:00:00'},
     active_session: null,
     // 2026-10-31 负责人独占：默认当前账号是负责人（行编辑入口可见）
     assignment: {owner_id: 9, owner_name: '我', note: '', is_mine: true}},
   {id: 12, manual_id: 7, name: '乙.docx', sort_order: 1, is_removed: false,
-    revision_open: false, originals_count: 1,
+    revision_open: false,
     draft: {revision: 2, file_name: '乙.docx', last_saved_by_name: '李四',
       last_saved_at: '2026-01-03T09:00:00'},
     active_session: {is_mine: false, user_name: '李四', expires_at: ''},
     assignment: {owner_id: 9, owner_name: '我', note: '', is_mine: true}},
   // 新增文件：待发布集合中但未进入生效版本
   {id: 14, manual_id: 7, name: '新增文件.docx', sort_order: 2,
-    is_removed: false, revision_open: true, originals_count: 1,
+    is_removed: false, revision_open: true,
     draft: {revision: 1, file_name: '新增文件.docx', last_saved_by_name: '张三',
-      last_saved_at: '2026-01-04T09:00:00'},
+      last_saved_at: null},
     active_session: null,
     assignment: {owner_id: null, owner_name: '', note: '', is_mine: false}},
 ];
@@ -244,6 +286,7 @@ describe('FileListTab（双视图默认与切换）', () => {
     expect(text).toContain('丙.docx');
     // 快照视图没有草稿域内容（按列头断言，避免与说明文案误匹配）
     expect(text).not.toContain('修订中 · 有未发布修改');
+    expect(columnHeaderTexts(container)).not.toContain('编制状态');
     expect(columnHeaderTexts(container)).not.toContain('编制提交');
     expect(columnHeaderTexts(container)).not.toContain('草稿修订');
     expect(columnHeaderTexts(container)).not.toContain('状态');
@@ -256,16 +299,25 @@ describe('FileListTab（双视图默认与切换）', () => {
     expect(previewBtn).not.toBeUndefined();
   });
 
-  it('首次发布前（无生效版本）：默认显示「修订草稿」视图', () => {
+  it('首次发布前（无生效版本）：默认显示「修订草稿」视图，编制状态列取代草稿修订/编制提交列', () => {
     store.manual = Object.assign({}, store.manual, {current_version: null});
     container = renderTab();
+    const headers = columnHeaderTexts(container);
+    expect(headers).toContain('编制状态');
+    expect(headers).not.toContain('草稿修订');
+    expect(headers).not.toContain('编制提交');
     const text = container.textContent;
-    expect(text).toContain('修订草稿');
     expect(text).toContain('甲.docx');
-    expect(text).toContain('草稿修订');
-    expect(text).toContain('r5');
-    expect(text).toContain('编制提交');
     expect(text).toContain('修订中 · 有未发布修改');
+    // 负责人兼发布权且草稿待发布 → 可直接纳入整套发布；非我负责的新增文件
+    // → 待负责人提交待发布核对；乙有进行中的编辑会话（draft-status
+    // unconfirmed）→ 编制中，绝不显示「无需提交」
+    expect(text).toContain('可直接纳入整套发布');
+    expect(text).toContain('待负责人提交待发布核对');
+    expect(text).toContain('编制中');
+    // 「最后保存」为编制状态列的次要信息（rN 不再作为列值）
+    expect(text).toContain('最后保存 2026-01-02 10:00:00');
+    expect(text).not.toContain('r5');
   });
 
   it('切换视图：保留「只看我负责的文件」筛选并清空行勾选', async () => {
@@ -384,23 +436,69 @@ describe('FileListTab（草稿视图：待发布工作内容）', () => {
     switchView(container, '修订草稿');
   });
 
-  it('草稿视图呈现 草稿修订/状态（服务端关系+修订状态合并）/编制提交', () => {
+  it('草稿视图呈现 状态（服务端关系+修订状态合并）/编制状态/最后保存', () => {
     const text = container.textContent;
+    expect(columnHeaderTexts(container)).toContain('编制状态');
+    expect(columnHeaderTexts(container)).not.toContain('草稿修订');
+    expect(columnHeaderTexts(container)).not.toContain('编制提交');
     expect(text).toContain('甲.docx');
     expect(text).toContain('修订中 · 有未发布修改');
     expect(text).toContain('已改名');
     expect(text).toContain('李四 编辑中');
     expect(text).toContain('新增待发布');
-    expect(text).toContain('r5');
-    expect(text).toContain('编制提交');
-    // 说明文案明确 待发布草稿/负责人/提交 三件事
+    // 编制状态：甲（有效负责人兼发布权，待发布草稿）→ 可直接纳入整套发布；
+    // 乙（draft-status unconfirmed：编辑会话占用）→ 编制中；新增文件
+    // （非我有效负责）→ 待负责人提交待发布核对；已发布无变化才显示「无需提交」
+    expect(text).toContain('可直接纳入整套发布');
+    expect(text).toContain('待负责人提交待发布核对');
+    expect(text).toContain('编制中');
+    // 最后保存时间为编制状态的次要信息（服务端草稿 last_saved_at）
+    expect(text).toContain('最后保存 2026-01-02 10:00:00');
+    expect(text).toContain('尚无保存记录');
+    // 说明文案明确：提交会创建固定不可变快照并冻结内容（不再有"无副本"口径）
     expect(text).toContain('尚未生效');
-    expect(text).toContain('不保存提交时刻的文件副本');
+    expect(text).toContain('固定不可变内容快照');
+    expect(text).toContain('旧版提交记录不可用于发布');
+    expect(text).not.toContain('系统不保存提交时刻的文件副本');
+    expect(text).toContain('编辑仅限文件负责人');
+    // 待发布清单语义：每份上传文件单独加入待发布清单；移除仅退出待发布
+    // 清单，发布后才影响新版本（历史发布版本不受影响）
+    expect(text).toContain('上传内容直接作为该文件草稿');
+    expect(text).toContain('单独加入待发布清单');
+    expect(text).toContain('移除文件只让该文件退出待发布清单');
+    expect(text).toContain('发布后才影响新版本');
+    expect(text).toContain('历史版本不受影响');
   });
 
-  it('预览待发布草稿：走草稿端点，预览标题注明草稿修订号', async () => {
-    const previewBtn = findButton(container, '预览草稿 r5');
+  it('已发布无待发布变化且我是负责人：状态=无需提交且不渲染「提交待发布核对」入口', () => {
+    // 已发布且 revision_open=false 的文件没有需要交接的草稿：入口与
+    // 「无需提交」Tag 必须同时收敛（不能出现可点击但无意义的提交入口）
+    store.draftStatus = {
+      ...DRAFT_STATUS,
+      items: [{file_id: 12, name: '乙.docx', status: 'unchanged',
+        has_draft: true, draft_revision: 2, revision_open: false,
+        renamed: false, current_name: null, unconfirmed_reason: null,
+        unconfirmed_message: null, session: null}],
+    };
+    store.files = [{...FILES[1], revision_open: false, active_session: null,
+      submission: null}];
+    ReactDOM.unmountComponentAtNode(container);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(<FileListTab/>, container);
+    });
+    switchView(container, '修订草稿');
+    const text = container.textContent;
+    expect(text).toContain('无需提交');
+    expect(findButton(container, '提交待发布核对')).toBeUndefined();
+    expect(findButton(container, '重新提交')).toBeUndefined();
+  });
+
+  it('预览待发布草稿：走草稿端点，预览标题=预览待发布草稿：文件名（不带 rN）', async () => {
+    const previewBtn = findButton(container, '预览草稿');
     expect(previewBtn).not.toBeUndefined();
+    expect(previewBtn.textContent.replace(/\s+/g, '')).toBe('预览草稿');
     act(() => {
       previewBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
@@ -408,8 +506,8 @@ describe('FileListTab（草稿视图：待发布工作内容）', () => {
     expect(http.get).toHaveBeenCalledWith(
       '/api/institution/manuals/7/files/11/draft/preview-url/');
     const title = document.querySelector('.ant-modal-title');
-    expect(title.textContent).toContain('预览待发布草稿 r5');
-    expect(title.textContent).toContain('甲.docx');
+    expect(title.textContent).toBe('预览待发布草稿：甲.docx');
+    expect(title.textContent).not.toContain('r5');
   });
 
   it('行操作按修订状态显示「继续编辑」或「开始修订」，深链直达对应文件', async () => {
@@ -466,14 +564,21 @@ describe('FileListTab（草稿视图：待发布工作内容）', () => {
     expect(history.push).toHaveBeenCalledWith('/institution/manuals/7/draft?file=12');
   });
 
-  it('编制提交三态呈现：已提交/提交已失效/未提交（失效不冒充已提交）', () => {
+  it('编制状态：待发布人核对（不可重复提交）/提交已失效（可重新提交）/快照不冒充草稿', () => {
+    // 收窄为"纯负责人"（无发布权）：stale 行才会落到「提交已失效」而不是
+    // 「可直接纳入整套发布」（后者仅对兼发布权的有效负责人成立）
+    store.manual = {...store.manual, is_owner: false, my_roles: ['view', 'edit']};
     store.files = [
-      {...FILES[0], submission: {state: 'submitted',
-        submitted_at: '2026-01-05T09:00:00', submitted_by_name: '张三',
-        submission_revision: 5, draft_revision: 5}},
-      {...FILES[1], submission: {state: 'stale',
-        submitted_at: '2026-01-04T09:00:00', submitted_by_name: '李四',
-        submission_revision: 1, draft_revision: 2}},
+      // 有效提交固定快照（frozen）：pending 不可重复提交，可撤回
+      {...FILES[0], submission: {status: 'pending', state: 'submitted',
+        frozen: true, submitted_at: '2026-01-05T09:00:00',
+        submitted_by_name: '张三', submission_revision: 5, draft_revision: 5,
+        snapshot: {file_name: '甲快照.docx'}}},
+      // 提交失效且仍有待发布轮次（revision_open）→ 提交已失效/需重新提交
+      {...FILES[1], revision_open: true, active_session: null,
+        submission: {status: 'pending', state: 'stale',
+          submitted_at: '2026-01-04T09:00:00', submitted_by_name: '李四',
+          submission_revision: 1, draft_revision: 3}},
     ];
     ReactDOM.unmountComponentAtNode(container);
     container = document.createElement('div');
@@ -483,10 +588,111 @@ describe('FileListTab（草稿视图：待发布工作内容）', () => {
     });
     switchView(container, '修订草稿');
     const text = container.textContent;
-    expect(text).toContain('已提交');
-    expect(text).toContain('提交已失效');
-    // 说明文案明确限制：无提交时历史副本，不冒充"已提交版本"
-    expect(text).toContain('不保存提交时刻的文件副本');
+    expect(text).toContain('待发布人核对');
+    expect(text).toContain('提交已失效（需重新提交）');
+    // 有效快照：不渲染可重复提交入口，改为不可点击「待发布人核对」；
+    // 有效负责人可「撤回提交」
+    const pendingBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent.replace(/\s+/g, '') === '待发布人核对');
+    expect(pendingBtn).not.toBeUndefined();
+    expect(pendingBtn.disabled).toBe(true);
+    expect(findButton(container, '撤回提交')).not.toBeUndefined();
+    // 失效行渲染「重新提交」入口
+    expect(findButton(container, '重新提交')).not.toBeUndefined();
+    // 旧"无副本"口径必须消失（改为固定快照语义）
+    expect(text).not.toContain('系统不保存提交时刻的文件副本');
+  });
+
+  it('固定快照冻结文件：预览/下载改读 submission 快照端点，标题含提交人与提交时间', async () => {
+    store.manual = {...store.manual, is_owner: false, my_roles: ['view', 'edit']};
+    store.files = [
+      {...FILES[0], revision_open: false, active_session: null,
+        submission: {status: 'pending', frozen: true,
+          submitted_at: '2026-01-05T09:00:00', submitted_by_name: '张三',
+          submission_revision: 5, draft_revision: 5,
+          snapshot: {file_name: '甲快照.docx'}}},
+    ];
+    ReactDOM.unmountComponentAtNode(container);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(<FileListTab/>, container);
+    });
+    switchView(container, '修订草稿');
+    const text = container.textContent;
+    // 冻结行不渲染编辑/草稿预览下载入口，改提供待核对快照动作
+    expect(findButton(container, '继续编辑')).toBeUndefined();
+    expect(findButton(container, '预览草稿')).toBeUndefined();
+    expect(findButton(container, '预览待核对快照')).not.toBeUndefined();
+    expect(findButton(container, '下载待核对快照')).not.toBeUndefined();
+    expect(text).toContain('已冻结');
+    act(() => {
+      findButton(container, '预览待核对快照')
+        .dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    expect(store.fetchSubmissionPreviewUrl).toHaveBeenCalledWith(11);
+    // 快照预览不得调用草稿预览端点
+    expect(http.get).not.toHaveBeenCalledWith(
+      '/api/institution/manuals/7/files/11/draft/preview-url/');
+    const title = document.querySelector('.ant-modal-title');
+    expect(title.textContent).toBe(
+      '预览待核对快照：甲快照.docx（提交人 张三，提交时间 2026-01-05 09:00:00）');
+  });
+
+  it('重新提交确认后经 store.submitCompile 提交，成功后刷新清单与菜单红点', async () => {
+    store.manual = {...store.manual, is_owner: false, my_roles: ['view', 'edit']};
+    store.files = [
+      {...FILES[1], revision_open: true, active_session: null,
+        submission: {state: 'stale', submitted_at: '2026-01-04T09:00:00',
+          submitted_by_name: '李四', submission_revision: 1, draft_revision: 3}},
+    ];
+    ReactDOM.unmountComponentAtNode(container);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(<FileListTab/>, container);
+    });
+    switchView(container, '修订草稿');
+    const resubmitBtn = findButton(container, '重新提交');
+    expect(resubmitBtn).not.toBeUndefined();
+    act(() => {
+      resubmitBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    await flush();
+    // 确认窗标题=重新提交，提示记录当前草稿修订号；不发请求
+    const confirm = document.querySelector('.ant-modal-confirm');
+    expect(confirm).not.toBeNull();
+    expect(confirm.textContent).toContain('重新提交：乙.docx');
+    expect(confirm.textContent).toContain('当前草稿修订号 r2');
+    expect(store.submitCompile).not.toHaveBeenCalled();
+    await act(async () => {
+      confirm.querySelector('.ant-btn-primary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(store.submitCompile).toHaveBeenCalledWith(12);
+    expect(require('antd').message.success).toHaveBeenCalled();
+    // 真实成功后刷新清单（服务端权威数据）与菜单红点，不做乐观更新
+    expect(store.fetchFiles).toHaveBeenCalledWith(7);
+    expect(institutionBadge.fetch).toHaveBeenCalled();
+  });
+
+  it('负责人编辑会话进行中：提交/重新提交按钮禁用并提示先保存并结束编辑', () => {
+    store.files = [
+      {...FILES[0], revision_open: true,
+        active_session: {is_mine: true, user_name: '我', expires_at: ''}},
+    ];
+    ReactDOM.unmountComponentAtNode(container);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(<FileListTab/>, container);
+    });
+    switchView(container, '修订草稿');
+    const submitBtn = findButton(container, '提交待发布核对');
+    expect(submitBtn).not.toBeUndefined();
+    expect(submitBtn.disabled).toBe(true);
   });
 });
 
@@ -514,19 +720,39 @@ describe('FileListTab（草稿视图：入口权限与状态异常）', () => {
     switchView(container, '修订草稿');
   }
 
-  it('负责人行（is_mine）渲染编辑入口与提交编制；非负责人行不渲染', () => {
-    // 默认夹具：甲/乙由我负责，提交编制可见
-    expect(findButton(container, '提交编制')).not.toBeUndefined();
-    // 非负责人：提交编制消失（且编辑入口被收窄，见下一用例）
+  it('有效负责人行（is_effective_owner）渲染提交待发布核对接入；非负责人行不渲染', () => {
+    // 默认夹具：甲/乙由我有效负责，提交待发布核对可见
+    expect(findButton(container, '提交待发布核对')).not.toBeUndefined();
+    // 非有效负责人：提交入口消失（且编辑入口被收窄，见下一用例）
     unassignAll();
-    expect(findButton(container, '提交编制')).toBeUndefined();
+    expect(findButton(container, '提交待发布核对')).toBeUndefined();
+    expect(findButton(container, '重新提交')).toBeUndefined();
+  });
+
+  it('手册所有者非文件有效负责人：不渲染提交入口（不得代提交，后端同口径）', () => {
+    store.files = FILES.map(f => ({
+      ...f, assignment: {...f.assignment, is_mine: false,
+        owner_name: f.assignment.owner_id ? '别人' : ''},
+    }));
+    ReactDOM.unmountComponentAtNode(container);
+    container = document.createElement('div');
+    document.body.appendChild(container);
+    act(() => {
+      ReactDOM.render(<FileListTab/>, container);
+    });
+    switchView(container, '修订草稿');
+    // store.manual.is_owner=true（所有者可编辑任意文件），但提交入口仍以
+    // 文件负责人身份为唯一依据
+    expect(findButton(container, '提交待发布核对')).toBeUndefined();
+    expect(findButton(container, '重新提交')).toBeUndefined();
+    expect(findButton(container, '继续编辑')).not.toBeUndefined();
   });
 
   it('非负责人的编制授权账号：无开始修订/继续编辑/草稿预览下载，显示「编辑限负责人」占位提示', () => {
     unassignAll();
     expect(findButton(container, '开始修订')).toBeUndefined();
     expect(findButton(container, '继续编辑')).toBeUndefined();
-    expect(findButton(container, '预览草稿 r5')).toBeUndefined();
+    expect(findButton(container, '预览草稿')).toBeUndefined();
     expect(container.textContent).toContain('编辑限负责人');
     expect(container.textContent).toContain('编辑仅限文件负责人');
   });
@@ -546,7 +772,7 @@ describe('FileListTab（草稿视图：入口权限与状态异常）', () => {
     // 仅 view 授权（无 can_view 授权位时不可见发布版，开关已退役）→ 只有草稿视图
     const text = container.textContent;
     expect(text).toContain('甲.docx');
-    expect(findButton(container, '预览草稿 r5')).toBeUndefined();
+    expect(findButton(container, '预览草稿')).toBeUndefined();
     expect(findButton(container, '继续编辑')).toBeUndefined();
     expect(findButton(container, '开始修订')).toBeUndefined();
     // 负责人只读（无分工入口链接）
@@ -555,22 +781,22 @@ describe('FileListTab（草稿视图：入口权限与状态异常）', () => {
     expect(ownerLinks.length).toBe(0);
   });
 
-  it('变更记录设置预选并回调父级（草稿视图行）', () => {
-    const onOpenFileHistory = jest.fn();
+  it('文件历史按 file_id 直接打开弹窗（草稿视图行，不切顶层页签）', () => {
     ReactDOM.unmountComponentAtNode(container);
     container = document.createElement('div');
     document.body.appendChild(container);
     act(() => {
-      ReactDOM.render(<FileListTab onOpenFileHistory={onOpenFileHistory}/>, container);
+      ReactDOM.render(<FileListTab/>, container);
     });
     switchView(container, '修订草稿');
     const historyBtn = Array.from(container.querySelectorAll('button'))
-      .find(b => b.textContent.replace(/\s+/g, '') === '变更记录');
+      .find(b => b.textContent.replace(/\s+/g, '') === '文件历史');
     act(() => {
       historyBtn.dispatchEvent(new MouseEvent('click', {bubbles: true}));
     });
-    expect(store.fileChangeTarget).toBe(11);
-    expect(onOpenFileHistory).toHaveBeenCalled();
+    expect(FileHistoryModal.lastProps.visible).toBe(true);
+    expect(FileHistoryModal.lastProps.fileId).toBe(11);
+    expect(FileHistoryModal.lastProps.fileName).toBe('甲.docx');
   });
 
   it('草稿状态未加载：状态列显示占位，不出现"一致/无变化/已生效"语义', () => {
@@ -709,8 +935,9 @@ describe('FileListTab（仅查看口径）', () => {
     expect(text).toContain('丙.docx');
     // 无视图切换（单一可见视图）、无草稿域内容与编辑入口
     expect(container.querySelector('.ant-segmented')).toBeNull();
-    expect(text).not.toContain('编制提交');
-    expect(text).not.toContain('草稿修订');
+    expect(columnHeaderTexts(container)).not.toContain('编制状态');
+    expect(columnHeaderTexts(container)).not.toContain('编制提交');
+    expect(columnHeaderTexts(container)).not.toContain('草稿修订');
     expect(findButton(container, '继续编辑')).toBeUndefined();
     expect(findButton(container, '开始修订')).toBeUndefined();
     // 仍有明确版本来源的快照预览
@@ -733,5 +960,235 @@ describe('FileListTab（仅查看口径）', () => {
     const ownerLinks = Array.from(container.querySelectorAll('a'))
       .filter(a => a.textContent.includes('未分配'));
     expect(ownerLinks.length).toBe(0);
+  });
+});
+
+/** 表体行：按文件名包含匹配（行操作按钮定位用） */
+function rowOf(root, name) {
+  return Array.from(root.querySelectorAll('.ant-table-row'))
+    .find(el => el.textContent.includes(name));
+}
+
+/** 行内按钮：按归一化后的文本精确匹配（antd 两字中文按钮可能插空格） */
+function rowAction(root, name, text) {
+  const row = rowOf(root, name);
+  if (!row) return undefined;
+  const needle = text.replace(/\s+/g, '');
+  return Array.from(row.querySelectorAll('button'))
+    .find(b => b.textContent.replace(/\s+/g, '') === needle);
+}
+
+/** 选择文件并触发 change（隐藏 input 的有效性由用例单独断言） */
+async function pickFiles(input, files) {
+  await act(async () => {
+    Object.defineProperty(input, 'files', {value: files, configurable: true});
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  });
+}
+
+describe('FileListTab（新增制度文件批量上传）', () => {
+  it('选择文件先弹分工弹窗（默认负责人=手册所有者），确认后才逐份 files/create 并携带 owner_id/note', async () => {
+    const {message} = require('antd');
+    message.warning.mockClear();
+    message.success.mockClear();
+    store.manual = Object.assign({}, store.manual, {owner_id: 9});
+    http.get.mockResolvedValue([{id: 9, name: '我'}, {id: 10, name: '同事'}]);
+    container = renderTab();
+    // 默认生效视图：新增入口位于「修订草稿」视图顶部
+    expect(findButton(container, '新增待发布文件')).toBeUndefined();
+    switchView(container, '修订草稿');
+    const uploadBtn = findButton(container, '新增待发布文件');
+    expect(uploadBtn).not.toBeUndefined();
+    // 隐藏 input 由 ref 程序触发：全页仅一个，且不嵌套在按钮/标签内
+    const inputs = container.querySelectorAll('input[type="file"]');
+    expect(inputs.length).toBe(1);
+    expect(inputs[0].hasAttribute('multiple')).toBe(true);
+    expect([inputs[0].closest('button'), inputs[0].closest('label')])
+      .toEqual([null, null]);
+    const clickSpy = jest.spyOn(inputs[0], 'click').mockImplementation(() => {});
+    uploadBtn.click();
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
+    // 选择 2 份文件：只暂存，不立即创建，先弹分工弹窗
+    await pickFiles(inputs[0], [
+      new File(['a'], 'A.docx', {type: 'application/octet-stream'}),
+      new File(['b'], 'B.docx', {type: 'application/octet-stream'}),
+    ]);
+    await flush();
+    expect(http.post).not.toHaveBeenCalled();
+    const modal = document.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    expect(modal.textContent).toContain('新增待发布文件分工（2 份）');
+    expect(modal.textContent).toContain('A.docx');
+    expect(modal.textContent).toContain('B.docx');
+    // 新增文件语义：逐份进入待发布清单（不是批量分工整体生效）
+    expect(modal.textContent).toContain('上传文件作为待发布文件的当前草稿');
+    // 负责人候选走制度模块专用接口 assignment-owners（不是账号管理列表）
+    const ownerUrls = http.get.mock.calls.map(c => c[0]);
+    expect(ownerUrls).toContain(
+      '/api/institution/manuals/7/assignment-owners/');
+    expect(ownerUrls).not.toContain('/api/account/user/');
+    // 确认后逐份创建：每个上传文件各建一个独立制度文件与当前草稿
+    http.post.mockResolvedValueOnce({id: 21, name: 'A.docx',
+      draft: {revision: 1, file_name: 'A.docx'}});
+    http.post.mockResolvedValueOnce({id: 22, name: 'B.docx',
+      draft: {revision: 1, file_name: 'B.docx'}});
+    await act(async () => {
+      modal.querySelector('.ant-btn-primary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(http.post).toHaveBeenCalledTimes(2);
+    const urls = http.post.mock.calls.map(c => c[0]);
+    expect(urls).toEqual([
+      '/api/institution/manuals/7/files/create/',
+      '/api/institution/manuals/7/files/create/',
+    ]);
+    const bodies = http.post.mock.calls.map(c => c[1]);
+    expect(bodies.every(b => b instanceof FormData)).toBe(true);
+    // 每份文件各自一条独立请求（各自独立条目+草稿，绝不追加到同一项）
+    expect(bodies[0].get('file')).toBeInstanceOf(File);
+    expect(bodies[1].get('file')).toBeInstanceOf(File);
+    expect(bodies[0].get('file').name).toBe('A.docx');
+    expect(bodies[1].get('file').name).toBe('B.docx');
+    // 负责人显式携带（默认手册所有者），不省略字段
+    expect(bodies[0].get('owner_id')).toBe('9');
+    expect(bodies[1].get('owner_id')).toBe('9');
+    // 未填写分工说明时不携带该字段
+    expect(bodies[0].get('note')).toBeNull();
+    // 不再有 draft_error 类警示：成功提示只等真实响应后给出
+    expect(message.warning).not.toHaveBeenCalled();
+    // 成功后刷新清单（fetchDetail → 详情/清单/草稿状态重新加载）
+    expect(store.fetchDetail).toHaveBeenCalledWith(7);
+    expect(message.success).toHaveBeenCalledWith(
+      expect.stringContaining('已新增 2 份待发布文件'));
+  });
+
+  it('单个文件创建失败：由拦截器提示一次，无 draft_error 警示，其余文件继续创建', async () => {
+    const {message} = require('antd');
+    message.warning.mockClear();
+    message.success.mockClear();
+    store.manual = Object.assign({}, store.manual, {owner_id: 9});
+    http.get.mockResolvedValue([{id: 9, name: '我'}]);
+    container = renderTab();
+    switchView(container, '修订草稿');
+    const inputs = container.querySelectorAll('input[type="file"]');
+    await pickFiles(inputs[0], [
+      new File(['a'], 'A.docx', {type: 'application/octet-stream'}),
+      new File(['b'], 'B.doc', {type: 'application/octet-stream'}),
+    ]);
+    await flush();
+    const modal = document.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    http.post.mockResolvedValueOnce({id: 21, name: 'A.docx',
+      draft: {revision: 1, file_name: 'A.docx'}});
+    http.post.mockRejectedValueOnce(
+      '文件「B.doc」.doc 转换为 .docx 失败，未创建制度文件，请改用 .docx 上传或联系管理员');
+    await act(async () => {
+      modal.querySelector('.ant-btn-primary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    // 失败的那份不中断其余文件：仍请求了 2 次（各自独立条目）
+    expect(http.post).toHaveBeenCalledTimes(2);
+    // 拦截器已提示单个失败：业务代码不重复弹错、也不弹 draft_error 警示
+    expect(message.error).not.toHaveBeenCalled();
+    expect(message.warning).not.toHaveBeenCalled();
+    // 仅真实成功的文件计入成功提示（失败那份不冒充成功）
+    expect(message.success).toHaveBeenCalledWith(
+      expect.stringContaining('已新增 1 份待发布文件'));
+  });
+
+  it('未预填负责人（手册所有者未知）时不选择：显式提交空串 owner_id=未分配', async () => {
+    store.manual = Object.assign({}, store.manual, {owner_id: null});
+    http.get.mockResolvedValue([]);
+    container = renderTab();
+    switchView(container, '修订草稿');
+    const inputs = container.querySelectorAll('input[type="file"]');
+    const file = new File(['a'], 'A.docx', {type: 'application/octet-stream'});
+    await pickFiles(inputs[0], [file]);
+    await flush();
+    const modal = document.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    http.post.mockResolvedValueOnce({id: 21, name: 'A.docx',
+      draft: {revision: 1, file_name: 'A.docx'}});
+    await act(async () => {
+      modal.querySelector('.ant-btn-primary').click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(http.post).toHaveBeenCalledTimes(1);
+    expect(http.post.mock.calls[0][1].get('owner_id')).toBe('');
+  });
+
+  it('分工弹窗取消：不创建任何文件', async () => {
+    http.get.mockResolvedValue([]);
+    container = renderTab();
+    switchView(container, '修订草稿');
+    const inputs = container.querySelectorAll('input[type="file"]');
+    await pickFiles(inputs[0],
+      [new File(['a'], 'A.docx', {type: 'application/octet-stream'})]);
+    await flush();
+    const modal = document.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    // 取消按钮=footer 内非主按钮（antd 默认文案随 locale 变化，不按文本断言）
+    const cancelBtn = modal.querySelector(
+      '.ant-modal-footer .ant-btn:not(.ant-btn-primary)');
+    expect(cancelBtn).not.toBeNull();
+    await act(async () => {
+      cancelBtn.click();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
+    await flush();
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('0 文件（默认修订草稿视图）：新增制度文件入口仍可见，串联提示上传直接生成草稿', () => {
+    store.files = [];
+    store.manual = Object.assign({}, store.manual, {current_version: null});
+    container = renderTab();
+    // 首次发布前默认视图=修订草稿
+    expect(findButton(container, '新增待发布文件')).not.toBeUndefined();
+    expect(container.textContent).toContain('该制度还没有待发布文件');
+    expect(container.textContent).toContain('上传文件作为待发布文件的当前草稿');
+  });
+
+  it('新增入口文案：按钮不再并列描述条目与草稿，说明以待发布清单口径开头', () => {
+    store.manual = Object.assign({}, store.manual, {owner_id: 9});
+    container = renderTab();
+    switchView(container, '修订草稿');
+    const uploadBtn = findButton(container, '新增待发布文件');
+    expect(uploadBtn).not.toBeUndefined();
+    // 按钮文案=名称+格式与多选提示，不再包含「条目+草稿」并列描述
+    expect(uploadBtn.textContent.replace(/\s+/g, ''))
+      .toBe('新增待发布文件（.doc/.docx，可多选）');
+    const text = container.textContent.replace(/\s+/g, '');
+    expect(text).toContain(
+      '本视图是待发布的工作内容（尚未生效）：每份上传文件单独加入待发布清单，'
+      + '上传内容直接作为该文件草稿');
+    // 冻结文件（已提交待发布核对）不再打开当前草稿，改打开固定快照
+    expect(text).toContain('未冻结文件的预览与下载打开当前草稿');
+    expect(text).toContain('改为预览/下载待核对固定快照');
+    // 整套发布/移除文件/负责人/编制状态/文件历史说明保留
+    expect(text).toContain('整套发布后才会成为新的生效版本');
+    expect(text).toContain('移除文件只让该文件退出待发布清单');
+    expect(text).toContain('负责人是当前责任归属');
+    expect(text).toContain('「编制状态」是提交待发布核对的固定快照状态');
+    expect(text).toContain('「文件历史」查阅');
+    expect(text).toContain('新增文件请使用上方按钮，并先指定负责人');
+    // 后台术语不再出现在用户可见说明中
+    expect(text).not.toContain('每个文件各建一个独立制度文件');
+    expect(text).not.toContain('独立制度文件与当前草稿');
+  });
+
+  it('非手册所有者/制度管理员：不渲染新增入口，只给只读说明', () => {
+    store.manual = Object.assign({}, store.manual, {is_owner: false,
+      is_admin: false});
+    container = renderTab();
+    switchView(container, '修订草稿');
+    expect(findButton(container, '新增待发布文件')).toBeUndefined();
+    expect(container.querySelectorAll('input[type="file"]').length).toBe(0);
+    expect(container.textContent).toContain('仅限手册所有者或制度管理员');
   });
 });

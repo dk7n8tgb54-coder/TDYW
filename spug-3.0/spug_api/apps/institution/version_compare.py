@@ -25,10 +25,10 @@ import os
 
 from django.utils import timezone
 
-from . import services, storage
+from . import authorization_services, services, storage
 from .models import (
-    ManualDraft, ManualEditSession, ManualFile, ManualVersion,
-    ManualVersionFile,
+    Manual, ManualDraft, ManualEditSession, ManualFile, ManualSubmission,
+    ManualVersion, ManualVersionFile,
 )
 
 CHANGE_ADDED = 'added'
@@ -233,49 +233,374 @@ def _classify_draft_vs_current(draft, snapshot):
     return CHANGE_MODIFIED
 
 
-def _plan_row_base(file_entry, draft):
-    """发布计划行公共字段：文件结构 + 文件分工（负责人与提交编制状态）
-
-    负责人与提交状态是发布者核对的交接信息（服务端计算，state=
-    none/submitted/stale），只作展示——提交与否、是否负责人都不改变
-    can_publish 与 publish_whole_set 的任何校验（第一阶段不新增阻断）。
-    removed 分组由生效版快照行构造、无文件条目，不带本组字段。
-    """
+def _owner_display(file_entry):
+    """负责人显示名：落库快照优先（账号删除后仍可读），回退账号昵称/账号名"""
     owner_name = file_entry.owner_name
     if not owner_name and file_entry.owner:
         owner_name = (getattr(file_entry.owner, 'nickname', '') or
                       file_entry.owner.username or '')
+    return owner_name
+
+
+def _effective_owner_fields(file_entry):
+    """有效负责人增量字段（显式负责人优先，回退手册所有者）"""
+    owner = services.effective_owner(file_entry)
     return {
-        'file_id': file_entry.id, 'name': file_entry.display_name,
-        'sort_order': file_entry.sort_order,
-        'owner_name': owner_name,
-        'submission': services.file_submission_state(file_entry, draft),
+        'effective_owner_id': owner.pk if owner else None,
+        'effective_owner_name': services._account_display(owner),
+        'owner_assigned': bool(file_entry.owner_id or file_entry.owner_name),
     }
 
 
-def _publish_plan_row(file_entry, current_snaps, user):
-    """单份文件的预检行：受阻增量或 分组行（changed/unchanged/added）
+def _plan_row_base(file_entry, draft, user, can_publish=False):
+    """发布计划行公共字段：文件结构 + 文件分工（有效负责人与提交状态）
+
+    交接信息全部由服务端计算：owner_id/owner_name（显式分工原值）+
+    effective_owner_id/effective_owner_name（owner 为空时回退手册所有者）/
+    submission（状态机 payload，含快照提交人/时间）/
+    publisher_is_owner（按有效负责人判定，而不是“有发布权就是负责人”）/
+    submission_required（本次新增或内容变化且发布人非有效负责人时）/
+    content_changed/publish_source（draft/submission/current_version）。
+    removed 分组由生效版快照行构造、无文件条目，不带本组字段；草稿缺失
+    等原因受阻的行也带本组字段（content_changed 在无法确认时为 False）。
+    """
+    effective_owner = services.effective_owner(file_entry)
+    effective_owner_id = effective_owner.pk if effective_owner else None
+    publisher_is_owner = bool(
+        effective_owner_id and getattr(user, 'pk', None) and
+        effective_owner_id == user.id)
+    return {
+        'file_id': file_entry.id, 'name': file_entry.display_name,
+        'sort_order': file_entry.sort_order,
+        'owner_id': file_entry.owner_id,
+        'owner_name': _owner_display(file_entry),
+        **_effective_owner_fields(file_entry),
+        'publisher_is_owner': publisher_is_owner,
+        'submission': services.file_submission_state(
+            file_entry, draft, user, can_publish=can_publish),
+        'submission_required': False,
+        'content_changed': False,
+        'publish_source': None,
+    }
+
+
+def _publish_plan_rows(manual, user, can_publish=False):
+    """发布计划逐文件行（预检内部实现；交接判定由 publish_handoff_blockers
+    统一完成，本函数只负责内容关系、来源选择与既有受阻原因）
+
+    每项：{'file_entry', 'draft', 'row', 'change', 'blocked'}。blocked=True
+    表示命中既有受阻原因（no_draft/session_busy/draft_missing，沿用原文案、
+    优先于交接阻断）；否则 row 已带内容分组字段、change_type 与
+    publish_source（未变化=current_version / 本人=草稿 / 他人=提交快照；
+    交接未完成时为 None）。
+    """
+    current = manual.current_version
+    current_snaps = ({s.manual_file_id: s for s in current.files.all()}
+                     if current else {})
+    active_files = list(manual.files.filter(
+        is_removed=False).select_related(
+        'owner', 'submitted_by', 'manual__owner').order_by(
+        'sort_order', 'id'))
+    rows = []
+    for file_entry in active_files:
+        draft = ManualDraft.objects.filter(file=file_entry).first()
+        row = _plan_row_base(file_entry, draft, user, can_publish)
+        reason = _publish_blocked_reason(file_entry, draft, user)
+        if reason:
+            row.update(reason)
+            row['change_type'] = None
+            rows.append({'file_entry': file_entry, 'draft': draft, 'row': row,
+                         'change': None, 'blocked': True})
+            continue
+        snapshot = current_snaps.get(file_entry.id)
+        change = _classify_draft_vs_current(draft, snapshot)
+        if change == CHANGE_UNCHANGED:
+            publish_source = 'current_version'
+        elif row['publisher_is_owner']:
+            publish_source = 'draft'
+        elif row['submission']['state'] == 'submitted':
+            publish_source = 'submission'
+        else:
+            publish_source = None
+        row.update({
+            'draft_revision': draft.revision,
+            'draft_size': draft.file_size,
+            'draft_hash': draft.file_hash,
+            'current_hash': snapshot.file_hash if snapshot else None,
+            'change_type': change,
+            'content_changed': change != CHANGE_UNCHANGED,
+            'submission_required': (not row['publisher_is_owner'] and
+                                    change != CHANGE_UNCHANGED),
+            'publish_source': publish_source,
+        })
+        if snapshot is not None and snapshot.display_name != file_entry.display_name:
+            row['renamed'] = True
+            row['current_name'] = snapshot.display_name
+        rows.append({'file_entry': file_entry, 'draft': draft, 'row': row,
+                     'change': change, 'blocked': False})
+    return rows
+
+
+def classify_publish_plan(manual, plan):
+    """发布计划逐份内容分类（唯一实现，预检与整套发布共用）
+
+    plan 元素为 (ManualFile, ManualDraft[, src_abs])——预检传二元组、
+    publish_whole_set 传 _validate_publishable 的三元组，只取前两项。
+    复用 _classify_draft_vs_current：当前生效版无该文件快照=added，
+    哈希相同=unchanged，哈希不同=modified；无生效版本时全部 added
+    （首次发布语义）。
 
     Returns:
-        tuple: (reason_dict 或 None, row_dict, 分组键 change_type)。
-        reason 非 None 时该文件进入 blocked 分组，row 为公共字段
-        （文件结构+分工），调用方与 reason 合并。
+        list[tuple]: [(file_entry, draft, change_type)]
     """
-    draft = ManualDraft.objects.filter(file=file_entry).first()
-    base = _plan_row_base(file_entry, draft)
-    reason = _publish_blocked_reason(file_entry, draft, user)
-    if reason:
-        return reason, base, None
+    current = manual.current_version
+    current_snaps = ({s.manual_file_id: s for s in current.files.all()}
+                     if current else {})
+    classified = []
+    for item in plan:
+        file_entry, draft = item[0], item[1]
+        snapshot = current_snaps.get(file_entry.id)
+        classified.append(
+            (file_entry, draft,
+             _classify_draft_vs_current(draft, snapshot)))
+    return classified
+
+
+def _manifest_base(file_entry, draft, change, effective_owner_id, submission_id=None):
+    """manifest 行公共字段（逐文件来源选择的最小固定信息）"""
+    return {
+        'file': file_entry, 'draft': draft,
+        'owner_id': file_entry.owner_id,
+        'effective_owner_id': effective_owner_id,
+        'change': change,
+        'source_snapshot_id': None,
+        'submission_id': submission_id,
+        'fixed_draft_revision': None,
+        'fixed_draft_hash': None,
+    }
+
+
+def _manifest_current_version_entry(file_entry, current_snaps, base):
+    """未变化文件：复制当前生效快照（纯改名/排序不改内容，来源不变）"""
     snapshot = current_snaps.get(file_entry.id)
-    row = {**base, 'draft_revision': draft.revision,
-           'draft_size': draft.file_size, 'draft_hash': draft.file_hash,
-           'current_hash': snapshot.file_hash if snapshot else None}
-    change = _classify_draft_vs_current(draft, snapshot)
-    row['change_type'] = change
-    if snapshot is not None and snapshot.display_name != file_entry.display_name:
-        row['renamed'] = True
-        row['current_name'] = snapshot.display_name
-    return None, row, change
+    if snapshot is None:
+        return None, '发布计划在计算过程中发生变化，请重试'
+    try:
+        src_abs = storage.resolve_absolute_path(snapshot.file_path)
+    except ValueError:
+        return None, f'当前生效版本文件「{snapshot.display_name}」路径非法，无法发布'
+    if not os.path.exists(src_abs):
+        return None, (f'当前生效版本文件「{snapshot.display_name}」不存在'
+                      '或已被清理，无法发布；请先恢复后再试')
+    return {**base,
+            'source_kind': 'current_version',
+            'src_abs': src_abs,
+            'source_hash': snapshot.file_hash,
+            'source_size': snapshot.file_size,
+            'source_snapshot_id': snapshot.id}, None
+
+
+def _manifest_draft_entry(src_abs, draft, base):
+    """发布人=有效负责人：直接纳入当前草稿，固定修订号+哈希"""
+    return {**base,
+            'source_kind': 'draft',
+            'src_abs': src_abs,
+            'source_hash': draft.file_hash,
+            'source_size': draft.file_size,
+            'fixed_draft_revision': draft.revision,
+            'fixed_draft_hash': draft.file_hash}, None
+
+
+def _manifest_submission_entry(file_entry, draft, base):
+    """发布人≠有效负责人：只读该负责人有效 pending 快照"""
+    submission = services.get_valid_pending_submission(file_entry, draft)
+    if not submission:
+        return None, (f'文件「{file_entry.display_name}」没有有效的提交待发布核对，'
+                      '请负责人重新提交后再发布')
+    if submission.file_hash and draft.file_hash and \
+            submission.file_hash != draft.file_hash:
+        return None, (f'文件「{file_entry.display_name}」提交快照与当前草稿不一致，'
+                      '请负责人重新提交后再发布')
+    try:
+        src_abs = storage.resolve_absolute_path(submission.file_path)
+    except ValueError:
+        return None, f'提交快照「{submission.original_name}」路径非法，无法发布'
+    if not os.path.exists(src_abs):
+        return None, (f'提交快照「{submission.original_name}」不存在或已被清理，'
+                      '请负责人重新提交后再发布')
+    return {**base,
+            'source_kind': 'submission',
+            'src_abs': src_abs,
+            'source_hash': submission.file_hash,
+            'source_size': submission.file_size,
+            'submission_id': submission.id}, None
+
+
+def build_publish_manifest(manual, user, plan):
+    """整套发布内容来源清单（发布时唯一选择实现，2026-11-03）
+
+    未变化→当前生效快照；变化且发布人=有效负责人→当前草稿；变化且发布人
+    ≠有效负责人→有效 pending 提交快照。只选择来源并校验物理存在，不写库；
+    落库前由 _commit_publish 用同一函数重算并逐项比对固化签名，防止复制
+    期间漂移（任一漂移/失效均清理已复制文件，不消费提交）。
+
+    Returns:
+        tuple: (entries 或 None, 错误消息或 None)
+    """
+    classified = classify_publish_plan(manual, plan)
+    current = manual.current_version
+    current_snaps = ({s.manual_file_id: s for s in current.files.all()}
+                     if current else {})
+    entries = []
+    for item, (file_entry, draft, change) in zip(plan, classified):
+        effective_owner = services.effective_owner(file_entry)
+        effective_owner_id = effective_owner.pk if effective_owner else None
+        publisher_is_owner = bool(
+            effective_owner_id and getattr(user, 'pk', None) and
+            effective_owner_id == user.id)
+        base = _manifest_base(file_entry, draft, change, effective_owner_id)
+        if change == CHANGE_UNCHANGED:
+            entry, err = _manifest_current_version_entry(
+                file_entry, current_snaps, base)
+        elif publisher_is_owner:
+            entry, err = _manifest_draft_entry(item[2], draft, base)
+        else:
+            entry, err = _manifest_submission_entry(file_entry, draft, base)
+        if err:
+            return None, err
+        entries.append(entry)
+    return entries, None
+
+
+def publish_handoff_blockers(manual, user, classified):
+    """整套发布的"提交待发布核对"阻断（唯一判定，预检/发布/落库复核共用）
+
+    仅本次新增或内容有变化的文件需要交接：
+    - 未变化文件（草稿哈希 == 当前生效快照哈希，含纯改名/排序）不要求
+      重复提交；已移除文件不在待发布集合，天然不评估；
+    - 有效负责人为空（显式负责人与手册所有者都空）-> unassigned；
+    - 发布人就是该文件有效负责人 -> 无需提交（本账号可直接纳入整套发布）；
+    - 否则必须有当前有效提交（pending 且 draft_revision == 当前草稿
+      revision）：从未提交 -> submission_pending；提交已失效 ->
+      submission_stale；撤回/退回后旧快照不可用，同样按未完成交接阻断，
+      文案明确状态与原因。
+    草稿缺失/物理文件缺失/编辑会话占用由 _publish_blocked_reason 与
+    _validate_publishable 优先拦截（既有 reason 与消息保留），本函数不
+    重复判断；manual 参数保留供调用方统一签名（判定只依赖文件与用户）。
+
+    Returns:
+        list[dict]：file_id/name/reason/message/owner_id/owner_name/
+        effective_owner_id/effective_owner_name/submission/
+        publisher_is_owner/submission_required/content_changed。
+    """
+    blockers = []
+    for file_entry, draft, change in classified:
+        if change == CHANGE_UNCHANGED:
+            continue
+        effective_owner = services.effective_owner(file_entry)
+        effective_owner_id = effective_owner.pk if effective_owner else None
+        owner_name = services._account_display(effective_owner)
+        publisher_is_owner = bool(
+            effective_owner_id and getattr(user, 'pk', None) and
+            effective_owner_id == user.id)
+        submission = services.file_submission_state(
+            file_entry, draft, user, can_publish=True)
+        base = {
+            'file_id': file_entry.id, 'name': file_entry.display_name,
+            'owner_id': file_entry.owner_id,
+            'owner_name': _owner_display(file_entry),
+            **_effective_owner_fields(file_entry),
+            'submission': submission,
+            'publisher_is_owner': publisher_is_owner,
+            'submission_required': not publisher_is_owner,
+            'content_changed': True,
+        }
+        if effective_owner_id is None:
+            blockers.append({**base, 'reason': 'unassigned',
+                             'message': (
+                                 f'文件「{file_entry.display_name}」未分配有效负责人，'
+                                 '本次新增或内容变化须先指定负责人')})
+            continue
+        if publisher_is_owner:
+            continue
+        if submission['state'] == 'submitted':
+            continue
+        status = submission.get('status')
+        reason_text = f'负责人「{owner_name}」'
+        if submission['state'] == 'stale':
+            reason = 'submission_stale'
+            message = (f'文件「{file_entry.display_name}」提交待发布核对已失效，'
+                       f'请{reason_text}重新提交')
+        elif status == 'withdrawn':
+            reason = 'submission_pending'
+            message = (f'文件「{file_entry.display_name}」的提交已被{reason_text}'
+                       '撤回，请重新提交待发布核对')
+        elif status == 'returned':
+            reason = 'submission_pending'
+            reason_detail = submission.get('return_reason') or ''
+            tail = f'（退回原因：{reason_detail}）' if reason_detail else ''
+            message = (f'文件「{file_entry.display_name}」已被发布人退回修改{tail}，'
+                       f'请{reason_text}修改后重新提交待发布核对')
+        else:
+            reason = 'submission_pending'
+            message = (f'文件「{file_entry.display_name}」等待{reason_text}'
+                       '提交待发布核对')
+        blockers.append({**base, 'reason': reason, 'message': message})
+    return blockers
+
+
+def count_handoff_badge(manual_ids, user_id):
+    """菜单红点：待当前用户发布的"已提交待发布核对"文件数（唯一统计口径）
+
+    manual_ids 由调用方按红点可见口径给出（当前用户为所有者或持
+    can_publish 授权的启用手册）。统计其中满足全部条件的文件：
+    - 未移除；
+    - 有效负责人非空且非当前用户（本人是有效负责人的文件本人发布无需交接；
+      owner 为空时按手册所有者）；
+    - 草稿有效（草稿存在且 file_path 非空）；
+    - 存在有效 pending 提交（修订号与当前草稿一致）；
+    - 该文件相对当前生效版本为新增或内容变化（无 current_version 视为
+      新增；哈希相同=未变化不计，已随发布被消费的提交自然不计）。
+    轻量提示计数：不做物理文件 stat，允许数据库哈希比对；权威核对仍在
+    publish-preview/publish。
+    """
+    manual_ids = list(manual_ids)
+    if not manual_ids:
+        return 0
+    files = list(ManualFile.objects.filter(
+        manual_id__in=manual_ids, is_removed=False,
+        submissions__status=ManualSubmission.STATUS_PENDING,
+        draft__file_path__gt='',
+    ).select_related('draft', 'owner', 'manual__owner').distinct())
+    pending_rows = {
+        row.file_id: row for row in ManualSubmission.objects.filter(
+            file_id__in=[f.id for f in files],
+            status=ManualSubmission.STATUS_PENDING,
+        ).order_by('file_id', 'id')
+    }
+    current_versions = dict(Manual.objects.filter(
+        id__in=manual_ids).values_list('id', 'current_version_id'))
+    version_ids = {vid for vid in current_versions.values() if vid}
+    snaps = {s.manual_file_id: s for s in ManualVersionFile.objects.filter(
+        version_id__in=version_ids)}
+    count = 0
+    for file_entry in files:
+        submission = pending_rows.get(file_entry.id)
+        if not submission or submission.draft_revision != file_entry.draft.revision:
+            continue
+        effective_id = services.effective_owner_id(file_entry)
+        if effective_id is None or effective_id == user_id:
+            continue
+        version_id = current_versions.get(file_entry.manual_id)
+        snapshot = snaps.get(file_entry.id) if version_id else None
+        if version_id is None or snapshot is None:
+            # 无生效版本（含废止后）或本版快照不含该文件 = 新增
+            count += 1
+            continue
+        change = _classify_draft_vs_current(file_entry.draft, snapshot)
+        if change != CHANGE_UNCHANGED:
+            count += 1
+    return count
 
 
 def has_pending_publish_changes(manual, plan):
@@ -330,56 +655,97 @@ def _removed_plan_rows(current, current_snaps, active_ids):
     return removed
 
 
+def _bucket_plan_rows(row_entries, blockers):
+    """把逐文件行按内容分组 / 受阻归类，并统计 blocked reason 计数
+
+    返回 (changed, unchanged, added, blocked, blocker_summary,
+    renamed_count, blocked_changed)。既有受阻行（no_draft/session_busy/
+    draft_missing）沿用原文案；交接受阻行合并交接字段后进 blocked；其余
+    按 change_type 分桶，改名计数只统计未受阻的受影响行。
+    blocked_changed 标记"受阻但确属新增/内容变化"的行（交接受阻行本身
+    携带 content_changed=True；既有原因行保守为 False），供 has_changes
+    汇总——受阻不等于"无变化"，前端不得同时展示"无需重复发布"与受阻
+    提示。
+    """
+    changed, unchanged, added, blocked = [], [], [], []
+    buckets = {CHANGE_ADDED: added, CHANGE_UNCHANGED: unchanged,
+               CHANGE_MODIFIED: changed}
+    blocker_summary = {}
+    renamed_count = 0
+    blocked_changed = False
+    for entry in row_entries:
+        row = entry['row']
+        if entry['blocked']:
+            blocked.append(row)
+            reason = row.get('reason')
+        else:
+            blocker = blockers.get(entry['file_entry'].id)
+            if blocker:
+                blocked.append({**row, **blocker})
+                reason = blocker['reason']
+                blocked_changed = blocked_changed or bool(
+                    row.get('content_changed'))
+            else:
+                reason = None
+                if row.get('renamed'):
+                    renamed_count += 1
+                buckets[entry['change']].append(row)
+        if reason:
+            blocker_summary[reason] = blocker_summary.get(reason, 0) + 1
+    return (changed, unchanged, added, blocked, blocker_summary,
+            renamed_count, blocked_changed)
+
+
 def build_publish_plan(manual, user):
     """发布前预检：按草稿与当前生效版快照比对，输出分组发布计划
 
     分组（全部服务端计算）：
     - changed   本次内容变化（草稿哈希 != 当前生效版同文件快照哈希）
-    - unchanged 未修改但会继续纳入新版本（哈希相同）
+    - unchanged 未修改但会继续纳入新版本（哈希相同，含纯改名/排序）
     - added     新增文件（当前生效版无该文件条目快照）
     - removed   被移除的文件（当前生效版存在、已退出待发布集合）
-    - blocked   无草稿 / 草稿文件缺失 / 编辑会话占用（含同步未完成），
-                存在任一项时服务端将拒绝发布
+    - blocked   优先：无草稿 / 草稿文件缺失 / 编辑会话占用（含同步未完
+                成），沿用既有 reason 与 message；其次：编制交接未完成
+                （unassigned / submission_pending / submission_stale，
+                同一判定见 publish_handoff_blockers）。存在任一项时服务端
+                将拒绝发布。
 
-    除 removed 外各分行携带 owner_name 与 submission（文件分工交接
-    信息，仅供发布者核对，不参与 can_publish 判定），有生效版快照的
-    行携带 renamed/current_name（改名未发布）。
+    交接字段（除 removed 外所有分行都带）：owner_id / owner_name /
+    submission / publisher_is_owner / submission_required / content_changed
+    （blocked 中既有原因行保守给 content_changed=False，交接受阻行为 True）。
+    有生效版快照的未受阻行携带 renamed/current_name（改名未发布）。
 
     汇总字段：reordered（共有文件相对次序变化）/ first_publish（当前
     无生效版本）/ has_changes（内容或结构变化：changed/added/removed/
-    renamed/reordered 任一非空）/ can_publish（无受阻且有实际变化——
-    首次发布除外；无变化时发布端 publish_whole_set 同样拒绝，两处
-    口径一致，未修改文件不构成发布理由）。
+    renamed/reordered 任一非空，或存在"受阻但确属新增/内容变化"的行——
+    后者避免新增长期未分配文件时出现 has_changes=False 与 blocked 提示
+    自相矛盾）/ can_publish（无受阻且有实际变化——首次发布除外；无变化
+    时发布端 publish_whole_set 同样拒绝，两处口径一致，未修改文件不构成
+    发布理由）/ blocker_summary（blocked 按 reason 计数，便于前端提示）。
     """
     current = manual.current_version
     current_snaps = ({s.manual_file_id: s for s in current.files.all()}
                      if current else {})
-    active_files = list(manual.files.filter(
-        is_removed=False).select_related('owner', 'submitted_by').order_by(
-        'sort_order', 'id'))
-    ordered_ids = [f.id for f in active_files]
+    row_entries = _publish_plan_rows(
+        manual, user, authorization_services.can_publish(user, manual))
+    ordered_ids = [e['file_entry'].id for e in row_entries]
     active_ids = set(ordered_ids)
-    changed, unchanged, added, blocked = [], [], [], []
-    buckets = {CHANGE_ADDED: added, CHANGE_UNCHANGED: unchanged,
-               CHANGE_MODIFIED: changed}
-    renamed_count = 0
-    for file_entry in active_files:
-        reason, row, change = _publish_plan_row(
-            file_entry, current_snaps, user)
-        if reason:
-            blocked.append({**row, **reason})
-            continue
-        if row.get('renamed'):
-            renamed_count += 1
-        buckets[change].append(row)
+    classified = [(e['file_entry'], e['draft'], e['change'])
+                  for e in row_entries if not e['blocked']]
+    blockers = {b['file_id']: b for b in publish_handoff_blockers(
+        manual, user, classified)}
+    (changed, unchanged, added, blocked, blocker_summary,
+     renamed_count, blocked_changed) = _bucket_plan_rows(row_entries, blockers)
     removed = _removed_plan_rows(current, current_snaps, active_ids)
     reordered = (_draft_reordered(ordered_ids, active_ids, current_snaps)
                  if current else False)
-    has_changes = bool(changed or added or removed or renamed_count or reordered)
+    has_changes = bool(changed or added or removed or renamed_count or
+                       reordered or blocked_changed)
     return {
         'current_version_no': current.version_no if current else None,
         'changed': changed, 'unchanged': unchanged, 'added': added,
         'removed': removed, 'blocked': blocked,
+        'blocker_summary': blocker_summary,
         'reordered': reordered, 'renamed': renamed_count,
         'first_publish': current is None,
         'has_changes': has_changes,

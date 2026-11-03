@@ -378,23 +378,26 @@ ONLYOFFICE_ALLOWED_URL_HOSTS = [
     h.strip().lower() for h in _ONLYOFFICE_URL_HOSTS.split(',') if h.strip()]
 ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS = int(
     os.environ.get('ONLYOFFICE_EDITOR_TOKEN_TTL_SECONDS', '3600'))
+# ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL: 回调文件下载直连基址（2026-11-01）。
+#   DS 按浏览器访问形态生成回调缓存 url（HTTPS 自签部署下后端容器内回流
+#   下载必撞证书校验），后端统一改写为本栈 DS 容器 http 直连；缺省
+#   http://tdyw-onlyoffice（生产容器名），dev 栈经 compose 注入
+#   http://tdyw-onlyoffice-test，见 editor_services._callback_direct_url
+ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL = os.environ.get(
+    'ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL', '')
 
-# 制度文件生命周期保留策略（2026-10-29）。全部配置化，未配置期限（默认 0）
-# 时保留策略执行入口整体拒绝物理删除；不启用任何自动定时清理，清理只能
-# 经 institution 的 cleanup 预检/执行端点显式触发。
+# 制度文件生命周期保留策略（2026-10-29；2026-11-02 移除原稿维度）。全部
+# 配置化，未配置期限（默认 0）时保留策略执行入口整体拒绝物理删除；
+# 不启用任何自动定时清理，清理只能经 institution 的 cleanup 预检/执行
+# 端点显式触发。
 # INSTITUTION_VERSION_RETENTION_DAYS: 历史发布版本文件保留天数（按发布时间），
 #   主开关——<=0 表示未配置，cleanup 预检/执行均不产生任何物理删除；
 # INSTITUTION_VERSION_RECENT_KEEP_COUNT: 近期历史版本保护数量（版本号最近
-#   N 个版本受保护，不受期限影响）；0 表示不按数量保护；
-# INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS: 原稿清理缓冲期——制度文件首次
-#   进入成功发布版本后再过 N 天，其原稿本体才可成为清理候选（元数据永久
-#   保留）；0 表示不设缓冲。
+#   N 个版本受保护，不受期限影响）；0 表示不按数量保护。
 INSTITUTION_VERSION_RETENTION_DAYS = int(
     os.environ.get('INSTITUTION_VERSION_RETENTION_DAYS', '0') or 0)
 INSTITUTION_VERSION_RECENT_KEEP_COUNT = int(
     os.environ.get('INSTITUTION_VERSION_RECENT_KEEP_COUNT', '0') or 0)
-INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS = int(
-    os.environ.get('INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS', '0') or 0)
 
 # Excel 台账 PDF 生成引擎（2026-10-21）：libreoffice（缺省，既有路径）/
 # chromium（浏览器打印引擎：网页与 PDF 共用统一打印布局）/ auto（chromium

@@ -39,7 +39,7 @@ from django.utils import timezone
 
 from apps.account.models import User
 
-from . import storage
+from . import services, storage
 from .authorization_services import can_edit_file
 from .models import ManualDraft, ManualEditSession
 from .onlyoffice_jwt import sign_payload, verify_token
@@ -289,13 +289,14 @@ def _callback_direct_url(url, parsed):
     改写目标仅为受信内网 DS 容器，md5/expires/shardkey 等防篡改参数
     原样保留。非同源代理形态（path 无前缀）不改写、按原 url 下载。
     """
+    path = parsed.path
+    prefix = '/onlyoffice'
+    if path != prefix and not path.startswith(prefix + '/'):
+        return url
     base = (getattr(settings, 'ONLYOFFICE_DIRECT_DOWNLOAD_BASE_URL', '')
             or 'http://tdyw-onlyoffice')
     parsed_base = urlparse(base)
-    path = parsed.path
-    prefix = '/onlyoffice'
-    if path == prefix or path.startswith(prefix + '/'):
-        path = path[len(prefix):] or '/'
+    path = path[len(prefix):] or '/'
     return urlunparse(('http', parsed_base.netloc, path, parsed.params,
                        parsed.query, ''))
 
@@ -520,6 +521,15 @@ def process_editor_callback(manual, file_entry, payload, body):
     user, session, err = _resolve_callback_writer(manual, file_entry, payload)
     if err:
         return err
+
+    # 冻结门（2026-11-03）：该文件已提交待发布核对时，任何回调内容都不得
+    # 写入草稿或覆盖快照（含"保存并结束编辑"后的迟到收尾回调）。在下载
+    # 回调文件前拒绝，避免无谓外呼与临时文件；save_file_draft 行锁内还有
+    # 二次冻结复核，双保险。
+    if services.file_is_frozen(file_entry):
+        logger.warning('[InstitutionEditor] callback rejected, submission '
+                       'pending manual=%s file=%s', manual.id, file_entry.id)
+        return JsonResponse({'error': 1}, status=409)
 
     file_path, fetch_err = _extract_callback_file(body)
     if fetch_err:

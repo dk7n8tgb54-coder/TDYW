@@ -1,13 +1,10 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""制度文件生命周期保留策略（2026-10-29）
+"""制度文件生命周期保留策略（2026-10-29；2026-11-02 仅保留版本维度）
 
-职责：原稿与发布版本的保留/清理候选评估、只读预检与可控幂等执行。
+职责：发布版本快照的保留/清理候选评估、只读预检与可控幂等执行。
 核心不变量（与《制度管理模块设计方案》保留策略一致）：
 
-- 原稿保护边界 = 「该文件首次进入成功发布的版本」；在此之前原稿本体
-  永久保留。首次发布并经过配置缓冲期后，原稿本体才可成为清理候选；
-  记录行与来源元数据（名称/上传人/时间/哈希/路径/清理时间）永久保留。
 - 当前生效版本（manual.current_version）及整套文件永久受保护；
   is_effective=False 仅表示不是当前生效版，绝不据此判断可删除。
   重要版本可设长期保留标记；历史版本按配置期限/数量保留，只有超过
@@ -16,7 +13,7 @@
 - 版本按整套判定与清理；部分快照删除失败时整版标为 partial（不可完整
   使用）、记录失败并允许重试，绝不伪装成功、绝不显示为可完整回退。
   版本号、发布人/时间、变更说明与快照行（含哈希）永久保留。
-- 删除物理文件前必须核对路径没有被其他记录（原稿/草稿/其他版本镜像列/
+- 删除物理文件前必须核对路径没有被其他记录（草稿/其他版本镜像列/
   其他快照）共享引用，防止重复删除或误删；ManualVersion 的旧单文件
   兼容镜像列与首快照指向同一路径，清理该版本自身快照时排除本版本镜像。
 - 未配置保留期限（INSTITUTION_VERSION_RETENTION_DAYS<=0，默认）时预检
@@ -31,9 +28,8 @@ from django.conf import settings
 from django.utils import timezone
 
 from . import storage
-from .models import (Manual, ManualDraft, ManualOriginal, ManualVersion,
-                     ManualVersionFile)
-from .services import get_active_session_for_file, log_operation
+from .models import Manual, ManualDraft, ManualVersion, ManualVersionFile
+from .services import log_operation
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +38,6 @@ ACTION_RETENTION_CLEANUP = 'retention_cleanup'
 ACTION_VERSION_PROTECT = 'version_protect'
 
 BLOCK_RETENTION_DISABLED = 'retention_disabled'
-BLOCK_NEVER_PUBLISHED = 'never_published'
-BLOCK_BUFFER_NOT_ELAPSED = 'buffer_not_elapsed'
-BLOCK_DRAFT_SOURCE = 'draft_source_reference'
-BLOCK_ACTIVE_SESSION = 'active_session'
 BLOCK_CURRENT_EFFECTIVE = 'current_effective'
 BLOCK_LONG_TERM_PROTECTED = 'long_term_protected'
 BLOCK_RECENT_WINDOW = 'recent_window'
@@ -59,28 +51,22 @@ def get_retention_config():
         'version_retention_days': retention_days,
         'version_recent_keep_count': int(
             getattr(settings, 'INSTITUTION_VERSION_RECENT_KEEP_COUNT', 0) or 0),
-        'original_clean_buffer_days': int(
-            getattr(settings, 'INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS', 0) or 0),
         'cleanup_enabled': retention_days > 0,
     }
 
 
-def count_other_path_references(rel_path, exclude_original_id=None,
-                                exclude_draft_id=None, exclude_version_id=None,
+def count_other_path_references(rel_path, exclude_draft_id=None,
+                                exclude_version_id=None,
                                 exclude_snapshot_id=None):
-    """统计同一路径在 原稿/草稿/版本镜像列/版本快照 中的其他引用条数
+    """统计同一路径在 草稿/版本镜像列/版本快照 中的其他引用条数
 
     删除物理文件前的共享引用核对：任何其他记录仍指向同一路径时拒绝
     删除（防重复删除/误删）。排除集合用于"本条记录自身的引用"。
     """
-    qs = ManualOriginal.objects.filter(file_path=rel_path)
-    if exclude_original_id:
-        qs = qs.exclude(pk=exclude_original_id)
-    count = qs.count()
     qs = ManualDraft.objects.filter(file_path=rel_path)
     if exclude_draft_id:
         qs = qs.exclude(pk=exclude_draft_id)
-    count += qs.count()
+    count = qs.count()
     qs = ManualVersion.objects.filter(file_path=rel_path)
     if exclude_version_id:
         qs = qs.exclude(pk=exclude_version_id)
@@ -91,82 +77,11 @@ def count_other_path_references(rel_path, exclude_original_id=None,
     return count + qs.count()
 
 
-def get_first_published_version(file_entry):
-    """该文件首次进入的成功发布版本（version_no 最小的包含快照）；从未发布返回 None"""
-    snap = ManualVersionFile.objects.filter(
-        manual_file_id=file_entry.id,
-        version__manual_id=file_entry.manual_id,
-    ).select_related('version').order_by('version__version_no').first()
-    return snap.version if snap else None
-
-
-def has_usable_original(file_entry):
-    """该文件是否仍有可用原稿（存在且未清理）"""
-    return file_entry.originals.filter(cleaned_at__isnull=True).exists()
-
-
 # ---------------------------------------------------------------------------
 # 候选评估（只读；预检与执行共用同一口径，执行前逐项重新评估）
 
 def _blocker(code, message):
     return {'code': code, 'message': message}
-
-
-def evaluate_original_candidate(original, now=None, config=None):
-    """评估单条原稿是否可清理（只读）
-
-    Returns:
-        dict: {'candidate', 'reason', 'blockers', 'already_cleaned',
-               'first_published_version_no', 'first_published_at'}
-    """
-    now = now or timezone.now()
-    config = config or get_retention_config()
-    first_version = get_first_published_version(original.file)
-    result = {
-        'candidate': False,
-        'reason': None,
-        'blockers': [],
-        'already_cleaned': original.cleaned_at is not None,
-        'first_published_version_no': first_version.version_no if first_version else None,
-        'first_published_at': first_version.published_at if first_version else None,
-    }
-    if original.cleaned_at is not None:
-        return result
-    if not config['cleanup_enabled']:
-        result['blockers'].append(_blocker(
-            BLOCK_RETENTION_DISABLED,
-            '未配置版本保留期限，保留策略不执行物理删除'))
-        return result
-    if first_version is None:
-        result['blockers'].append(_blocker(
-            BLOCK_NEVER_PUBLISHED,
-            '该文件尚未进入任何成功发布的版本，原稿本体受保护'))
-        return result
-    buffer_days = config['original_clean_buffer_days']
-    if buffer_days > 0:
-        deadline = first_version.published_at + datetime.timedelta(days=buffer_days)
-        if now < deadline:
-            result['blockers'].append(_blocker(
-                BLOCK_BUFFER_NOT_ELAPSED,
-                f'首次发布（v{first_version.version_no}）后需经过 '
-                f'{buffer_days} 天缓冲期'))
-            return result
-    if ManualDraft.objects.filter(
-            source_original=original).exclude(file_path='').exists():
-        result['blockers'].append(_blocker(
-            BLOCK_DRAFT_SOURCE,
-            '当前草稿仍以该原稿为来源记录，请先重新保存或恢复草稿'))
-        return result
-    if get_active_session_for_file(original.file):
-        result['blockers'].append(_blocker(
-            BLOCK_ACTIVE_SESSION, '该文件存在进行中的编辑会话'))
-        return result
-    result['candidate'] = True
-    result['reason'] = (
-        f'文件已于 v{first_version.version_no} 首次发布'
-        + (f'并超过 {buffer_days} 天缓冲期' if buffer_days else '')
-        + '，原稿本体可清理（来源元数据永久保留）')
-    return result
 
 
 def _recent_protected_version_nos(manual, keep_count):
@@ -288,30 +203,6 @@ def _preview_version_row(version, now, config, current_version_id,
     }, total_size, verdict['candidate']
 
 
-def _preview_original_row(original, now, config):
-    """单条原稿的预检行；候选或存在阻止条件时返回，否则 None"""
-    verdict = evaluate_original_candidate(original, now=now, config=config)
-    if not verdict['candidate'] and not verdict['blockers']:
-        return None
-    size = original.file_size if original.cleaned_at is None else 0
-    return {
-        'original_id': original.id,
-        'file_id': original.file_id,
-        'file_name': original.original_name,
-        'file_size': original.file_size,
-        'uploaded_at': original.uploaded_at,
-        'uploaded_by_name': original.uploaded_by.username
-        if original.uploaded_by else '',
-        'is_cleaned': original.cleaned_at is not None,
-        'path_exists': _path_exists(original.file_path),
-        'candidate': verdict['candidate'],
-        'reason': verdict['reason'],
-        'blockers': verdict['blockers'],
-        'first_published_version_no': verdict['first_published_version_no'],
-        'first_published_at': verdict['first_published_at'],
-    }, size, verdict['candidate']
-
-
 def build_cleanup_preview(manual_id=None):
     """保留策略清理预检（完全只读：不写数据库、不触碰磁盘）
 
@@ -328,7 +219,7 @@ def build_cleanup_preview(manual_id=None):
         'generated_at': now,
         'manuals': [],
         'totals': {'versions': 0, 'version_files': 0,
-                   'originals': 0, 'reclaimable_size': 0},
+                   'reclaimable_size': 0},
     }
     if not config['cleanup_enabled']:
         return result
@@ -342,7 +233,7 @@ def build_cleanup_preview(manual_id=None):
         manual_row = {
             'manual_id': manual.id, 'manual_name': manual.name,
             'status': manual.status,
-            'versions': [], 'originals': [],
+            'versions': [],
         }
         for version in manual.versions.order_by('version_no'):
             built = _preview_version_row(
@@ -355,18 +246,7 @@ def build_cleanup_preview(manual_id=None):
                 result['totals']['versions'] += 1
                 result['totals']['version_files'] += len(row['files'])
                 result['totals']['reclaimable_size'] += total_size
-        originals = ManualOriginal.objects.filter(
-            manual=manual).select_related('uploaded_by', 'file')
-        for original in originals:
-            built = _preview_original_row(original, now, config)
-            if not built:
-                continue
-            row, size, is_candidate = built
-            manual_row['originals'].append(row)
-            if is_candidate:
-                result['totals']['originals'] += 1
-                result['totals']['reclaimable_size'] += size
-        if manual_row['versions'] or manual_row['originals']:
+        if manual_row['versions']:
             result['manuals'].append(manual_row)
     return result
 
@@ -449,24 +329,6 @@ def _cleanup_version_files(version, now):
     }
 
 
-def _cleanup_original(original, now):
-    """清理单条候选原稿的物理文件；元数据行保留并标记 cleaned_at"""
-    try:
-        status, err = _try_delete_file(original.file_path, exclude={
-            'exclude_original_id': original.id,
-        })
-    except Exception as e:
-        status, err = 'failed', f'清理异常：{e}'
-    if status in ('deleted', 'missing'):
-        ManualOriginal.objects.filter(pk=original.id).update(cleaned_at=now)
-        return {'original_id': original.id, 'file_id': original.file_id,
-                'file_name': original.original_name,
-                'status': 'cleaned' if status == 'deleted' else 'cleaned_missing'}
-    return {'original_id': original.id, 'file_id': original.file_id,
-            'file_name': original.original_name,
-            'status': 'failed', 'error': err}
-
-
 def _execute_manual_versions(manual, now, config, current_version_id,
                              recent_protected):
     """评估并清理一本制度的候选版本；返回 (结果列表, 触达项列表)"""
@@ -485,41 +347,23 @@ def _execute_manual_versions(manual, now, config, current_version_id,
     return results, touched
 
 
-def _execute_manual_originals(manual, now, config):
-    """评估并清理一本制度的候选原稿；返回 (结果列表, 触达项列表)"""
-    results, touched = [], []
-    for original in ManualOriginal.objects.filter(
-            manual=manual).select_related('file'):
-        verdict = evaluate_original_candidate(original, now=now, config=config)
-        if not verdict['candidate']:
-            continue
-        item = _cleanup_original(original, now)
-        item['manual_id'] = manual.id
-        results.append(item)
-        touched.append({**item, 'kind': 'original'})
-    return results, touched
-
-
 def _log_manual_cleanup(manual, operator, touched):
-    """为发生实际清理动作的制度写操作记录（版本与原稿分开汇总）"""
+    """为发生实际清理动作的制度写操作记录（按版本逐项汇总）"""
     versions = [x for x in touched if x['kind'] == 'version']
-    originals = [x for x in touched if x['kind'] == 'original']
     log_operation(
         manual, operator, ACTION_RETENTION_CLEANUP,
         versions=[{k: v for k, v in x.items() if k != 'files'}
                   for x in versions],
-        originals=originals,
-        failures=sum(len(x.get('failures') or []) for x in versions)
-        + sum(1 for x in originals if x.get('status') == 'failed'))
+        failures=sum(len(x.get('failures') or []) for x in versions))
 
 
 def execute_cleanup(operator, manual_id=None):
     """执行保留策略清理（可控、幂等；逐项重新核对，失败可重试）
 
     - 配置门槛：未配置保留期限时直接拒绝（不产生任何删除）。
-    - 执行前对每个版本/原稿重新运行候选评估（不信任预检结果），评估
-      不通过或已清理的项跳过；候选评估含当前版本、长期保留、近期窗口、
-      期限、业务引用、草稿来源、活跃会话与保护边界。
+    - 执行前对每个版本重新运行候选评估（不信任预检结果），评估不通过
+      或已清理的项跳过；候选评估含当前版本、长期保留、近期窗口、期限、
+      业务引用、活跃会话与共享路径引用。
     - 物理删除前再次核对共享路径引用（含旧版本镜像列）；失败项保留
       候选状态与失败说明，不伪装成功。单条记录的落库自原子，删除与
       落库之间由候选评估+共享引用核对+下游存在性检查兜底，不把长阻塞
@@ -535,9 +379,9 @@ def execute_cleanup(operator, manual_id=None):
         manuals = manuals.filter(pk=manual_id)
     result = {
         'executed_at': now, 'config': config,
-        'versions': [], 'originals': [],
+        'versions': [],
         'summary': {'versions_cleaned': 0, 'versions_partial': 0,
-                    'originals_cleaned': 0, 'failures': 0},
+                    'failures': 0},
     }
     for manual in manuals:
         current_version_id = manual.current_version_id
@@ -546,20 +390,12 @@ def execute_cleanup(operator, manual_id=None):
         version_items, touched = _execute_manual_versions(
             manual, now, config, current_version_id, recent_protected)
         result['versions'].extend(version_items)
-        original_items, originals_touched = _execute_manual_originals(
-            manual, now, config)
-        result['originals'].extend(original_items)
-        if touched or originals_touched:
-            _log_manual_cleanup(manual, operator, touched + originals_touched)
+        if touched:
+            _log_manual_cleanup(manual, operator, touched)
     for item in result['versions']:
         if item['status'] == 'cleaned':
             result['summary']['versions_cleaned'] += 1
         elif item['status'] == 'partial':
             result['summary']['versions_partial'] += 1
             result['summary']['failures'] += len(item['failures'])
-    for item in result['originals']:
-        if item['status'].startswith('cleaned'):
-            result['summary']['originals_cleaned'] += 1
-        else:
-            result['summary']['failures'] += 1
     return result, None

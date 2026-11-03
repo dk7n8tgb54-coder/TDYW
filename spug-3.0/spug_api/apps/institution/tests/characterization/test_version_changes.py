@@ -34,7 +34,29 @@ class VersionChangesTestBase(MultiFileBase):
         self.file_b = self._add_file('乙.docx', DOCX + b'-b', owner=self.editor)
         self._set_password()
 
+    def _ensure_handoff(self, actor=None):
+        """发布前由各文件负责人经真实接口提交编制（发布交接夹具）
+
+        仅用于"预期发布成功"的用例：blocked 用例直接调用 publish/预览
+        以走真实阻断路径。提交失败不在此断言（可能是有会话/缺草稿等），
+        此时真实发布会自然失败并暴露问题。owner==actor 的文件无需提交。
+        """
+        actor = actor or self.publisher
+        resp = self.manager_client.get(
+            f'/institution/manuals/{self.manual.id}/files/')
+        self.assertFalse(has_error(resp), resp.content)
+        for row in get_data(resp):
+            owner_id = row['assignment']['owner_id']
+            if not owner_id or owner_id == actor.id:
+                continue
+            owner = ManualFile.objects.get(pk=row['id']).owner
+            post_json(
+                make_client(owner),
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{row["id"]}/submit/', {})
+
     def _publish(self, note='发布'):
+        self._ensure_handoff()
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})
@@ -207,7 +229,7 @@ class VersionChangeStatusTests(VersionChangesTestBase):
         self.assertTrue(has_error(resp))
 
     def test_removed_file_entry_keeps_original_and_can_reenter(self):
-        """移除文件的条目/原稿/ID 保留（供回退重新纳入），不物理删除"""
+        """移除文件的条目与 ID 保留（供回退重新纳入），不物理删除"""
         self._publish('v1')
         resp = post_json(self.manager_client,
                          f'/institution/manuals/{self.manual.id}/files/'
@@ -228,6 +250,8 @@ class PublishPreviewTests(VersionChangesTestBase):
         return get_data(resp)
 
     def test_preview_before_any_version_all_added(self):
+        # 首发交接：负责人（editor）先行提交编制，预览才可发布
+        self._ensure_handoff()
         plan = self._preview()
         self.assertIsNone(plan['current_version_no'])
         self.assertEqual(len(plan['added']), 2)
@@ -235,7 +259,14 @@ class PublishPreviewTests(VersionChangesTestBase):
         self.assertEqual(plan['unchanged'], [])
         self.assertEqual(plan['removed'], [])
         self.assertEqual(plan['blocked'], [])
+        self.assertEqual(plan['blocker_summary'], {})
         self.assertTrue(plan['can_publish'])
+        # 行内交接字段：发布人非负责人时该文件必须已提交
+        for row in plan['added']:
+            self.assertEqual(row['owner_id'], self.editor.id)
+            self.assertEqual(row['submission']['state'], 'submitted')
+            self.assertFalse(row['publisher_is_owner'])
+            self.assertTrue(row['submission_required'])
 
     def test_preview_groups_change_unchanged_added_removed(self):
         self._publish('v1')
@@ -245,6 +276,7 @@ class PublishPreviewTests(VersionChangesTestBase):
                          f'/institution/manuals/{self.manual.id}/files/'
                          f'{self.file_b["id"]}/remove/', {})
         self.assertFalse(has_error(resp), resp.content)
+        self._ensure_handoff()
         plan = self._preview()
         self.assertEqual(plan['current_version_no'], 1)
         self.assertEqual([r['name'] for r in plan['changed']], ['甲.docx'])
@@ -253,6 +285,7 @@ class PublishPreviewTests(VersionChangesTestBase):
         self.assertEqual([r['name'] for r in plan['removed']], ['乙.docx'])
         self.assertEqual(plan['removed'][0]['from_version_no'], 1)
         self.assertEqual(plan['unchanged'], [])
+        self.assertEqual(plan['blocked'], [])
         self.assertTrue(plan['can_publish'])
 
     def test_preview_unchanged_group_after_republish_same_content(self):

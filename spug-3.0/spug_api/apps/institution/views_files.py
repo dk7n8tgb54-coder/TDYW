@@ -1,10 +1,11 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""制度文件条目管理视图（多文件）：清单/新增/改名/排序/移除与文件原稿
+"""制度文件条目管理视图（多文件）：清单/新增/改名/排序/移除
 
-文件级接口的第一道越权防线：所有请求先经 _file_from_request 校验
-文件确属 URL 中的制度，再进入角色与业务校验。草稿/会话/编辑器契约
-见 views_draft.py。
+新增文件由上传文件直接建立当前草稿（见 services.create_manual_file），
+不再保存额外副本。文件级接口的第一道越权防线：所有请求先经
+_file_from_request 校验文件确属 URL 中的制度，再进入角色与业务校验。
+草稿/会话/编辑器契约见 views_draft.py。
 """
 import logging
 
@@ -16,9 +17,8 @@ from apps.logs.audit import record_audit_event
 from libs import Argument, JsonParser, json_response
 
 from . import authorization_services, revision_services, serializers, \
-    services, storage
-from .models import Manual, ManualAuthorization, ManualDraft, ManualFile, \
-    ManualOriginal
+    services
+from .models import Manual, ManualAuthorization, ManualDraft, ManualFile
 from .views import _check_owner_or_admin, _manual_from_request, manual_auth
 logger = logging.getLogger(__name__)
 
@@ -49,23 +49,51 @@ def _session_payload(file_entry, request):
 
 
 def _assignment_payload(file_entry, request):
-    """文件分工（负责人/分工说明/是否我负责）——文件清单所有可见者下发
+    """文件分工（负责人/分工说明/是否我负责/有效负责人）——所有可见者下发
 
-    owner_name 优先取落库快照（账号删除后仍可读），为空时回退关联账号
-    的昵称/账号名。负责人只是责任标记：is_mine 不授予任何操作权限，
-    各写接口仍由视图层独立校验角色与归属。
+    owner_id/owner_name/is_mine 保持显式分工原值；effective_owner_* 是
+    有效负责人（显式负责人优先，owner 为空时回退手册所有者），发布交接、
+    提交/撤回权限与界面展示均以有效负责人为准。owner_assigned=false
+    表示该文件未单独指定负责人（显示默认负责人）。
+    负责人只是责任标记：is_mine 不授予任何操作权限，各写接口仍由视图层
+    独立校验角色与归属。
     """
     owner_name = file_entry.owner_name
     if not owner_name and file_entry.owner:
         owner_name = (getattr(file_entry.owner, 'nickname', '') or
                       file_entry.owner.username or '')
+    effective_owner = services.effective_owner(file_entry)
+    effective_owner_id = effective_owner.pk if effective_owner else None
+    effective_owner_name = ''
+    if effective_owner_id:
+        if file_entry.owner_id == effective_owner_id:
+            effective_owner_name = owner_name
+        else:
+            effective_owner_name = services._account_display(effective_owner)
     return {
         'owner_id': file_entry.owner_id,
         'owner_name': owner_name,
         'note': file_entry.assign_note,
         'assigned_at': file_entry.assigned_at,
         'is_mine': file_entry.owner_id == request.user.id,
+        'effective_owner_id': effective_owner_id,
+        'effective_owner_name': effective_owner_name,
+        'is_effective_owner': bool(
+            effective_owner_id and effective_owner_id == request.user.id),
+        'owner_assigned': bool(file_entry.owner_id or file_entry.owner_name),
     }
+
+
+def _submission_state(file_entry, draft, request, manual, can_publish=None):
+    """文件提交待发布核对状态（统一带当前请求者与发布权口径）
+
+    有效提交、冻结、撤回/退回权限都在服务层计算；视图只传当前账号与
+    该手册的 can_publish 资格，不自行推断。
+    """
+    if can_publish is None:
+        can_publish = authorization_services.can_publish(request.user, manual)
+    return services.file_submission_state(
+        file_entry, draft, request.user, can_publish=can_publish)
 
 
 def _resolve_owner(owner_id):
@@ -105,7 +133,8 @@ class ManualFileListView(View):
     （负责人/分工说明）；草稿修订号、编辑占用与"提交编制"状态属草稿
     域信息，仅对工作区可见（管理员/所有者/编制或发布授权）者填充。
     草稿缺失的文件行附带 draft_recovery（恢复途径提示：当前生效版本
-    快照或初始原稿），供草稿工作台渲染对应恢复入口，不静默回退到原稿。
+    快照或提示重新上传制度文件），供草稿工作台渲染对应恢复提示，绝不
+    静默回退到任何上传副本。
     """
 
     @manual_auth('institution.manual.view')
@@ -116,6 +145,8 @@ class ManualFileListView(View):
         if not authorization_services.can_view_manual(request.user, manual):
             return json_response(error='手册不存在或无权限访问')
         with_status = _can_view_workspace(request.user, manual)
+        can_publish = (authorization_services.can_publish(request.user, manual)
+                       if with_status else False)
         items = []
         for file_entry in services.list_active_files(manual):
             recovery = None
@@ -129,17 +160,25 @@ class ManualFileListView(View):
             items.append(serializers.to_manual_file_dict(
                 file_entry, draft, session, draft_recovery=recovery,
                 assignment=_assignment_payload(file_entry, request),
-                submission=(services.file_submission_state(file_entry, draft)
-                            if with_status else None)))
+                submission=(_submission_state(
+                    file_entry, draft, request, manual, can_publish)
+                    if with_status else None)))
         return json_response(data=items)
 
 
 class ManualFileCreateView(View):
-    """新增制度文件：multipart 上传 -> 条目+原稿+草稿（追加到清单末尾）
+    """新增制度文件：multipart 上传 -> 条目+当前草稿（追加到清单末尾）
+
+    上传文件直接用于建立当前草稿（.docx 直落草稿存储；.doc 先转换），
+    每个上传文件各建一条独立条目与独立草稿，不再额外保存副本。转换/
+    写入/建库任一失败均由服务层补偿清理并返回明确业务错误，数据库
+    不留半成品条目、磁盘不留孤儿文件。
 
     可选 multipart 字段 owner_id / note：新增时即指定文件负责人与分工
-    说明（不传即"未分配"，之后可经 assignment 接口改派）。被指派账号
-    必须持有该手册 can_edit 编制授权。
+    说明。**不携带 owner_id 字段 = 默认手册所有者**（新增文件默认由
+    所有者负责，避免新文件无人提交编制而阻断发布）；显式携带空串 =
+    明确不分配（保持手工分工）。被指派账号必须持有该手册 can_edit
+    编制授权（所有者本人按对象范围自动具备资格）。
     """
 
     @manual_auth('institution.manual.upload')
@@ -155,30 +194,33 @@ class ManualFileCreateView(View):
             return json_response(error='请选择要上传的文件')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能新增文件')
-        owner, err = _resolve_assignee(manual, request.POST.get('owner_id'))
-        if err:
-            return json_response(error=err)
+        if 'owner_id' not in request.POST:
+            # 字段缺失 = 默认手册所有者（手册无所有者时仍为未分配）
+            owner = manual.owner
+        else:
+            # 字段存在（含空串）= 显式语义：空串=未分配
+            owner, err = _resolve_assignee(
+                manual, request.POST.get('owner_id'))
+            if err:
+                return json_response(error=err)
         note = (request.POST.get('note') or '').strip()
         if len(note) > 500:
             return json_response(error='分工说明不能超过 500 字')
-        file_entry, draft_err = services.create_manual_file(
+        file_entry, err = services.create_manual_file(
             manual, request.user, upload, owner=owner, note=note)
-        if file_entry is None:
-            return json_response(error=draft_err)
+        if err:
+            return json_response(error=err)
         record_audit_event(
             request, 'create', services.AUDIT_TARGET_TYPE,
             target_id=manual.id, target_name=manual.name,
             detail={'action_kind': services.ACTION_FILE_ADD,
                     'file_id': file_entry.id, 'module': 'institution'})
         draft = ManualDraft.objects.filter(file=file_entry).first()
-        data = serializers.to_manual_file_dict(
+        return json_response(data=serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft))
-        # 草稿建立失败（如 .doc 转换失败）不掩盖文件创建成功：
-        # 前端据 draft_error 提示，文件仍出现在清单中
-        data['draft_error'] = draft_err or ''
-        return json_response(data=data)
+            submission=_submission_state(
+                file_entry, draft, request, manual)))
 
 
 class AssignmentOwnerOptionsView(View):
@@ -193,11 +235,13 @@ class AssignmentOwnerOptionsView(View):
       （新增文件携带负责人）任一；
     - 业务口径与写接口相同：手册所有者或平台超管
       （_check_owner_or_admin，2026-10-31 起）；
-    - 候选=持有该手册 can_edit 编制授权的启用账号（2026-10-31 起）——
-      负责人独占编辑要求被指派账号具备编制资格，与
-      _resolve_assignee 的校验口径一致；本模块授权按账号授权行判定、
-      tenant_id 不参与归属，跨租户账号可作负责人是预期行为；
-    - 只返回 id + name（昵称，空则账号名），不回传其他账号字段。
+    - 候选=手册所有者（即使没有 can_edit 授权行，所有者按对象范围
+      自动具备编辑资格）+ 持有该手册 can_edit 编制授权的启用账号
+      （2026-11-01 起补入所有者）——负责人独占编辑要求被指派账号具备
+      编制资格，与 _resolve_assignee 的校验口径一致；本模块授权按账号
+      授权行判定、tenant_id 不参与归属，跨租户账号可作负责人是预期行为；
+    - 按账号 id 去重，只返回 id + name（昵称，空则账号名），不回传
+      其他账号字段。
     """
 
     @manual_auth('institution.manual.draft_edit|institution.manual.upload')
@@ -208,13 +252,23 @@ class AssignmentOwnerOptionsView(View):
         deny = _check_owner_or_admin(manual, request.user)
         if deny:
             return deny
+        candidates = {}
+        if manual.owner_id:
+            owner = manual.owner
+            candidates[owner.id] = {
+                'id': owner.id,
+                'name': owner.nickname or owner.username}
         rows = (ManualAuthorization.objects.filter(
             manual=manual, can_edit=True).select_related('account')
             .order_by('account_id'))
-        return json_response(data=[
-            {'id': row.account_id,
-             'name': row.account.nickname or row.account.username}
-            for row in rows if row.account.is_active])
+        for row in rows:
+            if not row.account.is_active:
+                continue
+            candidates.setdefault(row.account_id, {
+                'id': row.account_id,
+                'name': row.account.nickname or row.account.username})
+        return json_response(
+            data=[candidates[key] for key in sorted(candidates)])
 
 
 class ManualFileAssignmentView(View):
@@ -263,7 +317,8 @@ class ManualFileAssignmentView(View):
         return json_response(data=serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft)))
+            submission=_submission_state(
+                file_entry, draft, request, manual)))
 
 
 def _validate_batch_assignment(manual, form):
@@ -331,6 +386,7 @@ class ManualFileBatchAssignmentView(View):
         if err_resp:
             return err_resp
         updated_rows = []
+        can_publish = authorization_services.can_publish(request.user, manual)
         for file_entry in files:
             file_entry, err = services.assign_file_owner(
                 file_entry, owner, note, request.user, batch=True)
@@ -340,7 +396,8 @@ class ManualFileBatchAssignmentView(View):
             updated_rows.append(serializers.to_manual_file_dict(
                 file_entry, draft, _session_payload(file_entry, request),
                 assignment=_assignment_payload(file_entry, request),
-                submission=services.file_submission_state(file_entry, draft)))
+                submission=_submission_state(
+                    file_entry, draft, request, manual, can_publish)))
         record_audit_event(
             request, 'update', services.AUDIT_TARGET_TYPE,
             target_id=manual.id, target_name=manual.name,
@@ -365,7 +422,7 @@ class FileRevisionStartView(View):
     - 工作副本缺失/损坏/与生效基线不一致：返回 needs_repair（HTTP 200
       携带 reason/message/draft_recovery），调用方明确提示后携带
       confirm_repair=true 再次调用，从当前生效版本快照修复，绝不静默
-      改用初始来源或覆盖工作副本。
+      改用其它来源或覆盖工作副本。
     """
 
     @manual_auth('institution.manual.draft_edit')
@@ -403,18 +460,18 @@ class FileRevisionStartView(View):
 
 
 class ManualFileSubmitView(View):
-    """提交编制（负责人完成编制后的明确交接标记）
+    """提交待发布核对（有效负责人完成编制后的固定快照交接，2026-11-03）
 
-    后端记录提交时草稿修订号与时间；草稿再次保存/重建后提交状态按
-    修订号比对自动失效（计算式，见 services.file_submission_state）。
-    无有效草稿或仍有活跃编辑会话时拒绝。放行口径=文件负责人 或
-    手册所有者 或 平台超管（提交是状态交接而非编辑操作；2026-10-31
-    起负责人必持编制授权——分工写路径已校验，但提交本身不要求
-    draft_edit 页面权限）；不新增发布阻断条件。
+    后端复制当前草稿为独立不可变快照并冻结内容写路径；发布人预览/
+    下载/最终发布都读取同一快照（见 services.submit_file_compilation）。
+    无有效草稿或仍有活跃编辑会话时拒绝；**放行口径=仅有效负责人本人**
+    （显式负责人优先，owner 为空时回退手册所有者；未分配且手册无所有者
+    明确拒绝），手册所有者/平台超管不得代提交。页面权限门仍为 view
+    （负责人可能仅持查看权限），身份校验由服务层唯一判定；已有 pending
+    提交拒绝且状态不变。
     """
 
     @manual_auth('institution.manual.view')
-    @transaction.atomic
     def post(self, request, pk, fid):
         manual, resp = _manual_from_request(request, pk)
         if resp:
@@ -422,27 +479,24 @@ class ManualFileSubmitView(View):
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
-        is_assignee = file_entry.owner_id == request.user.id
-        if not (is_assignee or
-                authorization_services.is_manual_owner(request.user, manual) or
-                authorization_services.is_platform_admin(request.user)):
-            return json_response(error='手册不存在或无权限访问')
         file_entry, err = services.submit_file_compilation(
             file_entry, request.user)
         if err:
             return json_response(error=err)
+        submission = services.get_pending_submission(file_entry)
         record_audit_event(
             request, 'update', services.AUDIT_TARGET_TYPE,
             target_id=manual.id, target_name=manual.name,
             detail={'action_kind': services.ACTION_FILE_SUBMIT,
                     'file_id': file_entry.id,
-                    'submission_revision': file_entry.submission_revision,
+                    'submission_id': submission.id if submission else None,
                     'module': 'institution'})
         draft = ManualDraft.objects.filter(file=file_entry).first()
         return json_response(data=serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft)))
+            submission=_submission_state(
+                file_entry, draft, request, manual)))
 
 
 class ManualFileRenameView(View):
@@ -470,7 +524,8 @@ class ManualFileRenameView(View):
         return json_response(data=serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft)))
+            submission=_submission_state(
+                file_entry, draft, request, manual)))
 
 
 class ManualFileMoveView(View):
@@ -498,7 +553,8 @@ class ManualFileMoveView(View):
         return json_response(data=serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft)))
+            submission=_submission_state(
+                file_entry, draft, request, manual)))
 
 
 class ManualFileRemoveView(View):
@@ -522,135 +578,3 @@ class ManualFileRemoveView(View):
             detail={'action_kind': services.ACTION_FILE_REMOVE,
                     'file_id': file_entry.id, 'module': 'institution'})
         return json_response()
-
-
-class OriginalsOverviewView(View):
-    """初始来源聚合清单（"初始来源"页签数据源，2026-10-29 改版）
-
-    一次请求返回全部制度文件（含已移除条目）每份一行：文件名、最初
-    原稿（该文件最早一条上传记录）的上传人与时间、原稿记录数与完整
-    历史（含已按保留策略清理的记录——元数据保留、is_cleaned=True）、
-    该文件首次进入的发布版本（原稿保护边界展示用）。文件较多时避免
-    为每一行单独发请求；文件级归属校验沿用本模块统一口径（数据全部
-    以 manual 为范围查询，不接外部 ID）。草稿来源信息仅对有工作区
-    可见权的调用方附加（与 files/ 清单口径一致，后端仍独立校验）。
-    """
-
-    @manual_auth('institution.manual.view')
-    def get(self, request, pk):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        if not authorization_services.can_view_manual(request.user, manual):
-            return json_response(error='手册不存在或无权限访问')
-        rows = serializers.to_originals_overview(manual)
-        if _can_view_workspace(request.user, manual):
-            drafts = {d.file_id: d for d in
-                      ManualDraft.objects.filter(manual=manual)}
-            for row in rows:
-                draft = drafts.get(row['file_id'])
-                row['draft'] = {
-                    'has_draft': bool(draft and draft.file_path),
-                    'revision': draft.revision if draft else 0,
-                    'source_original_id': draft.source_original_id if draft else None,
-                }
-        else:
-            for row in rows:
-                row['draft'] = None
-        return json_response(data={'files': rows})
-
-
-class FileOriginalListView(View):
-    @manual_auth('institution.manual.view')
-    def get(self, request, pk, fid):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        file_entry, resp = _file_from_request(request, manual, fid)
-        if resp:
-            return resp
-        originals = file_entry.originals.select_related('uploaded_by').all()
-        return json_response(data=[
-            serializers.to_original_dict(x) for x in originals])
-
-
-class FileOriginalUploadView(View):
-    """为已有文件更换来源：上传新的原稿记录（受控操作，目标文件明确）
-
-    语义与"新增制度文件"（files/create，每个上传文件各建一份条目）
-    严格区分：本接口只向 URL 指定的目标文件追加一条原稿记录，作为
-    该文件后续"从原始上传文件重建草稿"的候选来源；绝不改动或覆盖
-    当前草稿（草稿替换只能经 draft/create 的显式重建，含确认与密码
-    防线），原稿记录本身也永不覆盖。
-    """
-
-    @manual_auth('institution.manual.upload')
-    def post(self, request, pk, fid):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        deny = _check_owner_or_admin(manual, request.user)
-        if deny:
-            return deny
-        file_entry, resp = _file_from_request(request, manual, fid)
-        if resp:
-            return resp
-        upload = request.FILES.get('file')
-        if not upload:
-            return json_response(error='请选择要上传的文件')
-        ext = storage.extract_extension(upload.name)
-        if ext not in storage.ALLOWED_EXTENSIONS:
-            return json_response(error='仅支持 .doc / .docx 文件')
-        if upload.size > storage.MAX_FILE_SIZE:
-            return json_response(error='文件大小超过限制（100MB）')
-        stored_name = storage.build_stored_name(upload.name)
-        rel_path = storage.build_relative_path(
-            storage.FILE_KIND_ORIGINAL, manual.id, stored_name)
-        abs_path = storage.resolve_absolute_path(rel_path)
-        file_hash = storage.save_upload_file(upload, abs_path)
-        try:
-            with transaction.atomic():
-                original = ManualOriginal.objects.create(
-                    manual=manual, file=file_entry, file_path=rel_path,
-                    original_name=storage.display_name(upload.name), ext=ext,
-                    file_size=upload.size, file_hash=file_hash,
-                    uploaded_by=request.user)
-                services.log_operation(
-                    manual, request.user, services.ACTION_UPLOAD_ORIGINAL,
-                    file=file_entry, file_id=file_entry.id,
-                    original_id=original.id, file_name=upload.name)
-                record_audit_event(
-                    request, 'create', services.AUDIT_TARGET_TYPE,
-                    target_id=manual.id, target_name=manual.name,
-                    detail={'action_kind': services.ACTION_UPLOAD_ORIGINAL,
-                            'file_id': file_entry.id, 'file_name': upload.name,
-                            'module': 'institution'})
-        except Exception:
-            storage.safe_delete_file(abs_path)
-            raise
-        return json_response(data=serializers.to_original_dict(original))
-
-
-class FileOriginalDownloadView(View):
-    @manual_auth('institution.manual.download')
-    def get(self, request, pk, fid, oid):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        file_entry, resp = _file_from_request(request, manual, fid)
-        if resp:
-            return resp
-        original = ManualOriginal.objects.filter(
-            pk=oid, manual=manual, file=file_entry).first()
-        if not original:
-            return json_response(error='原稿不存在或无权限访问')
-        if original.cleaned_at:
-            return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
-        services.log_operation(
-            manual, request.user, 'download', file=file_entry,
-            file_name=original.original_name, file_kind='original')
-        try:
-            abs_path = storage.resolve_absolute_path(original.file_path)
-        except ValueError:
-            return json_response(error='文件路径非法')
-        return _download_response(request, abs_path, original.original_name)

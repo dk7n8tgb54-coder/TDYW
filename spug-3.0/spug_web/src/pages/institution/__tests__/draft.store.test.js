@@ -22,7 +22,14 @@ jest.mock('libs', () => ({
   Permission: {isSuper: false, permissions: []},
 }));
 
+// 提交/撤回/退回真实成功后刷新菜单红点（事件驱动，禁轮询）
+jest.mock('../../../layout/InstitutionBadgeStore', () => ({
+  __esModule: true,
+  default: {fetch: jest.fn()},
+}));
+
 const {http} = require('libs');
+const institutionBadge = require('../../../layout/InstitutionBadgeStore').default;
 const store = require('../draft/store').default;
 
 function makeFile(id, overrides) {
@@ -33,7 +40,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: {
       id: 100 + id,
       revision: id,
@@ -41,7 +47,6 @@ function makeFile(id, overrides) {
       file_size: 1024,
       file_hash: `hash-${id}`,
       base_version_id: null,
-      source_original_id: null,
       last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00',
@@ -162,6 +167,10 @@ describe('draft store（密码门与按文件开启会话）', () => {
     await expect(store.verifyPassword('pw')).rejects.toContain('待发布文件');
     expect(http.post).not.toHaveBeenCalled();
     expect(store.verifyError).toContain('待发布文件');
+    // 0 文件空态唯一内容入口=详情页「文件清单 → 修订草稿」的「新增制度文件」
+    expect(store.verifyError).toContain('文件清单 → 修订草稿');
+    expect(store.verifyError).toContain('新增待发布文件');
+    expect(store.verifyError).not.toContain('初始来源');
   });
 
   it('startFileSession 用已验证密码开启指定文件会话', async () => {
@@ -309,21 +318,23 @@ describe('draft store（文件管理）', () => {
     sessionStorage.clear();
   });
 
-  it('createFile multipart 上传后刷新清单并透传 draft_error', async () => {
+  it('createFile multipart 上传后返回该文件数据并刷新清单（每份各建独立条目+草稿）', async () => {
     setupStore(5, [makeFile(7)]);
-    const created = {id: 9, name: '新文件', sort_order: 2, draft: null, active_session: null};
-    http.post.mockResolvedValue(Object.assign({draft_error: '文件已创建，但可编辑草稿建立失败：转换失败'}, created));
+    const created = {id: 9, name: '新文件', sort_order: 2,
+      draft: {revision: 1}, active_session: null};
+    http.post.mockResolvedValue(created);
     http.get.mockResolvedValue([makeFile(7), created]);
     const data = await store.createFile(new File(['x'], 'new.docx'));
     expect(http.post).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/create/', expect.any(FormData));
     const formData = http.post.mock.calls[0][1];
     expect(formData.get('file')).toBeInstanceOf(File);
-    // draft_error 非空=文件已创建但草稿未就绪，透传给调用方警示（不算失败）
-    expect(data.draft_error).toContain('草稿建立失败');
+    // 成功后返回该文件数据（不再有 draft_error 语义）
     expect(data.id).toBe(9);
-    // 清单已刷新为含新文件的列表
+    expect(data).not.toHaveProperty('draft_error');
+    // 清单已刷新为含新文件的列表（新条目自成一份，不与已有条目合并）
     expect(store.files).toHaveLength(2);
+    expect(store.files.map(f => f.id)).toEqual([7, 9]);
   });
 
   it('moveFile 发送 1 起目标序位并重取清单保证全局有序', async () => {
@@ -742,5 +753,59 @@ describe('draft store（?file= 深链定向验证）', () => {
     store.files = [makeFile(7)];
     await expect(store.verifyPassword('pw')).rejects.toBeTruthy();
     expect(http.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('draft store（提交待发布核对固定快照交接，2026-11-03）', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    store.reset();
+    sessionStorage.clear();
+    store.id = 5;
+    store.files = [makeFile(7), makeFile(8)];
+  });
+
+  it('withdrawSubmission：POST submit/withdraw/，成功后刷新清单与菜单红点', async () => {
+    http.post.mockResolvedValueOnce({id: 7,
+      submission: {status: 'withdrawn', frozen: false}});
+    http.get.mockResolvedValueOnce([makeFile(7), makeFile(8)]);
+    const data = await store.withdrawSubmission(7);
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/institution/manuals/5/files/7/submit/withdraw/', {});
+    // 真实成功后从服务端重取清单（冻结/快照状态以服务端为准）
+    expect(http.get).toHaveBeenCalledWith('/api/institution/manuals/5/files/');
+    expect(data.id).toBe(7);
+    expect(institutionBadge.fetch).toHaveBeenCalled();
+  });
+
+  it('returnSubmission：POST submit/return/ 携带 reason；失败向上抛且不刷新红点/清单', async () => {
+    http.post.mockRejectedValueOnce('退回原因不能超过 500 字');
+    await expect(store.returnSubmission(7, '缺少依据')).rejects
+      .toBe('退回原因不能超过 500 字');
+    // 拦截器已提示，store 不重复提示；绝不乐观刷新或清红点
+    expect(institutionBadge.fetch).not.toHaveBeenCalled();
+    expect(http.get).not.toHaveBeenCalled();
+  });
+
+  it('returnSubmission 成功：携带 reason 并刷新红点', async () => {
+    http.post.mockResolvedValueOnce({id: 7,
+      submission: {status: 'returned', return_reason: '缺少依据'}});
+    http.get.mockResolvedValueOnce([makeFile(7), makeFile(8)]);
+    await store.returnSubmission(7, '缺少依据');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/institution/manuals/5/files/7/submit/return/',
+      {reason: '缺少依据'});
+    expect(institutionBadge.fetch).toHaveBeenCalled();
+  });
+
+  it('fetchSubmissionPreviewUrl：GET submission/preview-url/ 透传快照元数据（不改清单）', async () => {
+    const payload = {preview_url: 'http://kk/snapshot',
+      file_name: '文件7_快照.docx', submitted_by_name: '张三',
+      submitted_at: '2026-03-05T09:00:00'};
+    http.get.mockResolvedValueOnce(payload);
+    await expect(store.fetchSubmissionPreviewUrl(7)).resolves.toEqual(payload);
+    expect(http.get).toHaveBeenCalledWith(
+      '/api/institution/manuals/5/files/7/submission/preview-url/');
+    expect(institutionBadge.fetch).not.toHaveBeenCalled();
   });
 });

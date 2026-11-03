@@ -16,9 +16,9 @@ import { AuthButton } from 'components';
  * 分支。props 与 antd Button 一致（auth 仅在非所有者分支生效）。
  *
  * 使用边界：仅用于"有手册上下文"的写路径与编辑配套按钮（开始编辑/
- * 上传保存/提交编制/文件管理/恢复草稿/回退/废止/长期保留等）；
- * view/download 类模块级读按钮维持 AuthButton（模块入口本身仍按
- * view 码门控，进入模块者已持 view）。
+ * 上传保存/提交待发布核对/撤回/退回/文件管理/恢复草稿/回退/废止/
+ * 长期保留等）；view/download 类模块级读按钮维持 AuthButton（模块入口
+ * 本身仍按 view 码门控，进入模块者已持 view）。
  */
 export default function ManualAuthButton({manual, auth, ...rest}) {
   if (manual && manual.is_owner) {

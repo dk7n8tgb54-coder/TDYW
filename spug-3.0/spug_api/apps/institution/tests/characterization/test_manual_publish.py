@@ -15,7 +15,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from apps.institution import storage
-from apps.institution.models import Manual, ManualDraft, ManualVersion
+from apps.institution.models import Manual, ManualDraft, ManualFile, \
+    ManualVersion
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW,
     delete_json, get_data, has_error, make_client, make_grant, make_user,
@@ -87,12 +88,35 @@ class PublishWorkflowBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
-    def _publish(self, client=None, note='初始版本'):
-        client = client or self.publisher_client
+    def _publish(self, client=None, note='初始版本', actor=None):
+        if client is None:
+            client = self.publisher_client
+            actor = actor or self.publisher
+        if actor is not None:
+            self._ensure_handoff(actor)
         resp = post_json(client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})
         return resp
+
+    def _ensure_handoff(self, actor):
+        """发布前由各文件负责人经真实接口提交编制（预期成功发布的夹具）
+
+        blocked/权限用例直接调用 publish 走真实阻断路径，不经此助手；
+        提交失败不断言（缺草稿/会话占用等情况由真实发布自己报错）。
+        """
+        resp = self.manager_client.get(
+            f'/institution/manuals/{self.manual.id}/files/')
+        self.assertFalse(has_error(resp), resp.content)
+        for row in get_data(resp):
+            owner_id = row['assignment']['owner_id']
+            if not owner_id or owner_id == actor.id:
+                continue
+            owner = ManualFile.objects.get(pk=row['id']).owner
+            post_json(
+                make_client(owner),
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{row["id"]}/submit/', {})
 
 
 class PublishTests(PublishWorkflowBase):
@@ -175,7 +199,8 @@ class PublishTests(PublishWorkflowBase):
     def test_owner_can_publish_without_publish_grant(self):
         """第二轮：所有者无需 can_publish 授权即可发布（manual_auth
         对象级豁免 + can_publish 所有者分支）"""
-        resp = self._publish(client=self.manager_client, note='所有者发布')
+        resp = self._publish(client=self.manager_client, note='所有者发布',
+                             actor=self.manager)
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(get_data(resp)['version_no'], 1)
         self.assertEqual(

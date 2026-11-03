@@ -19,6 +19,10 @@
  *   模型）：负责人须持有本手册编制资格（授权 can_edit），候选已按此
  *   过滤（assignment-owners 候选=持本手册编制授权的启用账号），后端
  *   在写路径独立校验；本弹窗只提交数据，不做权限判断的替代品。
+ * - 可选扩展 props（全部缺省时行为与旧版一致，向后兼容）：
+ *   `title` 覆盖弹窗标题（新增文件场景用）；`initialOwnerId` 在未回填现有
+ *   负责人时预填该账号（新增文件默认负责人=手册所有者）；`createMode`
+ *   把批量说明文案换成"逐份建立独立制度文件"的语义（新增文件专用）。
  */
 import React from 'react';
 import { Modal, Select, Input, Form, Alert, Button } from 'antd';
@@ -77,10 +81,12 @@ export default class FileAssignmentModal extends React.Component {
     const file = this.props.file || {};
     const files = this.props.files || null;
     const isBatch = Array.isArray(files);
+    const createMode = !!this.props.createMode;
+    const initialOwnerId = this.props.initialOwnerId;
     const assignment = file.assignment || {};
-    const title = isBatch
+    const title = this.props.title || (isBatch
       ? `批量文件分工（${files.length} 份文件）`
-      : `文件分工：${file.name || ''}`;
+      : `文件分工：${file.name || ''}`);
     return (
       <Modal visible confirmLoading={this.state.submitting}
         title={title}
@@ -88,7 +94,9 @@ export default class FileAssignmentModal extends React.Component {
         {isBatch && (
           <Alert style={{marginBottom: 12}} type="info" showIcon
             message={`本次操作将统一应用到已选的 ${files.length} 份文件：${files.map(f => f.name).join('、')}`}
-            description="批量操作整体生效：任一文件校验失败则整批不生效。负责人未变（仅修改说明）的文件保留其提交编制记录。"/>
+            description={createMode
+              ? '每份所选文件单独加入待发布清单，上传文件作为待发布文件的当前草稿（多份文件不会合并为一份）；单个文件创建失败不影响其余文件，已建文件仍会出现在清单中。'
+              : '批量操作整体生效：任一文件校验失败则整批不生效。负责人未变（仅修改说明）的文件保留其提交待发布核对记录。'}/>
         )}
         {this.state.ownersError && (
           <Alert style={{marginBottom: 12}} type="error" showIcon
@@ -100,13 +108,17 @@ export default class FileAssignmentModal extends React.Component {
         )}
         <Form ref={this.formRef} labelCol={{span: 5}} wrapperCol={{span: 17}}
           initialValues={{
-            owner_id: isBatch ? undefined : (assignment.owner_id || undefined),
+            owner_id: isBatch
+              ? (initialOwnerId != null ? initialOwnerId : undefined)
+              : (assignment.owner_id || initialOwnerId || undefined),
             note: isBatch ? '' : (assignment.note || ''),
           }}>
           <Form.Item name="owner_id" label="负责人"
             extra={isBatch
-              ? '统一设置所选文件的负责人；清空即全部未分配。负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'
-              : '负责人完成编制后可在文件清单提交编制；负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'}>
+              ? (createMode
+                ? '负责人默认手册所有者，可改选其他持本手册编制资格账号或清空（清空即未分配）。负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'
+                : '统一设置所选文件的负责人；清空即全部未分配。负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑')
+              : '负责人（有效负责人）可提交待发布核对；提交会为该文件创建固定不可变快照并冻结内容，发布人核对快照后整套发布使用该快照。负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑'}>
             <Select allowClear showSearch optionFilterProp="children"
               loading={this.state.fetchingOwners}
               placeholder={isBatch ? '选择负责人账号（清空即全部未分配）'

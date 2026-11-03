@@ -14,8 +14,12 @@
  * - 编辑器脚本/文档加载失败（OnlyOfficeEditor 上报 store.editorLoadFailed）
  *   时在编辑器上方呈现显式「切换到本机编辑」入口；即使上报不可靠，
  *   顶部 Segmented 也始终可用。
- * - 本机面板：步骤说明 + 基线修订号状态 + 下载草稿/上传保存入口；
- *   上传必须携带下载草稿时记录的基线修订号（store.localBaselines）。
+ * - 本机面板：步骤说明 + 基线修订号状态 + 下载草稿入口 + 两个本机上传
+ *   入口。日常「上传保存（需先下载草稿）」必须携带下载草稿时记录的基线
+ *   修订号（store.localBaselines），并在文案中明确告知系统不校验所选文件
+ *   是否基于已下载的草稿修改；次级危险操作「用本机文件替换当前草稿」不
+ *   要求先下载，点击先由工作台弹确认（目标制度文件名/当前草稿修订号 rN/
+ *   整份替换影响），确认后才打开文件选择，取消不上传。
  * - 放大/还原按钮带图标与 Tooltip，位于编辑器正上方；切换放大只改容器
  *   样式与 OnlyOfficeEditor 的 height prop（72vh ↔ 100%），不改 key、
  *   不重新拉编辑配置——编辑器实例不销毁重建。
@@ -34,7 +38,7 @@ const MODE_OPTIONS = [
 ];
 
 const EditorArea = observer(({file, hasSession, expanded, onToggleExpanded,
-  onSwitchMode, onDownloadDraft, onPickUploadFile}) => {
+  onSwitchMode, onDownloadDraft, onPickUploadFile, onPickReplaceFile}) => {
   const fileId = file.id;
   if (!hasSession) {
     return (
@@ -107,8 +111,13 @@ const EditorArea = observer(({file, hasSession, expanded, onToggleExpanded,
     );
   }
   // 本机编辑面板：用户主动切换或服务未配置/配置加载失败时的编辑方式。
-  // 下载/上传入口集中在此（含基线状态）；上传必须携带下载时记录的基线
-  // 修订号，服务端草稿已推进时后端拒绝覆盖并要求重新下载。
+  // 两个上传入口语义严格区分（2026-10-31 二轮拆分）：
+  // 1) 日常「上传保存（需先下载草稿）」：必须携带下载草稿时记录的基线
+  //    修订号（服务端草稿已推进时后端拒绝覆盖并要求重新下载）；系统只
+  //    校验服务端修订号未被推进，不校验所选文件内容是否基于下载草稿。
+  // 2) 次级危险操作「用本机文件替换当前草稿」：不要求先下载，点击先由
+  //    工作台弹确认（目标文件名/当前草稿修订号/整份替换影响），确认后
+  //    才打开文件选择，取消不上传。
   const baseline = store.localBaselines[fileId];
   const lead = onlineUsable ? '' : (
     store.editorErrors[fileId] ||
@@ -123,9 +132,15 @@ const EditorArea = observer(({file, hasSession, expanded, onToggleExpanded,
         </div>
         <div style={{marginTop: 4, color: '#666'}}>
           {baseline != null
-            ? `本机编辑基线：r${baseline}（上传保存以此校验服务端草稿未被推进；` +
-              '若已被推进将拒绝覆盖，需重新下载最新草稿）'
-            : '尚未下载草稿：请先下载草稿（记录基线修订号），本机编辑后上传保存'}
+            ? `本机编辑基线：r${baseline}（上传保存以此校验服务端草稿未被推进；`
+              + '若已被推进将拒绝覆盖，需重新下载最新草稿）。'
+            : '尚未下载草稿：请先下载草稿（记录基线修订号），本机编辑后上传保存。'}
+        </div>
+        <div style={{marginTop: 4, color: '#666'}}>
+          系统不会校验所选文件是否基于已下载的草稿修改，请只在同一份草稿的本机修改后上传。
+        </div>
+        <div style={{marginTop: 4, color: '#999'}}>
+          次级危险操作「用本机文件替换当前草稿」不要求先下载：会整份替换该文件当前草稿（不是增量修改），上传成功只更新草稿、不发布，历史发布版本不受影响；请确认所选本机文件就是该草稿的最新版本。
         </div>
       </div>
     } action={
@@ -137,13 +152,23 @@ const EditorArea = observer(({file, hasSession, expanded, onToggleExpanded,
           disabled={!file.draft} onClick={onDownloadDraft}>
           下载草稿
         </ManualAuthButton>
-        <Tooltip title="需要该文件的编辑会话才能保存">
+        <Tooltip title="日常本机编辑后的保存入口：需先下载草稿记录基线修订号">
           <span style={{display: 'inline-block'}}>
             <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
               type="primary"
               size="small" loading={store.saving} disabled={!file.draft}
               onClick={onPickUploadFile}>
-              上传保存（.docx）
+              上传保存（需先下载草稿）
+            </ManualAuthButton>
+          </span>
+        </Tooltip>
+        <Tooltip title="次级危险操作：会整份替换当前草稿（非增量修改），只更新草稿、不发布，历史发布版本不受影响">
+          <span style={{display: 'inline-block'}}>
+            <ManualAuthButton manual={store.manual} auth="institution.manual.draft_edit"
+              danger
+              size="small" loading={store.saving} disabled={!file.draft}
+              onClick={onPickReplaceFile}>
+              用本机文件替换当前草稿
             </ManualAuthButton>
           </span>
         </Tooltip>

@@ -37,9 +37,17 @@
  *   绝不改用上传前刷新得到的较新修订号），服务端草稿已推进时后端拒绝
  *   覆盖。服务未配置/配置加载失败/编辑器加载失败的文件恒为本机方式，
  *   本机入口不依赖任何失败上报的可靠性。
+ * - 本机保存两条路径（2026-10-31 二轮拆分）：日常「上传保存（需先下载
+ *   草稿）」= uploadLocalDraft，携带下载时记录的基线修订号（系统只校验
+ *   服务端草稿修订号未被推进，不校验所选文件内容是否基于下载草稿）；
+ *   「用本机文件替换当前草稿」= replaceLocalDraft，不要求先下载，以确认
+ *   弹窗打开时快照的修订号为基线整份替换草稿——同样绝不读取清单最新
+ *   修订号替代确认时修订号；两者成功都只更新草稿（不发布、不改历史
+ *   发布版本），失败绝不报成功。
  */
 import { observable, action, computed } from 'mobx';
 import { http } from 'libs';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 
 const SESSION_STORAGE_KEY_PREFIX = 'institution_edit_session_';
 
@@ -490,6 +498,55 @@ class DraftStore {
   }
 
   // ---------------------------------------------------------------------------
+  // 提交待发布核对·固定快照交接（2026-11-03）
+  //
+  // 提交（POST files/<fid>/submit/）由工作台直接发起：服务端在行锁内创建
+  // 独立不可变快照并冻结该文件内容（此后内容写路径与结构写路径均拒绝）。
+  // 撤回/退回/快照预览属于快照域动作，统一在本 store 收口：只有服务端真实
+  // 成功才刷新清单与该文件状态并刷新菜单红点（事件驱动，禁固定轮询）；
+  // 失败向上抛出（拦截器已提示一次），**绝不乐观更新**（冻结是否解除、快照
+  // 是否作废一律以服务端响应为准）。
+
+  /**
+   * 撤回提交待发布核对（仅文件有效负责人本人；后端行锁内校验）。
+   * 撤回后旧快照作废、内容解冻，可修改后重新提交（新行，旧行保留）。
+   */
+  @action.bound
+  withdrawSubmission(fileId) {
+    return http.post(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submit/withdraw/`, {})
+      .then(data => {
+        institutionBadge.fetch();
+        return this.refreshFiles().catch(() => {}).then(() => data);
+      });
+  }
+
+  /**
+   * 退回修改（持发布权且非该文件有效负责人；原因必填 ≤500，后端同口径）。
+   * 退回后旧快照作废、内容解冻，负责人修改后可重新提交待发布核对。
+   */
+  @action.bound
+  returnSubmission(fileId, reason) {
+    return http.post(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submit/return/`,
+      {reason})
+      .then(data => {
+        institutionBadge.fetch();
+        return this.refreshFiles().catch(() => {}).then(() => data);
+      });
+  }
+
+  /**
+   * 待核对快照预览地址（submission/preview-url/）：冻结文件的有效快照，
+   * 不是当前草稿。返回短时效链接与快照文件名/提交人/提交时间；失败向上抛。
+   */
+  @action.bound
+  fetchSubmissionPreviewUrl(fileId) {
+    return http.get(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submission/preview-url/`);
+  }
+
+  // ---------------------------------------------------------------------------
   // ONLYOFFICE 编辑配置（按文件）
 
   /**
@@ -566,7 +623,10 @@ class DraftStore {
     }
     if (!target) {
       this.verifying = false;
-      this.verifyError = '手册还没有待发布文件，请先在详情页上传原稿';
+      // 0 文件空态唯一内容入口=详情页「文件清单 → 修订草稿」的
+      // 「新增制度文件」（不再指向「初始来源」页签）
+      this.verifyError = '手册还没有待发布文件，请先在详情页「文件清单 → '
+        + '修订草稿」点击「新增待发布文件」';
       return Promise.reject(this.verifyError);
     }
     return http.post(
@@ -988,13 +1048,45 @@ class DraftStore {
       });
   }
 
+  /**
+   * 用本机文件整份替换当前草稿（本机面板次级危险操作，不要求先下载）：
+   * 以确认弹窗打开时快照的修订号（revision）为基线调用同一 multipart
+   * 保存接口——绝不读取清单内最新修订号替代它（确认后他处推进的修订号
+   * 不是本次替换的判据，后端按会话+修订号冲突校验）。上传成功只更新
+   * 草稿（不发布、不改历史发布版本）：清该文件已消费的基线（若有）并
+   * 刷新清单。
+   * 失败：错误向上抛（拦截器已提示），绝不报成功。
+   * - 修订号冲突（"草稿已被其他会话更新"）：**不清会话**（与会话无关，
+   *   与 uploadLocalDraft 一致），调用方负责刷新清单并引导重新确认；
+   * - 其余失败沿用既有分类（会话类清该文件会话、密码类回密码门）。
+   */
+  @action.bound
+  replaceLocalDraft(fileId, file, revision) {
+    if (revision == null) {
+      return Promise.reject('缺少替换前的草稿修订号，请刷新草稿后重新确认替换');
+    }
+    return this._saveDraftRequest(fileId, file, revision)
+      .then(data => {
+        delete this.localBaselines[fileId];
+        return this.refreshFiles().catch(() => {}).then(() => data);
+      })
+      .catch(err => {
+        const text = typeof err === 'string' ? err : '';
+        if (!text.includes('草稿已被其他会话更新')) {
+          this.handleSessionRelatedError(fileId, err);
+        }
+        throw err;
+      });
+  }
+
   // ---------------------------------------------------------------------------
-  // 草稿恢复（无草稿文件；恢复优先级由后端权威决定，前端不猜恢复来源）
+  // 草稿恢复（无草稿文件；恢复途径由后端权威决定，前端不猜恢复来源）
 
   /**
-   * 恢复无草稿文件的草稿：POST draft/create（空体）——后端按严格优先级
-   * 执行：已有草稿拒绝 > 从当前生效版本快照恢复 > 从最近原稿创建
-   * （仅制度从未发布过版本时）。不得静默调用最近原稿。
+   * 恢复无草稿文件的草稿：POST draft/create（空体）——后端按权威规则执行：
+   * 已有草稿拒绝 > 从当前生效版本快照恢复；没有可恢复的发布快照时返回
+   * 明确业务错误（提示重新上传制度文件建立草稿或先在「版本与发布」中
+   * 回退重建），绝不回退到任何历史上传副本（相关能力已整体删除）。
    */
   @action.bound
   recoverDraft(fileId) {
@@ -1005,40 +1097,19 @@ class DraftStore {
         .then(() => data));
   }
 
-  /** 拉取某文件的原稿清单（高级恢复：明确按指定原稿重建） */
-  @action.bound
-  fetchFileOriginals(fileId) {
-    return http.get(
-      `/api/institution/manuals/${this.id}/files/${fileId}/originals/`)
-      .then(data => data || []);
-  }
-
-  /**
-   * 高级恢复：明确「从原始上传文件重建草稿」（confirm=true）。
-   * 有草稿被丢弃且手册配置了编辑密码时，后端要求携带密码校验——
-   * 工作台在密码门之后，传本次访问已验证密码。
-   */
-  @action.bound
-  rebuildDraftFromOriginal(fileId, originalId, password) {
-    const body = {original_id: originalId, confirm: true};
-    if (password) body.password = password;
-    return http.post(
-      `/api/institution/manuals/${this.id}/files/${fileId}/draft/create/`, body)
-      .then(data => this.refreshFiles()
-        .catch(() => {})
-        .then(() => data));
-  }
-
   // ---------------------------------------------------------------------------
   // 文件管理（新增/改名/排序/移除）；成功后刷新文件清单
 
   /** 新增文件（multipart，可携带 owner_id/note 指定文件负责人）。
-   *  draft_error 非空=文件已创建但草稿未就绪（不算失败） */
+   *  每份上传文件各自建立独立制度文件与当前草稿（上传文件直接用于建草稿，
+   *  失败由 HTTP 拦截器提示）；成功返回 data 并刷新清单。
+   *  **owner_id 必须每次显式携带**：空值=未分配；后端“字段缺失”才默认
+   *  手册所有者，清空负责人不能被静默改回所有者（详情页同一契约）。 */
   @action.bound
   createFile(file, ownerId, note) {
     const formData = new FormData();
     formData.append('file', file);
-    if (ownerId) formData.append('owner_id', ownerId);
+    formData.append('owner_id', ownerId == null ? '' : String(ownerId));
     if (note) formData.append('note', note);
     return http.post(`/api/institution/manuals/${this.id}/files/create/`, formData)
       .then(data => this.refreshFiles()

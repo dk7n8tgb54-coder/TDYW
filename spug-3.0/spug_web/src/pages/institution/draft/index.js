@@ -7,14 +7,23 @@
  * - 右侧顶部状态条集中展示：当前文件、修订号、独立的"制度草稿保存状态"
  *   （服务端确认落盘才显示"已保存到制度草稿：rN、时间"；ONLYOFFICE 的
  *   "所有更改已保存"只代表文档服务缓存，绝不据此显示业务已保存）与
- *   提交编制状态（未提交/已提交/提交已失效，服务端 submission.state）。
- * - 流程按钮：开始编辑 → 保存并结束编辑 → 提交编制；下载/预览/改名/
- *   排序/移除/新增为次级操作。2026-10-31 授权模型：负责人独占编辑——
- *   「开始编辑」仅 文件负责人（持本手册编制授权 + assignment.is_mine）
- *   渲染（二轮改造起所有者例外：可编辑该手册任意文件），非负责人显示
- *   明确提示；文件管理行中 下载/预览草稿同样限负责人（所有者例外同上），
- *   改名/排序/移除/新增限 手册所有者或平台超管。负责人持有该文件
- *   编辑会话时提交编制禁用（明确提示先保存并结束编辑；后端仍独立校验）。
+ *   编制状态 Tag（待发布人核对/可直接纳入整套发布/待提交待发布核对/
+ *   待负责人提交待发布核对/已撤回/已退回/提交已失效/旧版提交记录/
+ *   编制中/无需提交，与详情页文件清单同一口径，共用
+ *   compilationStatusShared）。
+ * - 流程按钮：开始编辑 → 保存并结束编辑 → 提交待发布核对；下载/预览/
+ *   改名/排序/移除/新增为次级操作。**2026-11-03 固定快照交接规则**：
+ *   提交**仅文件有效负责人**（assignment.is_effective_owner）渲染（手册
+ *   所有者非该文件有效负责人不得代提交，后端会拒绝）；提交由服务端创建
+ *   独立不可变快照并冻结该文件内容——冻结期间工作区不渲染编辑器与任何
+ *   编辑/结构入口，改显示「预览待核对快照」「下载待核对快照」与撤回/退回
+ *   说明；pending 显示不可点击「待发布人核对」+「撤回提交」（负责人本人），
+ *   持发布权且非有效负责人可「退回修改」（原因必填 ≤500）；提交失效显示
+ *   「重新提交」；本文件有进行中编辑会话时禁用提交并提示先「保存并结束
+ *   编辑」；有效负责人兼发布权时提示本人发布可直接纳入整套发布、提交只是
+ *   交给其他发布人核对固定快照的可选动作。提交/撤回/退回真实成功后刷新
+ *   清单与菜单红点（InstitutionBadgeStore，事件驱动，禁轮询）；
+ *   `legacy_submitted` 旧提交记录不可用于发布，需按新规则重新提交。
  * - 「保存并结束编辑」的真实落盘确认在 store.finishEditing：确认链路
  *   （forcesave → 轮询草稿修订号推进 → 再次 forcesave 复核到 no_changes）
  *   通过后才撤销会话并提示成功；失败或超时保留会话与编辑器并给出重试
@@ -41,9 +50,20 @@
  *   加载失败的文件恒为本机方式，本机入口不依赖失败上报的可靠性。切换
  *   链路在 store.switchEditMode：在线切本机先确认落盘（失败留下重试），
  *   再重取编辑配置轮换 document key 让旧编辑实例回调在服务端失效（会话
- *   保留供本机上传）；本机上传必须携带下载草稿时记录的基线修订号，
+ *   保留供本机上传）；日常本机上传必须携带下载草稿时记录的基线修订号，
  *   服务端草稿已推进时被后端拒绝并要求重新下载。「下载草稿」在在线
  *   编辑期间同样先确认落盘再下载，下载成功记录基线。
+ * - 本机上传两条路径（2026-10-31 二轮拆分，两个入口语义严格区分）：
+ *   a) 日常「上传保存（需先下载草稿）」（handleLocalUpload）链路不变——
+ *      必须携带下载时记录的基线修订号；文案明确系统不校验所选文件是否
+ *      基于已下载的草稿修改，只校验服务端草稿修订号未被推进。
+ *   b) 次级危险操作「用本机文件替换当前草稿」（handlePickReplaceLocalFile
+ *      → handleReplaceLocalUpload）不要求先下载：点击先弹 Modal.confirm，
+ *      展示目标制度文件名、当前待发布草稿修订号 rN 与「整份替换（非增量）
+ *      /只更新草稿不发布/历史发布版本不受影响/系统不校验所选文件来源」；
+ *      确认后才打开文件选择，并以确认时捕获的 fileId+revision 上传；
+ *      取消不打开选择器、不上传。冲突「草稿已被其他会话更新」不报成功、
+ *      保留会话、刷新清单并提示重新确认。
  * - 隐藏 input 不得嵌套在 Button/label 内（统一 ref 程序触发）。
  */
 import React, {useEffect} from 'react';
@@ -57,15 +77,23 @@ import { history } from 'libs';
 import { AuthFragment } from 'components';
 import { http } from 'libs';
 import { downloadFile, formatSize, formatDateTime } from '../utils';
+import {
+  buildSubmissionPreviewTitle, canReturnSubmission, canWithdrawSubmission,
+  effectiveOwnerIdOf, effectiveOwnerNameOf, isEffectiveOwnerOf,
+  isFrozenSubmission, ownerIsDefaultAssignment, submissionIsStale,
+  submissionOf, submissionSnapshotFileName, submissionStatusOf,
+  SUBMISSION_STATUS,
+} from '../submissionShared';
 import PreviewModal from '../detail/PreviewModal';
 import EditorArea from './EditorArea';
 import ExpandedBar from './ExpandedBar';
 import SaveStatusTag from './SaveStatusTag';
-import FileNav, {submissionTagFor} from './FileNav';
+import FileNav, {compilationTagFor} from './FileNav';
 import RecoveryPanel from './RecoveryPanel';
 import ManualAuthButton from '../ManualAuthButton';
 import { finishingErrorTitleOf, finishingRetryLabelOf } from './finishingShared';
 import useWorkTabUnsaved from '../../../layout/useWorkTabUnsaved';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 import store from './store';
 
 const {Option} = Select;
@@ -115,6 +143,11 @@ class InstitutionDraftWorkspace extends React.Component {
     pendingFile: null, assignOwners: [], assignOwnerId: undefined,
     assignNote: '', assignOwnersError: '', fetchingOwners: false,
   };
+
+  // 「用本机文件替换当前草稿」确认时捕获的目标上下文（{fileId, revision}）：
+  // Modal.confirm 打开瞬间的快照，文件选择器回调只认这份上下文——确认后
+  // 清单即使被推进，也绝不改用最新修订号替代确认时修订号
+  pendingReplaceLocal = null;
 
   componentDidMount() {
     const id = this.props.match.params.id;
@@ -324,7 +357,8 @@ class InstitutionDraftWorkspace extends React.Component {
   };
 
   /**
-   * 本机编辑上传保存（编辑区本机面板入口；隐藏 input 程序触发）：
+   * 本机编辑日常上传保存（编辑区本机面板「上传保存（需先下载草稿）」入口；
+   * 隐藏 input 程序触发；与次级「整份替换当前草稿」入口严格区分）：
    * 客户端先拒绝非 .docx（不允许 .doc 覆盖工作草稿，后端独立校验）；
    * 必须已有下载基线（store.localBaselines）。成功提示只在后端真实成功
    * 响应之后；失败不清会话、不报成功，可重试（基线过期时重新下载）。
@@ -350,15 +384,102 @@ class InstitutionDraftWorkspace extends React.Component {
       .catch(() => {});
   };
 
+  /**
+   * 「用本机文件替换当前草稿」点击入口（本机面板次级危险操作）：
+   * 先弹确认窗而不是文件选择器——展示目标制度文件名、当前待发布草稿
+   * 修订号 rN 与整份替换影响（非增量修改、只更新草稿不发布、历史发布
+   * 版本不受影响、系统不校验所选文件是否基于已下载草稿），用户确认后
+   * 才打开 .docx 文件选择器；取消不上传。确认瞬间把 fileId+revision
+   * 捕获到 pendingReplaceLocal，上传只认这份快照。
+   * （antd 4 Modal.confirm 内容为打开时快照，不依赖后续 state 重渲染）
+   */
+  handlePickReplaceLocalFile = () => {
+    const file = store.selectedFile;
+    if (!file || !file.draft) return;
+    const targetFileId = file.id;
+    const targetName = file.name;
+    const targetRevision = file.draft.revision;
+    Modal.confirm({
+      title: `用本机文件替换当前草稿：「${targetName}」`,
+      content: (
+        <div>
+          <p>
+            目标制度文件：<b>{targetName}</b>
+            {targetRevision != null && `（当前待发布草稿修订号 r${targetRevision}）`}
+          </p>
+          <p>
+            确认后请选择本机 .docx 文件：会<b>整份替换</b>该文件的当前草稿（不是增量修改）。
+          </p>
+          <p>上传成功只更新草稿，<b>不会发布</b>；历史发布版本不受影响。</p>
+          <p style={{color: '#888'}}>
+            系统不会校验所选文件是否基于已下载的草稿修改，请确认本机文件就是该草稿的最新版本。
+          </p>
+        </div>
+      ),
+      okText: '选择文件并替换',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: () => {
+        this.pendingReplaceLocal = {
+          fileId: targetFileId, revision: targetRevision};
+        if (this.replaceFileInput) this.replaceFileInput.click();
+      },
+    });
+  };
+
+  /**
+   * 「用本机文件替换当前草稿」文件选择回调：客户端先拒绝非 .docx；
+   * 只使用确认弹窗捕获的（fileId, revision）发起整份替换（绝不改用清单
+   * 最新修订号）；成功提示只在后端真实成功之后。冲突「草稿已被其他会话
+   * 更新」=确认时修订号过期：不报成功、会话保留（后端同口径不清会话）、
+   * 刷新清单并提示重新确认后再选文件；其余错误由 store 按既有会话/密码
+   * 分类处理（拦截器已提示，不二次弹同一错误）。
+   */
+  handleReplaceLocalUpload = (e) => {
+    const picked = e.target.files[0];
+    e.target.value = '';
+    if (!picked) return;
+    const pending = this.pendingReplaceLocal;
+    if (!pending) return; // 未经确认（正常不可达）：绝不上传
+    if (!picked.name.toLowerCase().endsWith('.docx')) {
+      message.error('草稿工作文件必须是 .docx 格式');
+      return;
+    }
+    this.pendingReplaceLocal = null;
+    if (!store.sessionKeyOf(pending.fileId)) {
+      message.warning('需要该文件的编辑会话才能替换草稿');
+      return;
+    }
+    store.replaceLocalDraft(pending.fileId, picked, pending.revision)
+      .then(data => {
+        const revision = data && data.revision != null ? data.revision : '?';
+        message.success(`已用本机文件替换草稿（修订号 r${revision}）`);
+      })
+      .catch(err => {
+        const text = typeof err === 'string' ? err : '';
+        if (text.includes('草稿已被其他会话更新')) {
+          // 拦截器已提示过错误：这里只刷新清单并引导重新确认（不重复弹
+          // 同一错误），会话保留可重试
+          store.refreshFiles().catch(() => {});
+          message.warning('当前草稿已更新，请重新点击「用本机文件替换当前草稿」'
+            + '确认最新修订号后再选择文件');
+        }
+      });
+  };
+
   // ---------------------------------------------------------------------------
   // 文件管理
 
-  /** 选中文件后先弹分工弹窗（负责人可选），确认后才上传创建 */
+  /** 选中文件后先弹分工弹窗（负责人可选），确认后才上传创建。
+   *  负责人默认=手册所有者（manual.owner_id；后端本次起 assignment-owners
+   *  候选也会包含所有者），可改选其他持编制资格账号或清空。 */
   handleAddFile = (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
-    this.setState({pendingFile: file, assignOwners: [], assignOwnerId: undefined,
+    const manual = store.manual || {};
+    this.setState({pendingFile: file, assignOwners: [],
+      assignOwnerId: manual.owner_id || undefined,
       assignNote: '', assignOwnersError: ''});
     this.fetchAssignOwners();
   };
@@ -390,13 +511,10 @@ class InstitutionDraftWorkspace extends React.Component {
     this.setState({adding: true});
     store.createFile(file, this.state.assignOwnerId,
       (this.state.assignNote || '').trim())
-      .then(data => {
-        if (data && data.draft_error) {
-          // 文件已创建但草稿未就绪（如 .doc 转换失败）：警示不算失败
-          message.warning(data.draft_error);
-        } else {
-          message.success('文件已新增');
-        }
+      .then(() => {
+        // 每份上传文件各自建立独立制度文件与当前草稿；创建失败由 HTTP
+        // 拦截器统一提示一次，这里只负责成功提示与关闭分工弹窗
+        message.success('文件已新增');
         this.setState({pendingFile: null});
       })
       .catch(() => {})
@@ -407,17 +525,27 @@ class InstitutionDraftWorkspace extends React.Component {
     if (this.addFileInput) this.addFileInput.click();
   };
 
-  /** 提交编制（负责人完成编制后的交接标记；与详情页文件清单同一接口） */
+  /** 提交待发布核对（仅文件有效负责人；服务端创建固定不可变快照并冻结
+   *  该文件内容，发布人核对快照后整套发布使用该快照）。
+   *  提交成功真实返回后才提示、刷新清单并刷新菜单红点（事件驱动，禁轮询）。 */
   handleSubmitCompile = (file) => {
+    const stale = submissionIsStale(file);
+    const label = stale ? '重新提交' : '提交待发布核对';
     const revision = file.draft ? file.draft.revision : null;
     Modal.confirm({
-      title: `提交编制：${file.name}`,
+      title: `${label}：${file.name}`,
       content: (
         <div>
-          <p>确认该文件已完成编制并提交核对？</p>
+          <p>确认提交该文件待发布核对？</p>
           <p style={{color: '#888'}}>
-            将记录当前草稿修订号 {revision != null ? `r${revision}` : '-'} 与提交时间；
-            此后草稿再次保存或重建，提交状态会自动失效，需重新提交。
+            提交将创建该文件固定不可变内容快照（记录当前草稿修订号
+            {revision != null ? ` r${revision}` : ' -'} 与提交时间），并冻结该文件
+            内容：本轮不能开始/继续编辑、改名、调整顺序、移除或改派分工。
+            发布人核对固定快照后，整套发布将使用该快照内容（不再读取当前草稿）。
+          </p>
+          <p style={{color: '#888'}}>
+            提交有效期间不能重复提交；可「撤回提交」后继续修改，或由发布人
+            「退回修改」（必填原因）。你本人具备发布权时也可直接纳入整套发布。
           </p>
         </div>
       ),
@@ -425,10 +553,75 @@ class InstitutionDraftWorkspace extends React.Component {
       onOk: () => http.post(
         `/api/institution/manuals/${store.id}/files/${file.id}/submit/`, {})
         .then(() => {
-          message.success('已提交编制，等待发布核对');
+          message.success('已提交待发布核对，等待发布人核对固定快照');
+          // 待核对快照数属菜单红点：真实成功后刷新（fetch 静默失败，不影响流程）
+          institutionBadge.fetch();
           return store.refreshFiles().catch(() => {});
         }),
     });
+  };
+
+  /** 撤回提交待发布核对（仅文件有效负责人本人）：撤回后快照作废、
+   *  内容解冻，可修改后重新提交；发布人不能再使用该快照 */
+  handleWithdrawSubmission = (file) => {
+    Modal.confirm({
+      title: `撤回提交：${file.name}`,
+      content: '撤回后该文件已提交的固定快照作废、内容解冻，你可以继续修改并按新规则重新提交；发布人将不能再使用该快照核对与发布。',
+      okText: '确认撤回',
+      onOk: () => store.withdrawSubmission(file.id)
+        .then(() => message.success('已撤回提交，可继续修改该文件')),
+    });
+  };
+
+  /** 退回修改（持发布权且非该文件有效负责人）：原因必填（≤500），
+   *  退回后旧快照作废、内容解冻，负责人修改后可重新提交 */
+  handleReturnSubmission = (file) => {
+    let reason = '';
+    Modal.confirm({
+      title: `退回修改：${file.name}`,
+      content: (
+        <div>
+          <p>退回后该文件已提交的固定快照作废、内容解冻，负责人修改后可重新提交待发布核对。</p>
+          <textarea id="institution-return-reason" rows={3} maxLength={500}
+            style={{width: '100%'}}
+            placeholder="请填写退回原因（必填，最多 500 字）"
+            onChange={e => { reason = e.target.value; }}/>
+        </div>
+      ),
+      okText: '确认退回',
+      okType: 'danger',
+      onOk: () => {
+        const trimmed = String(reason || '').trim();
+        if (!trimmed) {
+          message.warning('请填写退回原因');
+          return Promise.reject();
+        }
+        if (trimmed.length > 500) {
+          message.warning('退回原因不能超过 500 字');
+          return Promise.reject();
+        }
+        return store.returnSubmission(file.id, trimmed)
+          .then(() => message.success('已退回修改，等待负责人重新提交待发布核对'));
+      },
+    });
+  };
+
+  /** 待核对快照预览（冻结文件；标题含提交人与提交时间，绝不冒充当前草稿） */
+  handleSubmissionPreview = (file) => {
+    store.fetchSubmissionPreviewUrl(file.id)
+      .then(data => this.setState({preview: {
+        url: data && data.preview_url,
+        fileName: (data && data.file_name) || submissionSnapshotFileName(file),
+        title: buildSubmissionPreviewTitle(file, data),
+      }}))
+      .catch(() => {});
+  };
+
+  /** 下载待核对快照（文件名用接口下发的快照文件名） */
+  handleDownloadSubmission = (file) => {
+    downloadFile(
+      `/api/institution/manuals/${store.id}/files/${file.id}/submission/download/`,
+      submissionSnapshotFileName(file));
   };
 
   showRename = () => {
@@ -520,17 +713,19 @@ class InstitutionDraftWorkspace extends React.Component {
       .catch(() => {});
   };
 
+  /** 预览当前待发布草稿（不是提交时快照）：标题明确版本来源，不含修订号 rN */
   handlePreview = (file) => {
-    const revision = file.draft ? file.draft.revision : null;
     http.get(`/api/institution/manuals/${store.id}/files/${file.id}/draft/preview-url/`)
       .then(data => this.setState({preview: {
         url: data.preview_url, fileName: data.file_name,
-        title: `预览待发布草稿 r${revision != null ? revision : '?'}：${data.file_name || ''}`,
+        title: `预览待发布草稿：${data.file_name || ''}`,
       }}));
   };
 
   // ---------------------------------------------------------------------------
-  // 草稿恢复（无草稿文件；恢复途径以 files 清单 draft_recovery 为准）
+  // 草稿恢复（无草稿文件）：两态由 files 清单行下发的 draft_recovery 决定
+  // （current_version=从当前生效版本恢复；none/缺失=仅提示重新上传），
+  // 渲染唯一实现在 RecoveryPanel，本文件不额外判断恢复来源。
 
   // ---------------------------------------------------------------------------
   // 渲染
@@ -587,21 +782,99 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
-  /** 流程按钮行：开始编辑（负责人独占）→ 保存并结束编辑 → 提交编制 + 刷新 */
+  /** 发布权口径（与详情页/共享 helper 同一口径：手册所有者 或 my_roles 含 publish） */
+  canPublishCompilation() {
+    const manual = store.manual || {};
+    return !!manual.is_owner || (manual.my_roles || []).includes('publish');
+  }
+
+  /** 提交待发布核对 / 撤回提交 / 退回修改入口（2026-11-03 固定快照交接）：
+   *  - 「提交待发布核对」/「重新提交」**仅对 assignment.is_effective_owner
+   *    渲染**（手册所有者非该文件有效负责人不得代提交，后端同口径）；
+   *  - pending（有效固定快照、内容已冻结）显示不可点击「待发布人核对」+「撤回提交」；
+   *    持发布权且非该文件有效负责人可「退回修改」（原因必填 ≤500）；
+   *  - 该文件有进行中的编辑会话时禁用提交并提示先「保存并结束编辑」。 */
+  renderSubmissionActions(file, canPublish, busy) {
+    const manual = store.manual || {};
+    const status = submissionStatusOf(submissionOf(file));
+    const isEffectiveOwner = isEffectiveOwnerOf(file);
+    const stale = submissionIsStale(file);
+    if (status === SUBMISSION_STATUS.PENDING && !stale) {
+      return (
+        <React.Fragment>
+          <Tooltip title="该文件已提交待发布核对：固定不可变快照有效期间不能重复提交（内容已冻结）。发布人核对快照后整套发布将使用该快照内容">
+            <span><Button size="small" disabled>待发布人核对</Button></span>
+          </Tooltip>
+          {canWithdrawSubmission(file) && (
+            <Button size="small" danger
+              onClick={() => this.handleWithdrawSubmission(file)}>
+              撤回提交
+            </Button>
+          )}
+          {canReturnSubmission(file, manual) && (
+            <Tooltip title="退回后该文件快照作废、内容解冻，负责人可修改后重新提交；必须填写退回原因（≤500 字）">
+              <Button size="small"
+                onClick={() => this.handleReturnSubmission(file)}>
+                退回修改
+              </Button>
+            </Tooltip>
+          )}
+        </React.Fragment>
+      );
+    }
+    if (!isEffectiveOwner) return null;
+    // 已发布且无待发布修改（revision_open=false）的文件没有需要交接的草稿：
+    // 不渲染必然无意义、且会与状态 Tag 冲突的入口（stale 兜底可重提）
+    if (!file.revision_open) return null;
+    const label = stale ? '重新提交' : '提交待发布核对';
+    let tip = stale
+      ? '提交待发布核对已失效：提交后草稿又被保存/重建，需重新提交以生成新的固定快照'
+      : '提交会为该文件创建固定不可变快照并冻结内容，等待发布人核对；' +
+        '发布人核对快照后整套发布将使用该快照内容（不再读取当前草稿）';
+    if (busy) {
+      tip = '该文件有进行中的编辑会话，请先「保存并结束编辑」后再提交待发布核对';
+    } else if (canPublish) {
+      tip = '你是该文件有效负责人且具备发布权：本人发布时可直接纳入整套发布并' +
+        '使用当前草稿；提交待发布核对只是交给其他发布人核对固定快照的可选动作';
+    }
+    return (
+      <Tooltip title={tip}>
+        {/* disabled 的原生按钮不派发鼠标事件，须用 span 包裹让提示可达 */}
+        <span>
+          <Button size="small" disabled={busy}
+            onClick={() => this.handleSubmitCompile(file)}>
+            {label}
+          </Button>
+        </span>
+      </Tooltip>
+    );
+  }
+
+  /** 流程按钮行：开始编辑（负责人独占）→ 保存并结束编辑 → 提交待发布核对 + 刷新 */
   renderFlowActions(file, hasSession, active) {
     const manual = store.manual || {};
     const finishing = store.finishingFileId === file.id;
+    const frozen = isFrozenSubmission(file);
     const hasActiveSession = hasSession || !!active;
     // 负责人独占编辑（2026-10-31）：编制授权 + 该文件负责人；二轮权限
     // 模型改造起 所有者例外可编辑该手册任意文件（超管不可，除非兼任
-    // 所有者/负责人）。其余账号不渲染会话入口，明确提示指引
+    // 所有者/负责人）。其余账号不渲染会话入口，明确提示指引。
+    // 冻结文件（有效提交固定快照）一律不渲染任何编辑入口（后端拒绝）
     const canEdit = (manual.my_roles || []).includes('edit');
-    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine) ||
-      !!manual.is_owner;
+    const isAssignee = !frozen &&
+      (!!(canEdit && file.assignment && file.assignment.is_mine) ||
+        !!manual.is_owner);
+    // 提交门控（2026-11-03 固定快照交接，后端同口径）：仅有效负责人
+    const canPublish = this.canPublishCompilation();
     return (
       <div style={{marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap',
         alignItems: 'center'}}>
-        {!hasSession && isAssignee && (
+        {frozen && (
+          <span style={{color: '#999', fontSize: 12}}>
+            该文件已提交待发布核对：内容已冻结，需负责人撤回提交或发布人退回后才能继续编辑
+          </span>
+        )}
+        {!frozen && !hasSession && isAssignee && (
           <Tooltip title={!file.draft ? '该文件还没有可编辑草稿' : undefined}>
             <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
               type="primary" size="small" disabled={!file.draft}
@@ -610,12 +883,12 @@ class InstitutionDraftWorkspace extends React.Component {
             </ManualAuthButton>
           </Tooltip>
         )}
-        {!hasSession && !isAssignee && (
+        {!frozen && !hasSession && !isAssignee && (
           <span style={{color: '#999', fontSize: 12}}>
             编辑仅限文件负责人，请先由手册所有者指派
           </span>
         )}
-        {hasSession && (
+        {!frozen && hasSession && (
           <Tooltip title={store.editorConfigs[file.id] &&
             store.editorConfigs[file.id].editor_available
             ? '请求文档服务保存并等待服务端确认落盘后，才退出会话'
@@ -626,21 +899,8 @@ class InstitutionDraftWorkspace extends React.Component {
             </Button>
           </Tooltip>
         )}
-        {/* 本机方式的下载/上传入口在编辑区本机面板（EditorArea，含基线
-            状态与步骤说明）；流程行只保留主流程与冲突敏感的提交编制。
-            提交编制：负责人或手册所有者（规则 2，后端同口径） */}
-        {((file.assignment && file.assignment.is_mine) || manual.is_owner) && (
-          <Tooltip title={hasActiveSession
-            ? '该文件有进行中的编辑会话，请先「保存并结束编辑」后再提交编制'
-            : undefined}>
-            <span style={{display: 'inline-block'}}>
-              <Button size="small" disabled={hasActiveSession || finishing}
-                onClick={() => this.handleSubmitCompile(file)}>
-                提交编制
-              </Button>
-            </span>
-          </Tooltip>
-        )}
+        {this.renderSubmissionActions(file, canPublish,
+          hasActiveSession || finishing)}
         <Tooltip title="读取最新修订序号与保存状态（不影响编辑器）">
           <Button type="link" size="small" icon={<ReloadOutlined/>}
             onClick={this.handleRefreshRevision}>刷新草稿状态</Button>
@@ -649,22 +909,43 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
-  /** 次级操作行（2026-10-31 按授权模型拆分门控）：
-   *  下载草稿/预览草稿 = 文件负责人（编制授权 + is_mine，与编辑入口同域；
-   *  所有者例外与编辑入口一致）；改名/上移/下移/移除/新增文件 = 手册
-   *  所有者或平台超管（ManualAuthButton：所有者豁免页面码，后端独立校验）。 */
+  /** 次级操作行（2026-10-31 按授权模型拆分门控；2026-11-03 固定快照冻结）：
+   *  - 未冻结文件：下载草稿/预览草稿 = 文件负责人（编制授权 + is_mine，
+   *    与编辑入口同域；所有者例外）；改名/上移/下移/移除/新增文件 = 手册
+   *    所有者或平台超管（ManualAuthButton：所有者豁免页面码，后端独立校验）。
+   *  - 冻结文件（有效提交固定快照）：预览/下载改读**待核对快照**端点；改名/
+   *    调整顺序/移除/分工一律禁用（后端结构写路径同样拒绝）——需负责人撤回
+   *    提交或发布人退回后才能继续维护。 */
   renderFileAdminRow(file, draft) {
     const manual = store.manual || {};
+    const frozen = isFrozenSubmission(file);
     const fileIndex = store.files.findIndex(f => f.id === file.id);
     const canEdit = (manual.my_roles || []).includes('edit');
-    const isAssignee = !!(canEdit && file.assignment && file.assignment.is_mine) ||
-      !!manual.is_owner;
+    const isAssignee = !frozen &&
+      (!!(canEdit && file.assignment && file.assignment.is_mine) ||
+        !!manual.is_owner);
     const canManageFiles = !!manual.is_owner || !!manual.is_admin;
+    const frozenTip = '该文件已提交待发布核对（内容已冻结）：不能改名/调整顺序/移除/改派分工；需负责人撤回提交或发布人退回修改后才能继续维护';
     return (
       <div style={{marginTop: 10, paddingTop: 8, borderTop: '1px dashed #f0f0f0',
         display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center'}}>
         <span style={{color: '#999', fontSize: 12}}>文件管理：</span>
-        {isAssignee ? (
+        {frozen ? (
+          <span>
+            <ManualAuthButton manual={manual} auth="institution.manual.view"
+              type="link" size="small"
+              onClick={() => this.handleSubmissionPreview(file)}>
+              预览待核对快照
+            </ManualAuthButton>
+            <Tooltip title={`下载该文件已提交的固定快照（${submissionSnapshotFileName(file)}）；整套发布将使用该快照内容`}>
+              <ManualAuthButton manual={manual} auth="institution.manual.download"
+                type="link" size="small"
+                onClick={() => this.handleDownloadSubmission(file)}>
+                下载待核对快照
+              </ManualAuthButton>
+            </Tooltip>
+          </span>
+        ) : isAssignee ? (
           <span>
             <ManualAuthButton manual={manual} auth="institution.manual.download"
               type="link" size="small"
@@ -679,7 +960,20 @@ class InstitutionDraftWorkspace extends React.Component {
         ) : (
           <span style={{color: '#999', fontSize: 12}}>下载/预览草稿仅限文件负责人</span>
         )}
-        {canManageFiles && (
+        {canManageFiles && (frozen ? (
+          <Tooltip title={frozenTip}>
+            <span>
+              <Button type="link" size="small" disabled>改名</Button>
+              {store.files.length > 1 && (
+                <span>
+                  <Button type="link" size="small" disabled>上移</Button>
+                  <Button type="link" size="small" disabled>下移</Button>
+                </span>
+              )}
+              <Button type="link" danger size="small" disabled>移除</Button>
+            </span>
+          </Tooltip>
+        ) : (
           <span>
             <ManualAuthButton manual={manual} auth="institution.manual.draft_edit"
               type="link" size="small"
@@ -719,7 +1013,7 @@ class InstitutionDraftWorkspace extends React.Component {
               </ManualAuthButton>
             )}
           </span>
-        )}
+        ))}
       </div>
     );
   }
@@ -738,10 +1032,20 @@ class InstitutionDraftWorkspace extends React.Component {
           <span style={{color: '#999'}}>当前文件：</span>
           <span style={{fontWeight: 600, fontSize: 15}}>{file.name}</span>
           {file.draft
-            ? <Tag color="blue" style={{marginRight: 0}}>r{draft.revision}</Tag>
+            ? <Tooltip title={'内部修订号：草稿每次保存/重建递增，仅用于并发保护与提交失效判定，' +
+                '不是草稿版本号（正式版本号 vN 只在发布后产生）'}>
+                <span style={{color: '#999', fontSize: 12}}>
+                  内部修订号 r{draft.revision}
+                </span>
+              </Tooltip>
             : <Tag style={{marginRight: 0}}>无草稿</Tag>}
           <SaveStatusTag file={file} hasSession={hasSession}/>
-          {submissionTagFor(file.submission)}
+          {compilationTagFor(file, {canPublish: this.canPublishCompilation()})}
+          {isFrozenSubmission(file) && (
+            <Tooltip title="该文件已提交待发布核对：内容已冻结，发布人核对固定快照后整套发布使用该快照">
+              <Tag color="blue" style={{marginRight: 0}}>已冻结</Tag>
+            </Tooltip>
+          )}
         </div>
         {this.renderFlowActions(file, hasSession, active)}
         {store.finishingError && store.finishingErrorFileId === file.id && (
@@ -785,11 +1089,12 @@ class InstitutionDraftWorkspace extends React.Component {
         <Descriptions.Item label="基于版本">
           {draft.base_version_no
             ? `v${draft.base_version_no}（版本快照）`
-            : '来自初始原稿'}
+            : '—'}
         </Descriptions.Item>
         <Descriptions.Item label="负责人">
-          {(file.assignment && file.assignment.owner_id)
-            ? `${file.assignment.owner_name || '-'}`
+          {effectiveOwnerIdOf(file) != null && effectiveOwnerIdOf(file) !== ''
+            ? `${effectiveOwnerNameOf(file) || '-'}` +
+              `${ownerIsDefaultAssignment(file) ? '（手册所有者，默认）' : ''}`
             : '未分配'}
         </Descriptions.Item>
         <Descriptions.Item label="分工说明">
@@ -811,10 +1116,40 @@ class InstitutionDraftWorkspace extends React.Component {
             <Tag style={{marginRight: 0}}>无草稿</Tag>
           </div>
         </Card>
-        {/* 恢复面板（途径由服务端 draft_recovery 决定）自 2026-10-31 起
-            独立为 RecoveryPanel（文件行数门禁拆分，行为不变） */}
+        {/* 恢复面板（两态由服务端 draft_recovery 决定：current_version 可恢复；
+            无发布快照只提示重新上传，不渲染任何恢复/重建按钮）自 2026-10-31
+            起独立为 RecoveryPanel（文件行数门禁拆分） */}
         <RecoveryPanel file={file}/>
       </div>
+    );
+  }
+
+  /** 冻结文件工作区（有效提交固定快照）：不渲染任何编辑入口/编辑器，
+   *  明确说明冻结语义与出口（撤回提交 / 退回修改），并提示预览/下载
+   *  「待核对快照」（与发布将使用的内容一致） */
+  renderFrozenNotice() {
+    return (
+      <Card size="small">
+        <Alert type="info" showIcon
+          message="该文件已提交待发布核对：内容已冻结，不能开始/继续编辑"
+          description={
+            <div>
+              <p>
+                提交已为该文件创建固定不可变内容快照并冻结内容：本轮不能编辑、
+                改名、调整顺序、移除或改派分工，也不能重复提交；发布人核对固定
+                快照后，整套发布将使用该快照内容（不再读取当前草稿）。
+              </p>
+              <p>
+                如需修改：负责人可「撤回提交」，持发布权的账号可「退回修改」
+                （必须填写原因）；撤回或退回后旧快照作废、内容解冻，可修改并
+                重新提交待发布核对。
+              </p>
+              <p style={{color: '#888'}}>
+                冻结期间可在「文件管理」行预览/下载待核对快照，内容与发布时一致。
+              </p>
+            </div>
+          }/>
+      </Card>
     );
   }
 
@@ -823,6 +1158,7 @@ class InstitutionDraftWorkspace extends React.Component {
     const active = file.active_session;
     const hasSession = !!store.sessionKeyOf(file.id);
     const expanded = this.isExpandedActive();
+    const frozen = isFrozenSubmission(file);
     return (
       /* 放大态：工作区占满 Col 并以 flex column 分层，头部/元数据/说明
          均以 display none 收起（不改变编辑器在树中的位置，实例不重建） */
@@ -836,11 +1172,14 @@ class InstitutionDraftWorkspace extends React.Component {
         </div>
         <div style={expanded ? {flex: 1, minHeight: 320, marginTop: 8}
           : {marginTop: 12}}>
-          <EditorArea file={file} hasSession={hasSession}
-            expanded={expanded} onToggleExpanded={this.toggleExpanded}
-            onSwitchMode={this.handleSwitchEditMode}
-            onDownloadDraft={this.handleDownloadDraft}
-            onPickUploadFile={this.handlePickSaveFile}/>
+          {frozen ? this.renderFrozenNotice() : (
+            <EditorArea file={file} hasSession={hasSession}
+              expanded={expanded} onToggleExpanded={this.toggleExpanded}
+              onSwitchMode={this.handleSwitchEditMode}
+              onDownloadDraft={this.handleDownloadDraft}
+              onPickUploadFile={this.handlePickSaveFile}
+              onPickReplaceFile={this.handlePickReplaceLocalFile}/>
+          )}
         </div>
         {file.draft.base_version_id && (
           <p style={expanded ? {display: 'none'}
@@ -852,11 +1191,16 @@ class InstitutionDraftWorkspace extends React.Component {
     );
   }
 
+  /**
+   * 0 文件空态：内容入口只指向详情页「文件清单 → 修订草稿」的
+   * 「新增制度文件」（上传文件直接生成当前草稿，不再有历史来源类入口）。
+   */
   renderEmptyWorkspace() {
     return (
       <Card size="small">
         <div style={{padding: '32px 0', textAlign: 'center', color: '#999'}}>
-          该制度还没有待发布文件，请先在详情页上传原稿。
+          该制度还没有待发布文件：请回到手册详情页，在「文件清单 → 修订草稿」
+          中点击「新增待发布文件」上传，上传文件作为待发布文件的当前草稿。
         </div>
       </Card>
     );
@@ -911,12 +1255,15 @@ class InstitutionDraftWorkspace extends React.Component {
           </div>
         )}
         {/* 隐藏 input 不得作为 Button/label 的嵌套子节点（嵌套会双触发
-            或留死按钮），统一 ref 程序触发，见 handlePickAddFile /
-            handlePickSaveFile；本机上传 input onChange=handleLocalUpload */}
+            或留死按钮），统一 ref 程序触发：新增文件=handlePickAddFile /
+            日常上传=handlePickSaveFile（handleLocalUpload）/ 整份替换=
+            handlePickReplaceLocalFile（确认后才触发，handleReplaceLocalUpload） */}
         <input ref={el => { this.addFileInput = el; }} type="file"
           accept=".doc,.docx" style={{display: 'none'}} onChange={this.handleAddFile}/>
         <input ref={el => { this.saveFileInput = el; }} type="file"
           accept=".docx" style={{display: 'none'}} onChange={this.handleLocalUpload}/>
+        <input ref={el => { this.replaceFileInput = el; }} type="file"
+          accept=".docx" style={{display: 'none'}} onChange={this.handleReplaceLocalUpload}/>
         {store.deeplinkNotice && (
           <Alert type="warning" showIcon
             style={expanded ? {display: 'none'} : {marginBottom: 12}}
@@ -940,7 +1287,7 @@ class InstitutionDraftWorkspace extends React.Component {
           </Col>
         </Row>
         {/* 新增文件：先选文件，再在弹窗中可选指定负责人与分工说明
-            （不指定即"未分配"，之后可在详情页文件清单「文件分工」改派） */}
+            （不指定即默认负责人=手册所有者，之后可在详情页文件清单负责人列改派） */}
         <Modal visible={!!this.state.pendingFile}
           title={`新增文件：${this.state.pendingFile ? this.state.pendingFile.name : ''}`}
           confirmLoading={this.state.adding}
@@ -956,10 +1303,10 @@ class InstitutionDraftWorkspace extends React.Component {
                 onClick={() => this.fetchAssignOwners()}>重试</Button>}/>
           )}
           <Form labelCol={{span: 5}} wrapperCol={{span: 17}}>
-            <Form.Item label="负责人" extra="可选；负责人须持有本手册编制资格（候选已按此过滤，后端独立校验），此后由负责人独占编辑并提交编制">
+            <Form.Item label="负责人" extra="默认手册所有者；候选=持本手册编制资格的启用账号（含所有者），可改选或清空。负责人独占编辑并负责提交待发布核对（提交后创建固定快照并冻结内容）">
               <Select allowClear showSearch optionFilterProp="children"
                 loading={this.state.fetchingOwners}
-                placeholder="选择负责人账号（可留空）"
+                placeholder="选择负责人账号（默认手册所有者，可清空）"
                 value={this.state.assignOwnerId}
                 onChange={v => this.setState({assignOwnerId: v})}>
                 {this.state.assignOwners.map(u => (

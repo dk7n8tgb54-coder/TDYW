@@ -7,7 +7,7 @@
 多条候选原稿 + 活跃编辑会话），再前向迁移到最新，逐项核对：
 
 - 每个制度恰好生成一个稳定"主文件"条目；多条 ManualOriginal 只映射
-  到该主文件，不据原稿数量推断多份正式文件。
+  到该主文件（0010 起原稿表本身已不可逆删除，前向迁移后表不存在）。
 - 主文件显示名：草稿名 > 最新版本名 > 最早原稿名 > 手册名.docx；
   系统生成名（callback_/oo_cb_ 前缀）不透出。
 - 历史 ManualVersion 每版映射一条快照，路径/大小/SHA256 与旧列一致。
@@ -27,8 +27,8 @@ from django.utils import timezone
 
 from apps.account.models import User
 from apps.institution.models import (Manual, ManualDraft, ManualEditSession,
-                                     ManualFile, ManualOriginal,
-                                     ManualVersion, ManualVersionFile)
+                                     ManualFile, ManualVersion,
+                                     ManualVersionFile)
 from apps.institution.tests.base import make_user
 
 NOW = timezone.now()
@@ -167,7 +167,12 @@ class MultiFileMigrationTests(TransactionTestCase):
         self.assertFalse(main_a.is_removed)
         draft = ManualDraft.objects.get(file=main_a)
         self.assertEqual(draft.revision, 7)
-        self.assertEqual(ManualOriginal.objects.filter(file=main_a).count(), 2)
+        # 0010 已不可逆删除原稿模型/表：迁移后表不存在，字段也已移除
+        self.assertNotIn(
+            'tdyw_institution_original',
+            connection.introspection.table_names())
+        draft_fields = [f.name for f in ManualDraft._meta.get_fields()]
+        self.assertNotIn('source_original', draft_fields)
         session = ManualEditSession.objects.get(manual_id=manual_a_id)
         self.assertEqual(session.file_id, main_a.id)
         # 活跃会话被整体失效且旧协议 key 清空
@@ -229,8 +234,9 @@ class MultiFileMigrationTests(TransactionTestCase):
             self.assertEqual(cur.fetchone()[0], 3)
             cur.execute('SELECT COUNT(*) FROM tdyw_institution_draft')
             self.assertEqual(cur.fetchone()[0], 1)
+            # 0010 已不可逆删除原稿记录，回滚仅恢复空表结构
             cur.execute('SELECT COUNT(*) FROM tdyw_institution_original')
-            self.assertEqual(cur.fetchone()[0], 3)
+            self.assertEqual(cur.fetchone()[0], 0)
         # 再次前向迁移可重放（幂等重建派生数据）
         call_command('migrate', 'institution', verbosity=0, interactive=False)
         self.assertEqual(ManualFile.objects.count(), 4)

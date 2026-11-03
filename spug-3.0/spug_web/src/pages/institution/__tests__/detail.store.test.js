@@ -8,7 +8,14 @@ jest.mock('libs', () => ({
   hasPermission: jest.fn(() => true),
 }));
 
+// 提交/撤回/退回真实成功后的菜单红点刷新（事件驱动，禁轮询）
+jest.mock('../../../layout/InstitutionBadgeStore', () => ({
+  __esModule: true,
+  default: {fetch: jest.fn()},
+}));
+
 const {http} = require('libs');
+const institutionBadge = require('../../../layout/InstitutionBadgeStore').default;
 const detailStore = require('../detail/store').default;
 
 describe('detail store（手册详情数据）', () => {
@@ -86,42 +93,23 @@ describe('detail store（手册详情数据）', () => {
     expect(detailStore.versionsTotal).toBe(1);
   });
 
-  it('fetchOriginalsOverview 一次拉取聚合清单并缓存 files', async () => {
-    http.get.mockResolvedValueOnce({files: [
-      {file_id: 11, name: '第一章', first_original: {id: 5}, history: [{id: 5}]},
-      {file_id: 12, name: '第二章', first_original: null, history: []},
-    ]});
-    await detailStore.fetchOriginalsOverview(7);
-    expect(http.get).toHaveBeenCalledWith('/api/institution/manuals/7/originals-overview/');
-    expect(detailStore.originalsOverview).toHaveLength(2);
-    expect(detailStore.originalsOverview[0].file_id).toBe(11);
-    expect(detailStore.originalsOverviewError).toBe('');
-    expect(detailStore.isFetchingOriginalsOverview).toBe(false);
-  });
-
-  it('fetchOriginalsOverview 失败置错误态可重试（不以空列表冒充成功）', async () => {
-    http.get.mockRejectedValueOnce(new Error('network'));
-    await detailStore.fetchOriginalsOverview(7);
-    expect(detailStore.originalsOverview).toEqual([]);
-    expect(detailStore.originalsOverviewError).toContain('加载失败');
-    expect(detailStore.isFetchingOriginalsOverview).toBe(false);
-  });
-
-  it('同手册刷新（OriginalsTab.refresh 先列表后详情）不孤儿化 loading', async () => {
+  it('同手册刷新（FileListTab.refresh 先详情后列表并发）不孤儿化 loading', async () => {
     http.get.mockImplementation(url => {
-      if (url.includes('/originals-overview/')) {
-        return Promise.resolve({files: [{file_id: 1, name: '甲'}]});
+      if (url.includes('/versions/9/files/')) {
+        return Promise.resolve({version_id: 9, items: []});
       }
-      return Promise.resolve({id: 7, name: 'X', my_roles: ['edit']});
+      return Promise.resolve({id: 7, name: 'X', my_roles: ['edit'],
+        current_version: {id: 9, version_no: 1}});
     });
     await detailStore.fetchDetail(7);
     await Promise.all([
-      detailStore.fetchOriginalsOverview(7),
       detailStore.fetchDetail(7),
+      detailStore.fetchCurrentFiles(7, 9),
+      detailStore.fetchFiles(7),
     ]);
-    expect(detailStore.isFetchingOriginalsOverview).toBe(false);
     expect(detailStore.isFetching).toBe(false);
-    expect(detailStore.originalsOverview.length).toBe(1);
+    expect(detailStore.isFetchingCurrentFiles).toBe(false);
+    expect(detailStore.isFetchingFiles).toBe(false);
   });
 });
 
@@ -134,7 +122,7 @@ describe('detail store（文件清单与重置）', () => {
   it('fetchFiles 成功缓存清单并复位 loading', async () => {
     http.get.mockResolvedValueOnce([
       {id: 11, name: '第一章 总则', sort_order: 0, is_removed: false,
-        originals_count: 2, draft: {revision: 3}, active_session: null},
+        draft: {revision: 3}, active_session: null},
     ]);
     await detailStore.fetchFiles(7);
     expect(detailStore.files.length).toBe(1);
@@ -183,20 +171,20 @@ describe('detail store（文件清单与重置）', () => {
   });
 
   it('reset 作废在途请求并复位 loading（卸载后旧响应不写入）', async () => {
-    let resolveOverview;
+    let resolveCurrentFiles;
     http.get.mockImplementation(url => {
-      if (url.includes('/originals-overview/')) {
-        return new Promise(resolve => {resolveOverview = resolve;});
+      if (url.includes('/versions/9/files/')) {
+        return new Promise(resolve => {resolveCurrentFiles = resolve;});
       }
       return Promise.resolve({id: 7, name: 'X', my_roles: []});
     });
     await detailStore.fetchDetail(7);
-    const overviewPending = detailStore.fetchOriginalsOverview(7);
+    const filesPending = detailStore.fetchCurrentFiles(7, 9);
     detailStore.reset();
-    resolveOverview({files: [{file_id: 9, name: '旧'}]});
-    await overviewPending;
-    expect(detailStore.originalsOverview).toEqual([]);
-    expect(detailStore.isFetchingOriginalsOverview).toBe(false);
+    resolveCurrentFiles({version_id: 9, items: [{id: 1}]});
+    await filesPending;
+    expect(detailStore.currentFiles).toBe(null);
+    expect(detailStore.isFetchingCurrentFiles).toBe(false);
     expect(detailStore.id).toBe(null);
   });
 });
@@ -374,7 +362,7 @@ describe('RecordsTab.renderDetail（时间线详情解析）', () => {
   });
 });
 
-describe('detail store（文件变更记录数据源）', () => {
+describe('detail store（文件历史弹窗数据源）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     detailStore.reset();
@@ -406,7 +394,7 @@ describe('detail store（文件变更记录数据源）', () => {
     expect(detailStore.isFetchingFileLogs).toBe(false);
   });
 
-  it('reset 清理文件变更记录状态', () => {
+  it('reset 清理文件历史弹窗记录状态', () => {
     detailStore.fileVersion = {items: []};
     detailStore.fileVersionError = 'x';
     detailStore.fileLogs = [{id: 1}];
@@ -484,7 +472,7 @@ describe('detail store（文件变更记录数据源）', () => {
   });
 });
 
-describe('detail store（文件变更记录状态清理）', () => {
+describe('detail store（文件历史弹窗状态清理）', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     detailStore.reset();
@@ -705,5 +693,63 @@ describe('detail store（逐本账号授权与所有者，2026-10-31 授权模�
     expect(detailStore.accountOptionsError).toBe('');
     expect(detailStore.ownerCandidates).toEqual([]);
     expect(detailStore.ownerCandidatesError).toBe('');
+  });
+});
+
+describe('detail store（提交待发布核对固定快照交接，2026-11-03）', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    detailStore.reset();
+    detailStore.id = 7;
+    detailStore.files = [
+      {id: 21, name: '甲.docx', submission: {status: 'pending', frozen: true}},
+      {id: 22, name: '乙.docx', submission: {status: 'none'}},
+    ];
+  });
+
+  it('withdrawSubmission：POST submit/withdraw/，成功后更新行并刷新菜单红点', async () => {
+    http.post.mockResolvedValueOnce({id: 21, name: '甲.docx',
+      submission: {status: 'withdrawn', frozen: false}});
+    const data = await detailStore.withdrawSubmission(21);
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/files/21/submit/withdraw/', {});
+    // 只更新目标行，其他行不受影响（不整页重取）
+    expect(detailStore.files[0].submission.status).toBe('withdrawn');
+    expect(detailStore.files[1].submission.status).toBe('none');
+    expect(data.id).toBe(21);
+    expect(institutionBadge.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('returnSubmission：POST submit/return/ 携带 reason；失败向上抛且不乐观更新、不刷新红点', async () => {
+    http.post.mockResolvedValueOnce({id: 21, name: '甲.docx',
+      submission: {status: 'returned', frozen: false,
+        return_reason: '缺少依据'}});
+    await detailStore.returnSubmission(21, '缺少依据');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/files/21/submit/return/',
+      {reason: '缺少依据'});
+    expect(detailStore.files[0].submission.status).toBe('returned');
+    expect(institutionBadge.fetch).toHaveBeenCalled();
+
+    institutionBadge.fetch.mockClear();
+    http.post.mockRejectedValueOnce('退回原因不能超过 500 字');
+    await expect(detailStore.returnSubmission(22, 'x')).rejects
+      .toBe('退回原因不能超过 500 字');
+    // 原始行保持未提交状态（绝不乐观置为已退回）
+    expect(detailStore.files[1].submission.status).toBe('none');
+    expect(institutionBadge.fetch).not.toHaveBeenCalled();
+  });
+
+  it('fetchSubmissionPreviewUrl：GET submission/preview-url/ 并透传快照元数据', async () => {
+    const payload = {preview_url: 'http://kk/snapshot', file_name: '甲_快照.docx',
+      submitted_by_name: '张三', submitted_at: '2026-03-05T09:00:00'};
+    http.get.mockResolvedValueOnce(payload);
+    const data = await detailStore.fetchSubmissionPreviewUrl(21);
+    expect(http.get).toHaveBeenCalledWith(
+      '/api/institution/manuals/7/files/21/submission/preview-url/');
+    expect(data).toEqual(payload);
+    // 预览不修改清单，也不冒充提交成功
+    expect(detailStore.files[0].submission.status).toBe('pending');
+    expect(institutionBadge.fetch).not.toHaveBeenCalled();
   });
 });

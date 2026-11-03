@@ -4,7 +4,7 @@ from django.contrib import admin
 
 from .models import (Manual, ManualAuthorization, ManualCategory,
                      ManualChapter, ManualDraft, ManualEditSession,
-                     ManualOperationLog, ManualOriginal, ManualVersion)
+                     ManualOperationLog, ManualVersion)
 
 
 @admin.register(ManualCategory)
@@ -38,11 +38,6 @@ class ManualAuthorizationAdmin(admin.ModelAdmin):
     list_display = ('id', 'manual', 'account', 'can_view', 'can_edit',
                     'can_publish', 'updated_at', 'updated_by')
     search_fields = ('manual__name', 'account__username')
-
-
-@admin.register(ManualOriginal)
-class ManualOriginalAdmin(admin.ModelAdmin):
-    list_display = ('id', 'manual', 'original_name', 'file_size', 'uploaded_by', 'uploaded_at')
 
 
 @admin.register(ManualDraft)

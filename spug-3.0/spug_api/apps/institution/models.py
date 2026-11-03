@@ -10,8 +10,8 @@
   可见范围或编辑权判断。所有者自动拥有该手册范围内全部权限（查看/
   编辑/发布/授权/分工/密码，2026-10-31 第二轮），"制度管理员"权限码
   已废除，admin 概念收敛为平台超管。
-- 原稿（ManualOriginal）永不覆盖：每次上传都新落一条记录与新文件，
-  原稿归属具体制度文件（历史数据回填到主文件）。
+- 新增制度文件（2026-11-02 简化）：上传文件直接建立该文件的当前草稿，
+  不再额外保存原稿副本；每份上传文件各建一条 ManualFile 与一条草稿。
 - 制度文件（ManualFile）是制度下 Word 文件的稳定条目：改名/排序/移除
   只影响待发布草稿集合，ID 永不复用、记录永不物理删除。
 - 当前草稿（ManualDraft）按文件一条，编辑修订序号单调递增，
@@ -285,44 +285,6 @@ class ManualFile(models.Model, TenantModelMixin):
         return f'{self.manual_id}:{self.display_name}'
 
 
-class ManualOriginal(models.Model, TenantModelMixin):
-    """原稿文件记录（.doc/.docx，永不覆盖：每次上传新记录新文件）
-
-    原稿归属具体制度文件；存量数据回填到各手册的主文件（多条历史
-    ManualOriginal 只代表候选原稿来源，不代表多份正式文件）。
-    """
-    objects = TenantModelManager()
-    tenant_id = make_tenant_id()
-    manual = models.ForeignKey(
-        Manual, on_delete=models.CASCADE, related_name='originals', verbose_name='所属手册')
-    file = models.ForeignKey(
-        ManualFile, on_delete=models.CASCADE, related_name='originals',
-        verbose_name='所属制度文件')
-    file_path = models.CharField(max_length=500, verbose_name='相对存储路径')
-    original_name = models.CharField(max_length=255, verbose_name='原始文件名')
-    ext = models.CharField(max_length=10, blank=True, default='', verbose_name='扩展名')
-    file_size = models.BigIntegerField(default=0, verbose_name='文件大小')
-    file_hash = models.CharField(max_length=64, blank=True, default='', verbose_name='SHA256')
-    uploaded_by = models.ForeignKey(
-        User, null=True, on_delete=models.SET_NULL, related_name='+', verbose_name='上传人')
-    uploaded_at = models.DateTimeField(auto_now_add=True, verbose_name='上传时间')
-    # 原稿本体清理时间（2026-10-29 保留策略）：该文件首次进入成功发布的
-    # 版本为保护边界，首次发布并经过配置缓冲期后，原稿本体才可经保留
-    # 策略清理入口删除；记录行与来源元数据（名称/上传人/时间/哈希/路径）
-    # 永久保留，cleaned_at 非空即"文件已按保留策略清理"，不再提供
-    # 预览/下载/重建。业务流程（编辑/发布/回退/重建）绝不删除原稿。
-    cleaned_at = models.DateTimeField(null=True, blank=True, verbose_name='原稿清理时间')
-
-    class Meta:
-        db_table = 'tdyw_institution_original'
-        verbose_name = '手册原稿'
-        verbose_name_plural = '手册原稿'
-        ordering = ['-id']
-        indexes = [
-            models.Index(fields=['manual', 'uploaded_at'], name='inst_orig_manual_idx'),
-        ]
-
-
 class ManualDraft(models.Model, TenantModelMixin):
     """当前草稿（每份制度文件至多一条工作文件记录，文件级单写会话）"""
     objects = TenantModelManager()
@@ -339,9 +301,6 @@ class ManualDraft(models.Model, TenantModelMixin):
     file_hash = models.CharField(max_length=64, blank=True, default='', verbose_name='SHA256')
     # 编辑修订序号：每次保存/重建 +1，单调递增，用于拒绝迟到回调与旧会话覆盖
     revision = models.PositiveIntegerField(default=0, verbose_name='编辑修订序号')
-    source_original = models.ForeignKey(
-        ManualOriginal, null=True, blank=True, on_delete=models.SET_NULL,
-        related_name='+', verbose_name='来源原稿')
     base_version = models.ForeignKey(
         'ManualVersion', null=True, blank=True, on_delete=models.SET_NULL,
         related_name='+', verbose_name='基于发布版本')
@@ -455,6 +414,100 @@ class ManualVersionFile(models.Model, TenantModelMixin):
         return f'v{self.version_id}:{self.display_name}'
 
 
+class ManualSubmission(models.Model, TenantModelMixin):
+    """提交待发布核对（固定快照，2026-11-03）
+
+    发布交接从"只记录草稿修订号"升级为"独立不可变文件副本"：有效负责人
+    提交时把当前草稿复制到 submissions/ 独立存储并记录 SHA256，此后该
+    文件内容写路径全部冻结，发布人预览/下载/最终发布都读取同一快照。
+    记录只改状态、不覆盖：撤回/退回后旧快照不可再用于发布，重新提交产生
+    新行；旧行（含操作人/时间/原因）永久保留可追溯。
+    旧 ManualFile.submission_revision/submitted_at/submitted_by 列保留为
+    历史流程数据，新流程不读取、不写入（见 AGENTS 2026-11-03 节）。
+    """
+    objects = TenantModelManager()
+    tenant_id = make_tenant_id()
+
+    STATUS_PENDING = 'pending'        # 待发布人核对（发布可用）
+    STATUS_WITHDRAWN = 'withdrawn'    # 负责人撤回
+    STATUS_RETURNED = 'returned'      # 发布人退回修改
+    STATUS_PUBLISHED = 'published'    # 已随整套发布消费
+    STATUS_CHOICES = (
+        (STATUS_PENDING, '待发布人核对'),
+        (STATUS_WITHDRAWN, '已撤回'),
+        (STATUS_RETURNED, '已退回修改'),
+        (STATUS_PUBLISHED, '已随版本发布'),
+    )
+
+    manual = models.ForeignKey(
+        Manual, on_delete=models.CASCADE, related_name='submissions',
+        verbose_name='所属手册')
+    file = models.ForeignKey(
+        ManualFile, on_delete=models.CASCADE, related_name='submissions',
+        verbose_name='所属制度文件')
+    # 提交时的草稿修订号：发布时据此证明"发布读到的是提交时固定内容"
+    draft_revision = models.PositiveIntegerField(verbose_name='提交时修订序号')
+    # 独立快照相对路径（submissions/，与 drafts/versions/ 生命周期隔离）
+    file_path = models.CharField(max_length=500, verbose_name='快照相对存储路径')
+    original_name = models.CharField(
+        max_length=255, blank=True, default='', verbose_name='快照显示文件名')
+    file_size = models.BigIntegerField(default=0, verbose_name='快照大小')
+    file_hash = models.CharField(
+        max_length=64, blank=True, default='', verbose_name='快照SHA256')
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default=STATUS_PENDING,
+        verbose_name='提交状态')
+
+    submitted_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='提交人账号')
+    submitted_by_name = models.CharField(
+        max_length=100, blank=True, default='', verbose_name='提交人账号名')
+    submitted_at = models.DateTimeField(verbose_name='提交时间')
+
+    withdrawn_at = models.DateTimeField(
+        null=True, blank=True, verbose_name='撤回时间')
+    withdrawn_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='撤回人账号')
+    withdrawn_by_name = models.CharField(
+        max_length=100, blank=True, default='', verbose_name='撤回人账号名')
+
+    returned_at = models.DateTimeField(
+        null=True, blank=True, verbose_name='退回时间')
+    returned_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='退回人账号')
+    returned_by_name = models.CharField(
+        max_length=100, blank=True, default='', verbose_name='退回人账号名')
+    return_reason = models.CharField(
+        max_length=500, blank=True, default='', verbose_name='退回原因')
+
+    published_version = models.ForeignKey(
+        ManualVersion, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name='+', verbose_name='随发布版本')
+    consumed_at = models.DateTimeField(
+        null=True, blank=True, verbose_name='随发布消费时间')
+    # 快照物理文件清理时间：记录（含哈希/提交人/时间）永久保留可追溯，
+    # 清理只针对已撤回/已退回/已发布的物理副本，不影响草稿与发布快照
+    cleaned_at = models.DateTimeField(
+        null=True, blank=True, verbose_name='快照物理文件清理时间')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='创建时间')
+
+    class Meta:
+        db_table = 'tdyw_institution_submission'
+        verbose_name = '提交待发布核对快照'
+        verbose_name_plural = '提交待发布核对快照'
+        ordering = ['-id']
+        indexes = [
+            models.Index(fields=['file', 'status'], name='inst_sub_file_idx'),
+            models.Index(fields=['manual', 'status'], name='inst_sub_manual_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.manual_id}:{self.file_id}:{self.status}'
+
+
 class ManualEditSession(models.Model, TenantModelMixin):
     """编辑会话（绑定制度文件、账号、草稿修订与有效期，文件级单写约束）
 
@@ -554,8 +607,10 @@ class ManualOperationLog(models.Model, TenantModelMixin):
     """手册操作记录（手册维度时间线；操作人只到账号）"""
     objects = TenantModelManager()
 
-    # 动作常量：create/upload_original/create_draft/save_draft/publish/
-    # deprecate/rollback/password_reset/config_change/download/chapter_update/delete
+    # 动作常量：create/create_draft/save_draft/publish/deprecate/rollback/
+    # password_reset/config_change/download/chapter_update/delete
+    # 历史记录可能含已下线的 upload_original（原稿体系移除前写入），仅作
+    # 只读展示，不再产生该动作。
     tenant_id = make_tenant_id()
     manual = models.ForeignKey(
         Manual, on_delete=models.CASCADE, related_name='operation_logs', verbose_name='所属手册')

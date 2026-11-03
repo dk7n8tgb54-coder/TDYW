@@ -17,8 +17,9 @@
   结构变化（改名/排序/移除）无需内容修改即可发布。
 - 存量数据保守回填：只有"当前生效快照哈希一致 + 无活跃会话"的文件
   才翻转修订已结束，其余一律保持进行中，不丢失未发布修改或编辑会话。
-- 批量分工：逐文件校验归属，全成功或全失败；改派/清空负责人后旧负责人
-  的提交编制不再显示为有效提交；发布结束修订后提交不再误报为下一轮交接。
+- 批量分工：逐文件校验归属，全成功或全失败；提交 pending 期间分工/
+  改派被冻结拒绝，撤回后旧快照作废留痕；发布消费提交（状态 published，
+  记录保留），下一轮重新提交才再次有效。
 """
 import importlib
 import json
@@ -66,7 +67,6 @@ class PublishRoundEndTests(VersionChangesTestBase):
             self.assertIsNotNone(draft)
             self.assertTrue(draft['file_hash'])
             self.assertEqual(draft['base_version_no'], 1)
-            self.assertIsNone(draft['source_original_id'])
             self.assertEqual(row['submission']['state'], 'none')
             # 工作副本物理文件仍在（发布不删除工作副本）
             self.assertTrue(os.path.exists(storage.resolve_absolute_path(
@@ -84,6 +84,9 @@ class PublishRoundEndTests(VersionChangesTestBase):
         """快照制作失败：修订状态、草稿、旧生效版本全部保持原状"""
         self._publish('v1')
         self._modify_file(self.file_a['id'], DOCX + b'-a-new')
+        # 发布交接：新变化的甲须由负责人 editor 提交编制（复制失败用例
+        # 也必须先越过行锁内的交接校验，才能到达快照复制阶段）
+        self._ensure_handoff(self.publisher)
         rows_before = self._files_rows()
         with patch('apps.institution.services.shutil.copyfile',
                    side_effect=OSError('disk error')):
@@ -280,7 +283,6 @@ class StartRevisionTests(VersionChangesTestBase):
         # 草稿行已被删除：修复按新草稿从修订号 1 重新起算
         self.assertEqual(draft.revision, 1)
         self.assertEqual(draft.base_version.version_no, 1)
-        self.assertIsNone(draft.source_original)
         self.assertTrue(os.path.exists(storage.resolve_absolute_path(
             draft.file_path)))
         self.assertTrue(ManualOperationLog.objects.filter(
@@ -306,10 +308,10 @@ class StartRevisionTests(VersionChangesTestBase):
             ManualDraft.objects.get(file_id=self.file_a['id']).file_hash,
             snap_hash)
 
-    def test_start_repair_baseline_mismatch_never_uses_original(self):
+    def test_start_repair_baseline_mismatch_restores_current_version(self):
         """修订已结束但工作副本与基线不一致（异常态）：确认后以生效快照
-        修复，绝不静默改用初始来源原稿"""
-        # 先让生效快照与初始原稿内容不同（发布前修改过一轮）
+        修复，绝不静默沿用不一致的工作副本（原稿体系已移除，无其它来源）"""
+        # 先让生效快照与最初上传内容不同（发布前修改过一轮）
         self._modify_file(self.file_a['id'], DOCX + b'-a-v1')
         self._publish('v1')
         # 制造异常态：草稿内容再次变化（修订被保存置开启），随后状态被
@@ -333,12 +335,12 @@ class StartRevisionTests(VersionChangesTestBase):
             manual_file_id=self.file_a['id']).file_hash
         self.assertEqual(draft.file_hash, snap_hash)
         self.assertNotEqual(draft.file_hash, modified_hash)
-        # 修复来源是生效快照而不是初始原稿：初始原稿内容与快照不同
-        original = draft.file.originals.order_by('id').first()
-        self.assertIsNotNone(original)
-        self.assertNotEqual(original.file_hash, snap_hash)
-        self.assertNotEqual(draft.file_hash, original.file_hash)
-        self.assertIsNone(draft.source_original)
+        # 修复来源是生效快照：快照物理文件仍原样保留（修复只读快照）
+        snap_file = ManualVersion.objects.get(
+            manual=self.manual, version_no=1).files.get(
+            manual_file_id=self.file_a['id'])
+        self.assertTrue(os.path.exists(storage.resolve_absolute_path(
+            snap_file.file_path)))
 
     def test_repair_revokes_active_sessions(self):
         """修复替换工作副本前使该文件编辑会话失效，旧会话不能再保存"""
@@ -426,7 +428,8 @@ class BatchAssignmentTests(VersionChangesTestBase):
         upload = SimpleUploadedFile('别家.docx', DOCX + b'-foreign')
         resp = self.manager_client.post(
             f'/institution/manuals/{other.id}/files/create/',
-            {'file': upload})
+            # 显式空负责人：钉死"跨制度文件未被误改"（默认负责人=所有者）
+            {'file': upload, 'owner_id': ''})
         self.assertFalse(has_error(resp), resp.content)
         foreign_id = get_data(resp)['id']
         resp = self._batch([self.file_a['id'], foreign_id],
@@ -462,7 +465,7 @@ class BatchAssignmentTests(VersionChangesTestBase):
             self.assertTrue(has_error(resp))
 
     def test_batch_reassignment_resets_submission(self):
-        """改派后旧负责人的提交不再显示为有效提交（批量路径）"""
+        """冻结期间批量改派被拒；撤回后改派成功且旧快照留痕"""
         self._batch([self.file_a['id']], self.editor.id)
         resp = post_json(self.editor_client,
                          f'/institution/manuals/{self.manual.id}/files/'
@@ -471,11 +474,22 @@ class BatchAssignmentTests(VersionChangesTestBase):
         self.assertEqual(
             self._rows()[self.file_a['id']]['submission']['state'],
             'submitted')
+        # pending 冻结期间批量改派（含整批）被拒绝
+        resp = self._batch([self.file_a['id']], self.editor2.id, note='移交')
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        # 撤回后再批量改派；旧快照作废但操作记录保留
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{self.file_a["id"]}/submit/withdraw/', {})
+        self.assertFalse(has_error(resp), resp.content)
         resp = self._batch([self.file_a['id']], self.editor2.id, note='移交')
         self.assertFalse(has_error(resp), resp.content)
         row = self._rows()[self.file_a['id']]
         self.assertEqual(row['assignment']['owner_id'], self.editor2.id)
         self.assertEqual(row['submission']['state'], 'none')
+        self.assertEqual(row['submission']['status'], 'withdrawn')
         # 历史操作记录保留：提交与改派记录都在
         actions = set(ManualOperationLog.objects.filter(
             manual=self.manual, file_id=self.file_a['id'])
@@ -504,6 +518,7 @@ class SubmissionSemanticsTests(VersionChangesTestBase):
         return {x['id']: x for x in get_data(resp)}
 
     def test_reassign_resets_submission_same_owner_keeps(self):
+        """冻结期间分工/说明修改被拒；撤回后可改派，旧快照作废留痕"""
         data = self._add_file('分工.docx')
         resp = self._assign(data['id'], self.editor.id, note='初分工')
         self.assertFalse(has_error(resp), resp.content)
@@ -511,29 +526,48 @@ class SubmissionSemanticsTests(VersionChangesTestBase):
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(
             self._rows()[data['id']]['submission']['state'], 'submitted')
-        # 负责人未变、仅修改说明：提交保留
+        # 提交 pending 期间任何分工变更（即使负责人不变）都被冻结拒绝
         resp = self._assign(data['id'], self.editor.id, note='补充说明')
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        # 撤回后可改派：旧快照状态 withdrawn（记录保留）
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{data["id"]}/submit/withdraw/', {})
         self.assertFalse(has_error(resp), resp.content)
-        self.assertEqual(
-            self._rows()[data['id']]['submission']['state'], 'submitted')
-        # 改派：提交回到未提交
         resp = self._assign(data['id'], self.editor2.id, note='改派')
         self.assertFalse(has_error(resp), resp.content)
         row = self._rows()[data['id']]
+        self.assertEqual(row['assignment']['owner_id'], self.editor2.id)
         self.assertEqual(row['submission']['state'], 'none')
+        self.assertEqual(row['submission']['status'], 'withdrawn')
 
     def test_clear_owner_resets_submission(self):
+        """撤回后可清空负责人；有效负责人回退手册所有者"""
         data = self._add_file('清空.docx')
         self._assign(data['id'], self.editor.id)
         resp = self._submit(data['id'])
         self.assertFalse(has_error(resp), resp.content)
         resp = self._assign(data['id'], None)
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{data["id"]}/submit/withdraw/', {})
         self.assertFalse(has_error(resp), resp.content)
-        self.assertEqual(
-            self._rows()[data['id']]['submission']['state'], 'none')
+        resp = self._assign(data['id'], None)
+        self.assertFalse(has_error(resp), resp.content)
+        row = self._rows()[data['id']]
+        self.assertIsNone(row['assignment']['owner_id'])
+        self.assertEqual(row['assignment']['effective_owner_id'],
+                         self.manager.id)
+        self.assertEqual(row['submission']['state'], 'none')
+        self.assertEqual(row['submission']['status'], 'withdrawn')
 
     def test_publish_consumes_submission_not_carried_to_next_round(self):
-        """发布结束修订轮后提交被消费，不得误显示为下一轮的有效交接"""
+        """发布消费提交（状态 published/记录保留），下一轮重新提交才有效"""
         self._set_password()
         resp = self._submit(self.file_a['id'])
         self.assertFalse(has_error(resp), resp.content)
@@ -543,7 +577,9 @@ class SubmissionSemanticsTests(VersionChangesTestBase):
         self._publish('v1')
         row = self._rows()[self.file_a['id']]
         self.assertEqual(row['submission']['state'], 'none')
-        self.assertIsNone(row['submission']['submitted_at'])
+        self.assertEqual(row['submission']['status'], 'published')
+        # 已随版本发布：提交人/时间保留可追溯，但不再是"有效提交"
+        self.assertIsNotNone(row['submission']['submitted_at'])
         # 新一轮修订中重新提交再次有效
         self._modify_file(self.file_a['id'], DOCX + b'-a-round2')
         resp = self._submit(self.file_a['id'])

@@ -17,7 +17,7 @@ from django.test import TestCase
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualCategory, ManualDraft,
                                      ManualFile, ManualOperationLog,
-                                     ManualVersion, ManualOriginal)
+                                     ManualVersion)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_ADD, PERM_CONFIG, PERM_DELETE, PERM_EDIT, PERM_UPLOAD,
     PERM_VIEW, delete_json, get_data, has_error, make_client, make_grant,
@@ -229,18 +229,16 @@ class ManualCrudTests(TestCase):
             with patch.object(storage, 'get_institution_storage_base',
                               return_value=tmp):
                 manual = _make_manual(owner=self.manager)
-                rel = storage.build_relative_path('original', manual.id, 'a.docx')
+                rel = storage.build_relative_path('draft', manual.id, 'a.docx')
                 abs_path = storage.resolve_absolute_path(rel)
                 os.makedirs(os.path.dirname(abs_path), exist_ok=True)
                 with open(abs_path, 'wb') as f:
                     f.write(b'docx')
-                from apps.institution.models import ManualFile
                 file_entry = ManualFile.objects.create(
                     manual=manual, display_name='a.docx', sort_order=0)
-                ManualOriginal.objects.create(
+                ManualDraft.objects.create(
                     manual=manual, file=file_entry, file_path=rel,
-                    original_name='a.docx', ext='.docx', file_size=4,
-                    uploaded_by=self.manager)
+                    original_name='a.docx', file_size=4, revision=1)
                 resp = delete_json(self.manager_client,
                                    f'/institution/manuals/{manual.id}/')
                 self.assertFalse(has_error(resp))
@@ -314,7 +312,7 @@ class TenantManagerDeclarationTests(TestCase):
         from libs.tenant_base_model import TenantModelManager
         from apps.institution import models as m
         names = ('ManualCategory', 'Manual', 'ManualAuthorization',
-                 'ManualFile', 'ManualOriginal',
+                 'ManualFile',
                  'ManualDraft', 'ManualVersion', 'ManualVersionFile',
                  'ManualEditSession', 'ManualChapter', 'ManualOperationLog')
         for name in names:

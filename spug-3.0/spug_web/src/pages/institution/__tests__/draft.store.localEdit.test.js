@@ -17,6 +17,11 @@
  *   清单内最新修订号）；成功清基线并刷新清单；基线过期（服务端草稿
  *   已被推进）清基线要求重新下载，其他失败保留基线可重试；全程不清
  *   会话（会话类失败由 saveDraft 既有语义处理）。
+ * - replaceLocalDraft（整份替换当前草稿，不要求先下载）：以确认弹窗
+ *   快照的修订号为基线（同样绝不读取清单最新修订号，缺失即拒绝）；
+ *   成功只更新草稿、清已消费基线并刷新清单（不发布/不建文件/不改历史
+ *   版本）；冲突「草稿已被其他会话更新」不清会话，其余失败沿用既有
+ *   会话/密码分类。
  */
 jest.mock('libs', () => ({
   http: {
@@ -41,7 +46,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: {
       id: 100 + id,
       revision: id,
@@ -49,7 +53,6 @@ function makeFile(id, overrides) {
       file_size: 1024,
       file_hash: `hash-${id}`,
       base_version_id: null,
-      source_original_id: null,
       last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00',
@@ -375,6 +378,86 @@ describe('draft store（本机上传：基线修订号保护）', () => {
       .rejects.toBeTruthy();
     expect(store.localBaselines[1]).toBe(4);
     expect(store.sessionKeyOf(1)).toBe('sess-1');
+  });
+});
+
+describe('draft store（整份替换当前草稿：确认时修订号契约）', () => {
+  it('以确认时修订号为基线上传（不是清单最新修订号）：只更新草稿、清基线并刷新清单', async () => {
+    setupStore(5, [makeFile(1)]);
+    store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+    // 旧下载基线=2；清单内草稿修订号已被推进到 9；确认时快照=3
+    store.localBaselines[1] = 2;
+    store.files[0].draft.revision = 9;
+    http.post.mockResolvedValue({revision: 4, file_name: '文件1.docx'});
+    http.get.mockResolvedValue([makeFile(1)]);
+    const file = new File(['x'], 'a.docx');
+    const data = await store.replaceLocalDraft(1, file, 3);
+    expect(data.revision).toBe(4);
+    // 唯一请求=文件级 draft/save（multipart），修订号=确认时修订号 3
+    expect(http.post).toHaveBeenCalledTimes(1);
+    const [url, formData] = http.post.mock.calls[0];
+    expect(url).toBe('/api/institution/manuals/5/files/1/draft/save/');
+    expect(formData.get('session_key')).toBe('sess-1');
+    expect(formData.get('revision')).toBe('3');
+    expect(formData.get('file')).toBe(file);
+    // 只更新草稿：不发布、不新增文件、不改历史发布版本
+    //（无 PUT/DELETE，POST 仅 draft/save）
+    expect(http.put).not.toHaveBeenCalled();
+    expect(http.delete).not.toHaveBeenCalled();
+    expect(http.post.mock.calls.every(([u]) => u.includes('/draft/save/'))).toBe(true);
+    // 成功清该文件已消费的基线并刷新清单（修订状态随清单刷新）
+    expect(store.localBaselines[1]).toBeUndefined();
+    expect(http.get.mock.calls.some(([u]) => u.includes('/files/'))).toBe(true);
+    // 替换不撤销会话
+    expect(store.sessionKeyOf(1)).toBe('sess-1');
+  });
+
+  it('确认时修订号缺失：拒绝替换，绝不回落到清单最新修订号', async () => {
+    setupStore(5, [makeFile(1)]);
+    store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+    store.files[0].draft.revision = 9;
+    await expect(store.replaceLocalDraft(1, new File(['x'], 'a.docx'), null))
+      .rejects.toContain('缺少替换前的草稿修订号');
+    expect(http.post).not.toHaveBeenCalled();
+    expect(store.sessionKeyOf(1)).toBe('sess-1');
+  });
+
+  it('冲突（草稿已被其他会话更新）：抛错、不清会话、不回密码门', async () => {
+    setupStore(5, [makeFile(1)]);
+    store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+    store.verifiedPassword = 'pw1';
+    store.passwordVerified = true;
+    http.post.mockRejectedValue('草稿已被其他会话更新，请刷新草稿后重试');
+    await expect(store.replaceLocalDraft(1, new File(['x'], 'a.docx'), 3))
+      .rejects.toBeTruthy();
+    // 修订号冲突与会话失效无关：会话与密码门状态原样保留，可刷新后重新确认
+    expect(store.sessionKeyOf(1)).toBe('sess-1');
+    expect(store.passwordVerified).toBe(true);
+  });
+
+  it('其它错误沿用既有分类：会话类清该文件会话，纯密码类回密码门', async () => {
+    setupStore(5, [makeFile(1)]);
+    store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+    store.verifiedPassword = 'pw1';
+    store.passwordVerified = true;
+    http.post.mockRejectedValue('编辑会话已过期，请重新验证密码');
+    await expect(store.replaceLocalDraft(1, new File(['x'], 'a.docx'), 3))
+      .rejects.toBeTruthy();
+    // 含"会话"的错误只清该文件会话、不回密码门（可重新开启）
+    expect(store.sessionKeyOf(1)).toBe('');
+    expect(store.passwordVerified).toBe(true);
+
+    setupStore(5, [makeFile(1)]);
+    store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+    store.verifiedPassword = 'pw1';
+    store.passwordVerified = true;
+    http.post.mockRejectedValue('编辑密码错误');
+    await expect(store.replaceLocalDraft(1, new File(['x'], 'a.docx'), 3))
+      .rejects.toBeTruthy();
+    // 纯密码类错误：清会话并清已验证密码，回密码门
+    expect(store.sessionKeyOf(1)).toBe('');
+    expect(store.verifiedPassword).toBe('');
+    expect(store.passwordVerified).toBe(false);
   });
 });
 

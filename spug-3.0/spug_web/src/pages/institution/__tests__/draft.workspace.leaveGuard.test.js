@@ -50,7 +50,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: {
       id: 100 + id,
       revision: id,
@@ -58,7 +57,6 @@ function makeFile(id, overrides) {
       file_size: 1024,
       file_hash: `hash-${id}`,
       base_version_id: null,
-      source_original_id: null,
       last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00',

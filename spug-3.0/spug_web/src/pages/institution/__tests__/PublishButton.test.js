@@ -3,11 +3,20 @@
  * Released under the AGPL-3.0 License.
  *
  * 发布新版本入口测试（2026-10-29 交互优化：发布主入口上移到详情头部
- * 整套待发布状态旁，PublishButton 组件）：
+ * 整套待发布状态旁，PublishButton 组件；2026-11-03 固定快照交接）：
  * - 点击先请求 publish-preview 分组预检，确认窗口展示 固定文案+全部分组；
  * - 受阻文件点名、给出可执行处理入口（我的会话→工作台深链结束会话；
- *   他人会话→等待说明；缺草稿→编制角色（负责人）恢复 / 无编制角色说明），
- *   受阻时禁用确认按钮（不让用户点击必然失败的确认；服务端仍权威校验）；
+ *   他人会话→等待说明；缺草稿→编制角色（负责人）恢复 / 无编制角色说明；
+ *   unassigned→所有者/管理员"去修订草稿视图指定负责人"、
+ *   submission_pending/submission_stale→"等待有效负责人「X」提交/重新提交
+ *   待发布核对"（逐份 message 来自服务端，确认按钮禁用；服务端仍权威校验）；
+ * - 逐行固定快照核对信息（服务端 publish_source 决定，前端不臆测）：
+ *   draft→"将使用当前草稿"（发布人即有效负责人时再无需要提交）、
+ *   submission→"将使用已提交快照（提交人 X，提交时间 Y）"、
+ *   current_version→"将沿用当前生效快照（内容未变化）"；
+ *   有效负责人展示 owner_assigned=false 时注明"（手册所有者，默认）"，
+ *   提交记录状态=待发布人核对/已撤回/已退回/提交已失效/尚未提交待发布核对；
+ *   publish_source=null（旧后端）时不输出来源文案，保持旧展示；
  * - 确认后携带变更说明 POST publish，成功走统一生命周期刷新；
  *   失败不显示成功、不清空现有数据；
  * - 仅发布角色可渲染（编制/查看角色不渲染）；归档手册不渲染。
@@ -162,6 +171,11 @@ describe('PublishButton（发布新版本入口）', () => {
     expect(store.fetchPublishPreview).toHaveBeenCalledWith(7);
     const modalText = document.body.textContent;
     expect(modalText).toContain('本次将把全部未移除文件发布为新的制度版本');
+    // 发布语义：完整/不可变的新版本快照；发布后保留当前草稿作为后续
+    // 修订工作副本；历史发布版本不会被本次或后续发布覆盖
+    expect(modalText).toContain('完整、不可变的新版本快照');
+    expect(modalText).toContain('发布后保留当前草稿作为后续修订的工作副本');
+    expect(modalText).toContain('不会被本次或后续发布覆盖');
     expect(modalText).toContain('本次内容变化');
     expect(modalText).toContain('管理规定.docx');
     expect(modalText).toContain('新增文件');
@@ -247,6 +261,145 @@ describe('PublishButton（发布新版本入口）', () => {
     expect(modalText).toContain('去恢复草稿');
     expect(document.querySelector('.ant-modal-confirm .ant-btn-primary').disabled)
       .toBe(true);
+  });
+});
+
+describe('PublishButton（固定快照交接：逐份发布来源与提交状态）', () => {
+  const PENDING = {status: 'pending', state: 'submitted', frozen: true,
+    submitted_at: '2026-01-05T09:00:00', submitted_by_name: '张三',
+    submission_revision: 3, draft_revision: 3};
+  const NONE = {status: 'none', submitted_at: null, submitted_by_name: '',
+    submission_revision: null, draft_revision: 3};
+
+  it('变化行：发布人即有效负责人 → 将使用当前草稿；需提交行显示已提交快照来源与提交人时间', async () => {
+    setupPublishPreview({
+      changed: [{file_id: 11, name: '管理规定.docx', sort_order: 0,
+        draft_revision: 3, draft_size: 2048, change_type: 'modified',
+        owner_id: 9, owner_name: '我', submission: NONE,
+        publisher_is_owner: true, submission_required: false,
+        publish_source: 'draft', content_changed: true}],
+      added: [{file_id: 13, name: 'SMS手册.docx', sort_order: 2,
+        draft_revision: 1, draft_size: 4096, change_type: 'added',
+        owner_id: 10, owner_name: '张三', submission: PENDING,
+        publisher_is_owner: false, submission_required: true,
+        publish_source: 'submission', content_changed: true}],
+      unchanged: [{file_id: 12, name: '应急手册.docx', sort_order: 1,
+        draft_revision: 1, draft_size: 1024, change_type: 'unchanged',
+        owner_id: null, owner_name: '', owner_assigned: false,
+        effective_owner_name: '王五', submission: NONE,
+        publisher_is_owner: false, submission_required: false,
+        publish_source: 'current_version', content_changed: false}],
+    });
+    container = renderButton();
+    await openConfirm();
+    const modalText = document.body.textContent;
+    // 逐份发布来源（服务端 publish_source）
+    expect(modalText).toContain('将使用当前草稿');
+    expect(modalText).toContain('将使用已提交快照（提交人 张三，提交时间 2026-01-05 09:00:00）');
+    expect(modalText).toContain('发布人即该文件有效负责人，无需提交');
+    // 提交记录状态与有效负责人（默认负责人注明手册所有者默认）
+    expect(modalText).toContain('待发布人核对');
+    expect(modalText).toContain('负责人 张三');
+    // 未修改文件：沿用当前生效快照（折叠时仅数量汇总，展开后逐行展示）
+    const expand = Array.from(document.querySelectorAll('.ant-modal a'))
+      .find(a => a.textContent.includes('展开核对完整清单'));
+    act(() => {
+      expand.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+    });
+    expect(document.body.textContent)
+      .toContain('将沿用当前生效快照（内容未变化）');
+    expect(document.body.textContent).toContain('负责人 王五（手册所有者，默认）');
+    // 无需提交行不显示误导性「未提交」
+    expect(document.body.textContent).not.toContain('未提交');
+  });
+
+  it('新增阻断原因：unassigned 所有者指引 / submission_pending·stale 等待有效负责人提交', async () => {
+    store.manual = Object.assign({}, store.manual, {is_owner: true});
+    setupPublishPreview({
+      changed: [], added: [], removed: [], unchanged: [],
+      blocker_summary: {unassigned: 1, submission_pending: 1, submission_stale: 1},
+      blocked: [
+        {file_id: 21, name: '新增未分配.docx', sort_order: 0, reason: 'unassigned',
+          message: '文件「新增未分配.docx」未分配负责人，本次新增或内容变化须先指定负责人',
+          owner_id: null, owner_name: '', submission: NONE,
+          publisher_is_owner: false, submission_required: true,
+          publish_source: null, content_changed: true},
+        {file_id: 22, name: '待提交.docx', sort_order: 1, reason: 'submission_pending',
+          message: '文件「待提交.docx」等待有效负责人「张三」提交待发布核对',
+          owner_id: 10, owner_name: '张三', effective_owner_name: '张三',
+          submission: NONE,
+          publisher_is_owner: false, submission_required: true,
+          publish_source: null, content_changed: true},
+        {file_id: 23, name: '提交失效.docx', sort_order: 2, reason: 'submission_stale',
+          message: '文件「提交失效.docx」提交待发布核对已失效，请有效负责人「李四」重新提交',
+          owner_id: 11, owner_name: '李四', effective_owner_name: '李四',
+          submission: {...PENDING, state: 'stale', submitted_by_name: '李四',
+            submission_revision: 1, draft_revision: 3},
+          publisher_is_owner: false, submission_required: true,
+          publish_source: null, content_changed: true},
+      ],
+    });
+    container = renderButton();
+    await openConfirm();
+    const modalText = document.body.textContent;
+    // 逐份展示服务端 message（三种阻断原因）+ 有效负责人 + 提交状态
+    expect(modalText).toContain('未分配负责人，本次新增或内容变化须先指定负责人');
+    expect(modalText).toContain('等待有效负责人「张三」提交待发布核对');
+    expect(modalText).toContain('提交待发布核对已失效，请有效负责人「李四」重新提交');
+    expect(modalText).toContain('尚未提交待发布核对');
+    expect(modalText).toContain('提交已失效');
+    // 汇总用 blocker_summary 计数（新文案）
+    expect(modalText).toContain('未分配负责人 1 份');
+    expect(modalText).toContain('待负责人提交待发布核对 1 份');
+    expect(modalText).toContain('提交已失效 1 份');
+    // 所有者：unassigned 给出"去修订草稿视图指定负责人"指引
+    expect(modalText).toContain('请在「修订草稿」视图为该文件指定负责人');
+    // 交接类阻断：等待说明，不渲染链接、不做单/多人模式切换
+    expect(modalText).toContain('等待有效负责人「张三」提交待发布核对');
+    expect(modalText).toContain('等待有效负责人「李四」重新提交待发布核对');
+    expect(document.querySelectorAll('.ant-modal a').length).toBe(0);
+    // 存在受阻文件 → 禁用确认
+    expect(document.querySelector('.ant-modal-confirm .ant-btn-primary').disabled)
+      .toBe(true);
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('非所有者非管理员：unassigned 显示需所有者/管理员指定负责人', async () => {
+    setupPublishPreview({
+      changed: [], added: [], removed: [], unchanged: [],
+      blocked: [
+        {file_id: 21, name: '新增未分配.docx', sort_order: 0, reason: 'unassigned',
+          message: '文件「新增未分配.docx」未分配负责人，本次新增或内容变化须先指定负责人',
+          owner_name: '', submission: NONE},
+      ],
+    });
+    container = renderButton();
+    await openConfirm();
+    const modalText = document.body.textContent;
+    expect(modalText).toContain('需手册所有者/管理员指定负责人');
+    expect(modalText).not.toContain('请在「修订草稿」视图为该文件指定负责人');
+  });
+
+  it('旧后端缺失交接字段：保持旧展示（负责人+草稿修订号+提交状态），不臆测发布来源', async () => {
+    setupPublishPreview({
+      changed: [{file_id: 11, name: '管理规定.docx', sort_order: 0,
+        draft_revision: 3, draft_size: 2048, change_type: 'modified',
+        owner_name: '张三', submission: NONE}],
+      added: [], unchanged: [], removed: [],
+    });
+    container = renderButton();
+    await openConfirm();
+    const modalText = document.body.textContent;
+    expect(modalText).toContain('草稿 r3');
+    expect(modalText).toContain('负责人 张三');
+    // 旧后端无 publish_source：不输出任何来源文案（不臆测草稿/快照）
+    expect(modalText).not.toContain('将使用当前草稿');
+    expect(modalText).not.toContain('将使用已提交快照');
+    expect(modalText).not.toContain('将沿用当前生效快照');
+    // 旧后端无 submission_required：仍按旧版展示提交记录状态
+    expect(modalText).toContain('尚未提交待发布核对');
+    expect(modalText).not.toContain('发布人即该文件负责人，无需提交');
+    expect(modalText).not.toContain('未变化，无需提交');
   });
 });
 

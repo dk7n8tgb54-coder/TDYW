@@ -11,7 +11,8 @@ import os
 
 from . import storage
 from .models import Manual, ManualDraft, ManualFile, ManualVersionFile
-from .services import (ACTION_REVISION_START, build_draft_recovery_hint,
+from .services import (ACTION_REVISION_START, FROZEN_EDIT_ERROR,
+                       build_draft_recovery_hint, file_is_frozen,
                        has_published_versions, log_operation,
                        restore_draft_from_current_version)
 
@@ -38,6 +39,8 @@ def start_file_revision(file_entry, user, confirm_repair=False):
     manual = file_entry.manual
     if manual.status != Manual.STATUS_ACTIVE:
         return None, '手册已归档，不能开始修订'
+    if file_is_frozen(file_entry):
+        return None, FROZEN_EDIT_ERROR
     if file_entry.revision_open:
         return {'resumed': True, 'started': False, 'repaired': False,
                 'needs_repair': False, 'reason': '', 'message': '',

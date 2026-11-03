@@ -4,7 +4,7 @@ from django.db import transaction
 from django.urls import path, re_path
 
 from . import views, views_authorization, views_draft, views_editor, \
-    views_files, views_retention
+    views_files, views_retention, views_submission
 
 urlpatterns = [
     # 类别字典
@@ -53,9 +53,21 @@ urlpatterns = [
     # 分工写路径一致，不开放账号管理清单）
     re_path(r'^manuals/(?P<pk>\d+)/assignment-owners/$',
             views_files.AssignmentOwnerOptionsView.as_view()),
-    # 提交编制：记录提交时草稿修订号与时间（交接信息，不新增发布阻断）
+    # 提交待发布核对：复制独立快照属文件 IO，事务外执行（服务内部仅在
+    # 落库段使用原子事务；视图用 non_atomic 避免 ATOMIC_REQUESTS 包住 IO）
     re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/submit/$',
-            views_files.ManualFileSubmitView.as_view()),
+            transaction.non_atomic_requests(
+                views_files.ManualFileSubmitView.as_view())),
+    # 提交待发布核对固定快照（2026-11-03）：撤回（有效负责人）/退回修改
+    # （发布权者，原因必填）/待核对快照预览与下载（发布人核对只读副本）
+    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/submit/withdraw/$',
+            views_submission.SubmissionWithdrawView.as_view()),
+    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/submit/return/$',
+            views_submission.SubmissionReturnView.as_view()),
+    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/submission/preview-url/$',
+            views_submission.SubmissionPreviewUrlView.as_view()),
+    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/submission/download/$',
+            views_submission.SubmissionDownloadView.as_view()),
     # 开始修订（已发布文件的真实状态动作：开启新一轮修订；工作副本缺失/
     # 损坏/基线不一致时携带 confirm_repair 从生效快照修复）
     re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/revision/start/$',
@@ -64,19 +76,10 @@ urlpatterns = [
     # 逐文件校验归属，事务内全成功或全失败）
     re_path(r'^manuals/(?P<pk>\d+)/files/batch-assignment/$',
             views_files.ManualFileBatchAssignmentView.as_view()),
-    # 按文件回看发布历史（文件变更记录页签；权限=发布域 can_view_published）
+    # 按文件回看发布历史（详情页「文件历史」页签·发布记录子页签；
+    # 权限=发布域 can_view_published）
     re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/version-history/$',
             views_draft.FileVersionHistoryView.as_view()),
-    # 初始来源聚合清单（"初始来源"页签数据源：一次请求返回全部文件行）
-    re_path(r'^manuals/(?P<pk>\d+)/originals-overview/$',
-            views_files.OriginalsOverviewView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/originals/$',
-            views_files.FileOriginalListView.as_view()),
-    # 为已有文件更换来源（受控操作：目标文件明确，不改当前草稿）
-    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/originals/upload/$',
-            views_files.FileOriginalUploadView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/originals/(?P<oid>\d+)/download/$',
-            views_files.FileOriginalDownloadView.as_view()),
 
     # 文件草稿 / 文件级编辑会话 / 编辑服务契约
     re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/draft/$',
@@ -97,14 +100,6 @@ urlpatterns = [
     # 视图内有对 DS 的出站 HTTP 调用，排除 ATOMIC_REQUESTS 事务
     re_path(r'^manuals/(?P<pk>\d+)/files/(?P<fid>\d+)/draft/forcesave/$',
             views_editor._non_atomic_forcesave),
-
-    # 原稿（制度级列表/上传在过渡期委托唯一启用文件；下载按原稿定位）
-    re_path(r'^manuals/(?P<pk>\d+)/originals/$', views.OriginalListView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/originals/upload/$', views.OriginalUploadView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/originals/(?P<oid>\d+)/download/$',
-            views.OriginalDownloadView.as_view()),
-    re_path(r'^manuals/(?P<pk>\d+)/originals/(?P<oid>\d+)/preview-url/$',
-            views_draft.OriginalPreviewUrlView.as_view()),
 
     # 过渡期旧单文件草稿路由（委托唯一启用文件，多文件制度明确拒绝）
     re_path(r'^manuals/(?P<pk>\d+)/draft/$', views_draft.DraftDetailView.as_view()),

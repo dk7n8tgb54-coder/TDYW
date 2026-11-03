@@ -2,15 +2,17 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 草稿恢复行为测试（jsdom + ReactDOM，2026-10-29 草稿恢复优先级规则）：
- * - 无草稿文件不渲染空白编辑器，按服务端 draft_recovery 提示渲染恢复入口。
- * - 有当前生效版本：显示「从当前生效版本恢复草稿」，空体 POST draft/create
- *   （恢复优先级由后端权威决定，前端不得静默调用最近原稿）。
- * - 无任何发布版本：才显示「从初始原稿创建草稿」。
- * - requires_confirm（当前版本不含该文件/已废止）：只能走高级恢复，
- *   明确确认后按指定原稿重建（confirm=true + 已验证密码）。
- * - 已有草稿：不出现恢复入口，也不自动发起任何 draft/create。
+ * 草稿恢复行为测试（jsdom + ReactDOM；2026-11-02 两态简化版）：
+ * - 无草稿文件不渲染空白编辑器，恢复途径由服务端 draft_recovery 权威决定。
+ * - source='current_version'：提示当前生效版本 vN 可恢复，按钮
+ *   「从当前生效版本恢复草稿」，空体 POST draft/create；成功提示带新修订号
+ *   与来源版本（「草稿已恢复（修订号 rN，来源版本 vN）」）。
+ * - source='none'（或字段缺失）：仅警示「该文件没有可恢复的发布快照。
+ *   请重新上传制度文件建立草稿（已有历史版本时，可先在「版本与发布」中
+ *   回退重建草稿）」，**不显示任何恢复/重建按钮**，也不发任何 draft/create。
+ * - 已有草稿：不出现恢复入口，也不自动发起任何 draft/create（不覆盖草稿）。
  * - 恢复失败：不显示成功提示（错误由拦截器提示一次）。
+ * - 历史来源/高级恢复/更换来源能力已整体删除：界面不出现任何相关入口。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -49,7 +51,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: null,
     active_session: null,
   }, overrides);
@@ -59,11 +60,6 @@ function mockFetch(files, manual) {
   http.get.mockImplementation(url => {
     if (url.includes('editor-config')) {
       return Promise.resolve({editor_available: false});
-    }
-    if (url.includes('/originals/')) {
-      return Promise.resolve([
-        {id: 77, file_name: '原始上传.docx', ext: '.docx', file_size: 1024,
-          uploaded_by_name: '张三', uploaded_at: '2026-10-01T10:00:00'}]);
     }
     if (url.includes('/files/')) return Promise.resolve(files);
     return Promise.resolve(manual || {
@@ -121,7 +117,7 @@ function draftOf(revision, baseVersionNo) {
   return {id: 900 + revision, revision, file_name: '文件1.docx',
     file_size: 1024, file_hash: 'h1',
     base_version_id: baseVersionNo != null ? 9 : null,
-    base_version_no: baseVersionNo, source_original_id: null,
+    base_version_no: baseVersionNo,
     last_saved_by_name: '张三', last_saved_at: '2026-10-01T10:00:00'};
 }
 
@@ -152,6 +148,10 @@ describe('草稿工作台（从当前生效版本恢复）', () => {
     expect(container.textContent).toContain('当前生效版本为 v3');
     expect(container.textContent).not.toContain('在线编辑服务未配置');
     expect(findButton(container, '从当前生效版本恢复草稿')).not.toBeUndefined();
+    // 界面不再出现任何历史来源/高级恢复类入口
+    expect(container.textContent).not.toContain('高级恢复');
+    expect(container.textContent).not.toContain('原稿');
+    expect(container.textContent).not.toContain('更换来源');
   });
 
   it('恢复成功后空体请求 + 提示新修订号与来源版本', async () => {
@@ -166,80 +166,53 @@ describe('草稿工作台（从当前生效版本恢复）', () => {
       await Promise.resolve();
     });
     await flush();
-    // 空体请求：恢复来源由后端按优先级决定
+    // 空体请求：能否恢复、从哪个版本恢复由后端权威决定
     expect(http.post).toHaveBeenCalledWith(
       '/api/institution/manuals/5/files/1/draft/create/', {});
-    expect(successSpy).toHaveBeenCalledWith(expect.stringContaining('草稿已恢复'));
-    expect(successSpy).toHaveBeenCalledWith(expect.stringContaining('r2'));
-    expect(successSpy).toHaveBeenCalledWith(expect.stringContaining('v3'));
+    expect(http.post.mock.calls.filter(
+      ([url]) => url.includes('draft/create/'))).toHaveLength(1);
+    expect(successSpy).toHaveBeenCalledWith(
+      '草稿已恢复（修订号 r2，来源版本 v3）');
   });
 });
 
-describe('草稿工作台（从初始原稿创建与高级恢复）', () => {
-  it('无任何发布版本：显示「从初始原稿创建草稿」并提示初始来源', async () => {
-    mockFetch([makeFile(1, {draft_recovery: {source: 'original'}})],
-      {id: 5, name: '测试手册', my_roles: ['edit'],
-        has_versions: false, has_password: false});
+describe('草稿工作台（无可恢复发布快照：仅提示重新上传）', () => {
+  it('source=none：明确提示重新上传/先回退，且不显示任何恢复/重建按钮', async () => {
+    mockFetch([makeFile(1, {draft_recovery: {
+      source: 'none', requires_reupload: true,
+      note: '该文件没有可恢复的发布快照，请重新上传制度文件建立草稿'}})]);
     const container = await enterWorkspace();
-    expect(container.textContent).toContain('从初始原稿创建草稿');
-    expect(container.textContent).not.toContain('从当前生效版本恢复草稿');
-    http.post.mockResolvedValue({revision: 1, base_version_id: null});
-    mockFilesAfterRecovery(1, draftOf(1, null));
-    await act(async () => {
-      click(findButton(container, '从初始原稿创建草稿'));
-      await Promise.resolve();
-    });
-    await flush();
-    expect(http.post).toHaveBeenCalledWith(
-      '/api/institution/manuals/5/files/1/draft/create/', {});
-    expect(successSpy).toHaveBeenCalledWith(
-      expect.stringContaining('来源：初始原稿'));
+    expect(container.textContent)
+      .toContain('该文件没有可恢复的发布快照。请重新上传制度文件建立草稿');
+    expect(container.textContent).toContain('「版本与发布」中回退重建草稿');
+    // 恢复面板内不得渲染任何按钮（无恢复/重建入口）
+    expect(container.querySelectorAll('.ant-alert button')).toHaveLength(0);
+    expect(findButton(container, '从当前生效版本恢复草稿')).toBeUndefined();
+    expect(findButton(container, '重建草稿')).toBeUndefined();
+    expect(container.textContent).not.toContain('高级恢复');
+    expect(container.textContent).not.toContain('从初始原稿');
+    // 不会发任何恢复请求
+    expect(http.post).not.toHaveBeenCalled();
+    expect(successSpy).not.toHaveBeenCalled();
   });
 
-  it('requires_confirm：只能走高级恢复，确认后按指定原稿重建', async () => {
-    mockFetch([makeFile(1, {draft_recovery: {
-      source: 'original', requires_confirm: true,
-      note: '当前生效版本（v3）不包含该文件的快照'}})]);
+  it('draft_recovery 字段缺失同样按无可恢复快照处理（只提示，无按钮）', async () => {
+    mockFetch([makeFile(1)]);
     const container = await enterWorkspace();
-    store.verifiedPassword = 'pw1';
-    // 不得出现"直接创建"入口（不能从原稿静默补齐）
-    expect(container.textContent).not.toContain('从初始原稿创建草稿');
-    expect(container.textContent).toContain('高级恢复');
-    const btn = findButton(container, '从原始上传文件重建草稿');
-    expect(btn).not.toBeUndefined();
-    await act(async () => {
-      click(btn);
-      await Promise.resolve();
-    });
-    await flush();
-    const confirm = document.querySelector('.ant-modal-confirm');
-    expect(confirm).not.toBeNull();
-    expect(confirm.textContent).toContain('不可撤销');
-    http.post.mockResolvedValue({revision: 1});
-    const okButton = confirm.querySelector('.ant-btn-primary');
-    await act(async () => {
-      okButton.click();
-      await Promise.resolve();
-      await Promise.resolve();
-      await new Promise(resolve => setTimeout(resolve, 0));
-    });
-    // 高级恢复按原稿清单首个（最近原稿）重建，confirm + 已验证密码
-    expect(http.get).toHaveBeenCalledWith(
-      '/api/institution/manuals/5/files/1/originals/');
-    expect(http.post).toHaveBeenCalledWith(
-      '/api/institution/manuals/5/files/1/draft/create/',
-      {original_id: 77, confirm: true, password: 'pw1'});
-    expect(successSpy).toHaveBeenCalledWith(
-      expect.stringContaining('已按原始上传文件重建'));
+    expect(container.textContent).toContain('该文件没有可恢复的发布快照');
+    expect(container.querySelectorAll('.ant-alert button')).toHaveLength(0);
+    expect(http.post).not.toHaveBeenCalled();
+    expect(successSpy).not.toHaveBeenCalled();
   });
 });
 
 describe('草稿工作台（已有草稿守护与失败提示）', () => {
-  it('已有草稿：不出现恢复入口，加载过程不自动发起 draft/create', async () => {
-    mockFetch([makeFile(1, {draft: draftOf(3, null)})]);
+  it('已有草稿：不出现恢复入口，加载过程不自动发起 draft/create（不覆盖草稿）', async () => {
+    mockFetch([makeFile(1, {draft: draftOf(3, null),
+      draft_recovery: {source: 'none'}})]);
     const container = await enterWorkspace();
     expect(container.textContent).not.toContain('从当前生效版本恢复草稿');
-    expect(container.textContent).not.toContain('从初始原稿创建草稿');
+    expect(container.textContent).not.toContain('该文件没有可恢复的发布快照');
     expect(container.textContent).toContain('当前文件：文件1');
     const createCalls = http.post.mock.calls.filter(
       ([url]) => url.includes('draft/create/'));

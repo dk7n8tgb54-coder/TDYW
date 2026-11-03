@@ -1,20 +1,20 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""草稿恢复优先级的真实行为测试（2026-10-29 草稿恢复规则）
+"""草稿恢复规则的真实行为测试（2026-11-02 原稿体系移除后）
 
 核心规则（draft/create 默认路径的严格优先级）：
 - 存在当前草稿 -> 拒绝重建（继续编辑或明确执行重建），不得无提示覆盖；
 - 无草稿但有当前生效版本 -> 从该版本中该文件的 ManualVersionFile 快照
-  恢复（base_version=来源版本；当前版本不含该文件时明确报错，绝不
-  静默改用原稿补齐）；
-- 无草稿且制度从未发布过版本 -> 才从该文件最近一次原稿创建。
+  恢复（base_version=来源版本）；当前版本不含该文件时明确报错；
+- 无可用快照（从未发布 / 已废止无生效版本）-> 明确业务错误提示重新
+  上传制度文件建立草稿，绝不回退原稿（原稿体系已移除）；
+- original_id/rebuild 等旧重建参数 -> 明确业务错误，不写入任何数据。
 
-原稿重建（original_id）是明确的高级操作：制度发布过版本（含废止）时
-必须 confirm 二次确认、丢弃草稿内容时须通过编辑密码、活跃编辑会话
-存在时一律拒绝；操作记录含来源原稿/修订号/版本号/操作账号。
+草稿缺失的可恢复状态：files 清单行与 detail/session 等入口的错误响应
+携带 draft_recovery（current_version 或 none+requires_reupload+note）。
 
 全部断言走 test client 真实请求链路 + 隔离测试库 + 临时存储目录；
-草稿行删除仅为构造"草稿丢失"夹具，不掩盖任何业务路径。
+草稿行/草稿文件删除仅为构造"草稿丢失"夹具，不掩盖任何业务路径。
 """
 import json
 import os
@@ -26,8 +26,7 @@ from django.test import TestCase
 
 from apps.institution import services, storage
 from apps.institution.models import (Manual, ManualDraft, ManualFile,
-                                     ManualOperationLog, ManualOriginal,
-                                     ManualVersion)
+                                     ManualOperationLog, ManualVersion)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH, PERM_VIEW, get_data,
     has_error, make_client, make_grant, make_user, post_json, put_json,
@@ -72,8 +71,8 @@ class DraftRecoveryBase(TestCase):
         self.file_seq = 0
 
     def _add_file(self, name=None, content=DOCX_A, owner=None):
-        """新增制度文件（files/create 一步建条目+原稿+草稿）；默认负责人
-        =editor（草稿建立/重建/恢复与编辑均要求负责人独占）"""
+        """新增制度文件（files/create 一步建条目+当前草稿）；默认负责人
+        =editor（草稿恢复/编辑均要求负责人独占）"""
         self.file_seq += 1
         name = name or f'文件{self.file_seq}.docx'
         payload = {'file': SimpleUploadedFile(name, content),
@@ -92,7 +91,20 @@ class DraftRecoveryBase(TestCase):
     def _file_row(self, file_id):
         return next(f for f in self._files_list() if f['id'] == file_id)
 
+    def _ensure_handoff(self):
+        """发布前由各文件负责人经真实接口提交编制（预期成功发布夹具）"""
+        for row in self._files_list():
+            owner_id = row['assignment']['owner_id']
+            if not owner_id or owner_id == self.publisher.id:
+                continue
+            owner = ManualFile.objects.get(pk=row['id']).owner
+            post_json(
+                make_client(owner),
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{row["id"]}/submit/', {})
+
     def _publish(self, note='v1'):
+        self._ensure_handoff()
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})
@@ -100,11 +112,21 @@ class DraftRecoveryBase(TestCase):
         return ManualVersion.objects.get(pk=get_data(resp)['id'])
 
     def _create_draft(self, file_id, body=None, client=None):
-        # 草稿建立/重建/恢复属内容写路径：负责人独占编辑（编制者执行）
+        # 草稿建立/恢复属内容写路径：负责人独占编辑（编制者执行）
         return post_json(
             client or self.editor_client,
             f'/institution/manuals/{self.manual.id}/files/{file_id}/draft/create/',
             body or {})
+
+    def _delete_draft(self, file_id):
+        """构造草稿丢失：删记录并删物理文件（不做业务删除，仅夹具）"""
+        draft = ManualDraft.objects.filter(file_id=file_id).first()
+        if draft is None:
+            return
+        abs_path = storage.resolve_absolute_path(draft.file_path)
+        if os.path.exists(abs_path):
+            os.remove(abs_path)
+        draft.delete()
 
     def _start_session(self, file_id, client=None, password='edit-pass-1'):
         client = client or self.editor_client
@@ -121,12 +143,12 @@ class DraftRecoveryBase(TestCase):
             content_type='application/json')
         self.assertFalse(has_error(resp), resp.content)
 
-    def _save_then_release(self, file_id, content=DOCX_B):
+    def _save_then_release(self, file_id, content=DOCX_B, revision=1):
         """编辑者开会话保存后主动退出（发布前置校验拒绝活跃会话）"""
         resp = self._start_session(file_id)
         self.assertFalse(has_error(resp), resp.content)
         key = get_data(resp)['session_key']
-        resp = self._save(file_id, key, 1, content=content)
+        resp = self._save(file_id, key, revision, content=content)
         self.assertFalse(has_error(resp), resp.content)
         self._exit_session(file_id, key)
 
@@ -144,6 +166,14 @@ class DraftRecoveryBase(TestCase):
             qs = qs.filter(file_id=file_id)
         return qs
 
+    def _drafts_dir_file_count(self):
+        drafts_root = os.path.join(
+            storage.get_institution_storage_base(), 'drafts')
+        count = 0
+        for root, _, names in os.walk(drafts_root):
+            count += len(names)
+        return count
+
     def _prepare_published(self):
         """单文件 + 已发布 v1 的基线夹具"""
         data = self._add_file('甲.docx', DOCX_A)
@@ -151,54 +181,66 @@ class DraftRecoveryBase(TestCase):
         return data['id'], version
 
 
-class NoVersionOriginalTests(DraftRecoveryBase):
-    """无发布版本：原稿是首次建立草稿的正当来源"""
+class NoRecoverableSnapshotTests(DraftRecoveryBase):
+    """无可用快照：只提示重新上传，绝不回退原稿"""
 
-    def test_draft_missing_no_version_creates_from_latest_original(self):
-        """用例1：没有草稿、没有发布版本 -> 从最近一次原稿创建"""
-        # broken.doc：条目+原稿就绪但草稿建立失败（无草稿）
-        data = self._add_file('broken.doc', BROKEN_DOC)
+    def test_never_published_prompts_reupload(self):
+        """从未发布且草稿丢失 -> 明确提示重新上传制度文件建草稿"""
+        data = self._add_file('甲.docx', DOCX_A)
         file_id = data['id']
-        self.assertIsNone(data['draft'])
-        # 再上传一份可转换的 .doc 原稿（成为最近原稿）
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/{file_id}/originals/upload/',
-            {'file': SimpleUploadedFile('可转换.doc', RTF_AS_DOC)})
-        self.assertFalse(has_error(resp), resp.content)
-        latest_original_id = get_data(resp)['id']
-        self.assertEqual(
-            ManualDraft.objects.filter(file_id=file_id).count(), 0)
+        self._delete_draft(file_id)
+        before_count = self._drafts_dir_file_count()
         resp = self._create_draft(file_id)
-        self.assertFalse(has_error(resp), resp.content)
-        draft = ManualDraft.objects.get(file_id=file_id)
-        self.assertEqual(draft.source_original_id, latest_original_id)
-        self.assertIsNone(draft.base_version_id)
-        self.assertEqual(draft.revision, 1)
-        self.assertTrue(os.path.exists(
-            storage.resolve_absolute_path(draft.file_path)))
-        # 原稿字节保持不变
-        original = ManualOriginal.objects.get(pk=latest_original_id)
-        with open(storage.resolve_absolute_path(original.file_path), 'rb') as f:
-            self.assertEqual(f.read(), RTF_AS_DOC)
-
-    def test_draft_create_without_any_original_rejected(self):
-        data = self._add_file()
-        ManualDraft.objects.filter(file_id=data['id']).delete()
-        ManualOriginal.objects.filter(file_id=data['id']).delete()
-        resp = self._create_draft(data['id'])
         self.assertTrue(has_error(resp))
-        self.assertIn('原稿', resp.json()['error'])
+        self.assertIn('重新上传制度文件建立草稿', resp.json()['error'])
+        self.assertEqual(self._draft_rows(file_id).count(), 0)
+        self.assertEqual(self._drafts_dir_file_count(), before_count)
+        # 错误响应携带可恢复状态（source=none + requires_reupload）
+        recovery = resp.json().get('draft_recovery') or {}
+        self.assertEqual(recovery.get('source'), 'none')
+        self.assertTrue(recovery.get('requires_reupload'))
+        self.assertIn('重新上传', recovery.get('note', ''))
+
+    def test_files_list_and_detail_carry_reupload_hint(self):
+        data = self._add_file('甲.docx', DOCX_A)
+        file_id = data['id']
+        self._delete_draft(file_id)
+        row = self._file_row(file_id)
+        hint = row['draft_recovery']
+        self.assertEqual(hint['source'], 'none')
+        self.assertTrue(hint['requires_reupload'])
+        self.assertIn('重新上传', hint['note'])
+        resp = self.editor_client.get(
+            f'/institution/manuals/{self.manual.id}/files/{file_id}/draft/')
+        body = resp.json()
+        self.assertTrue(body['error'])
+        self.assertEqual(body['draft_recovery']['source'], 'none')
+        self.assertTrue(body['draft_recovery']['requires_reupload'])
+        # 会话开启同样返回可恢复状态
+        resp = self._start_session(file_id)
+        body = resp.json()
+        self.assertTrue(body['error'])
+        self.assertEqual(body['draft_recovery']['source'], 'none')
+
+    def test_draft_create_without_any_draft_on_never_published_file(self):
+        """从未发布、无草稿行（非丢失）：同样只提示重新上传"""
+        data = self._add_file('甲.docx', DOCX_A)
+        file_id = data['id']
+        ManualDraft.objects.filter(file_id=file_id).delete()
+        resp = self._create_draft(file_id)
+        self.assertTrue(has_error(resp))
+        self.assertIn('重新上传制度文件建立草稿', resp.json()['error'])
+        self.assertEqual(self._draft_rows(file_id).count(), 0)
 
 
 class RestoreFromCurrentVersionTests(DraftRecoveryBase):
     """有当前生效版本：快照是唯一默认恢复来源"""
 
     def test_draft_missing_restores_from_current_version_snapshot(self):
-        """用例2：没有草稿、有当前发布版本 -> 从当前版本快照恢复"""
+        """没有草稿、有当前发布版本 -> 从当前版本快照恢复"""
         file_id, version = self._prepare_published()
         snapshot = version.files.get(manual_file_id=file_id)
-        # 构造草稿丢失（业务语义：草稿不存在时不得自动回到原稿）
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         resp = self._create_draft(file_id)
         self.assertFalse(has_error(resp), resp.content)
         data = get_data(resp)
@@ -206,7 +248,6 @@ class RestoreFromCurrentVersionTests(DraftRecoveryBase):
         draft = ManualDraft.objects.get(file_id=file_id)
         self.assertEqual(draft.base_version_id, version.id)
         self.assertEqual(draft.file_hash, snapshot.file_hash)
-        self.assertIsNone(draft.source_original_id)
         self.assertEqual(draft.revision, 1)
         # 恢复内容与快照字节一致，快照本体不动
         with open(storage.resolve_absolute_path(draft.file_path), 'rb') as f:
@@ -216,11 +257,11 @@ class RestoreFromCurrentVersionTests(DraftRecoveryBase):
                          version.files.get(manual_file_id=file_id).file_hash)
 
     def test_multi_version_restore_uses_current_not_first(self):
-        """用例5：多个发布版本时恢复当前版本，而不是最初原稿/首版"""
+        """多个发布版本时恢复当前版本，而不是首版"""
         file_id, v1 = self._prepare_published()
         self._save_then_release(file_id, content=DOCX_B)
         v2 = self._publish('第二版')
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         resp = self._create_draft(file_id)
         self.assertFalse(has_error(resp), resp.content)
         draft = ManualDraft.objects.get(file_id=file_id)
@@ -234,40 +275,37 @@ class RestoreFromCurrentVersionTests(DraftRecoveryBase):
             self.assertEqual(f.read(), DOCX_B)
 
     def test_file_missing_from_current_version_explicit_error(self):
-        """用例6：当前版本不含该文件（后加入）-> 明确报错，不静默补原稿"""
+        """当前版本不含该文件（后加入）-> 明确报错，不静默补齐"""
         file_id, version = self._prepare_published()
-        broken = self._add_file('新加入.doc', BROKEN_DOC)
-        new_file_id = broken['id']
-        self.assertIsNone(broken['draft'])
+        new_file = self._add_file('新加入.docx', DOCX_B)
+        new_file_id = new_file['id']
+        self._delete_draft(new_file_id)
         resp = self._create_draft(new_file_id)
         self.assertTrue(has_error(resp))
-        self.assertIn(f'v{version.version_no}', resp.json()['error'])
-        self.assertIn('快照', resp.json()['error'])
-        # 没有从原稿静默补齐
-        self.assertEqual(
-            ManualDraft.objects.filter(file_id=new_file_id).count(), 0)
-        # 该文件原稿仍在，未被动用
-        self.assertTrue(
-            ManualOriginal.objects.filter(file_id=new_file_id).exists())
-        # 版本快照不受影响
+        error = resp.json()['error']
+        self.assertIn('当前生效版本', error)
+        self.assertIn('不包含', error)
+        # 未创建任何草稿，版本快照不受影响
+        self.assertEqual(self._draft_rows(new_file_id).count(), 0)
         self.assertEqual(
             version.files.filter(manual_file_id=new_file_id).count(), 0)
 
     def test_deprecated_without_current_version_rejected(self):
-        """已废止（有历史版本、无生效版本）：不静默回原稿"""
+        """已废止（有历史版本、无生效版本）：提示版本历史回退"""
         file_id, version = self._prepare_published()
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/deprecate/', {})
         self.assertFalse(has_error(resp), resp.content)
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         resp = self._create_draft(file_id)
         self.assertTrue(has_error(resp))
-        self.assertIn('无生效版本', resp.json()['error'])
-        self.assertEqual(
-            ManualDraft.objects.filter(file_id=file_id).count(), 0)
+        error = resp.json()['error']
+        self.assertIn('制度已发布过版本但当前没有生效版本', error)
+        self.assertIn('版本历史', error)
+        self.assertEqual(self._draft_rows(file_id).count(), 0)
 
     def test_rollback_to_history_version_still_uses_given_version(self):
-        """用例7：从历史版本回退仍按指定历史版本恢复（from-version 不变）"""
+        """从历史版本回退仍按指定历史版本恢复（from-version 不变）"""
         file_id, v1 = self._prepare_published()
         self._save_then_release(file_id, content=DOCX_B)
         self._publish('第二版')
@@ -284,12 +322,30 @@ class RestoreFromCurrentVersionTests(DraftRecoveryBase):
         with open(storage.resolve_absolute_path(draft.file_path), 'rb') as f:
             self.assertEqual(f.read(), DOCX_A)
 
+    def test_original_id_rebuild_payload_rejected(self):
+        """旧原稿重建参数（original_id/rebuild）-> 明确业务错误且不写入"""
+        data = self._add_file('甲.docx', DOCX_A)
+        file_id = data['id']
+        before = ManualDraft.objects.get(file_id=file_id)
+        resp = self._create_draft(file_id, {'original_id': 1})
+        self.assertTrue(has_error(resp))
+        self.assertIn('不再支持从历史上传文件重建草稿', resp.json()['error'])
+        self.assertIn('重新上传制度文件建立草稿', resp.json()['error'])
+        after = ManualDraft.objects.get(file_id=file_id)
+        self.assertEqual(after.revision, before.revision)
+        self.assertEqual(after.file_path, before.file_path)
+        resp = self._create_draft(file_id, {'rebuild': True})
+        self.assertTrue(has_error(resp))
+        self.assertIn('不再支持从历史上传文件重建草稿', resp.json()['error'])
+        self.assertEqual(ManualDraft.objects.get(file_id=file_id).file_path,
+                         before.file_path)
+
 
 class ExistingDraftGuardTests(DraftRecoveryBase):
     """已有草稿：默认路径拒绝，不得无提示覆盖"""
 
     def test_existing_draft_blocks_default_create(self):
-        """用例3/4：有草稿时普通进入编辑不重建；draft/create 无提示覆盖被拒"""
+        """有草稿时普通进入编辑不重建；draft/create 无提示覆盖被拒"""
         data = self._add_file('甲.docx', DOCX_A)
         file_id = data['id']
         before = ManualDraft.objects.get(file_id=file_id)
@@ -307,12 +363,11 @@ class ExistingDraftGuardTests(DraftRecoveryBase):
         resp = self._start_session(file_id)
         self.assertFalse(has_error(resp), resp.content)
 
-    def test_files_list_and_error_responses_carry_recovery_hint(self):
+    def test_files_list_and_error_responses_carry_restore_hint(self):
         """草稿缺失：files 清单行与草稿详情/会话错误响应均携带恢复途径"""
         file_id, version = self._prepare_published()
-        ManualDraft.objects.filter(file_id=file_id).delete()
-        rows = self._files_list()
-        row = next(f for f in rows if f['id'] == file_id)
+        self._delete_draft(file_id)
+        row = self._file_row(file_id)
         self.assertEqual(row['draft_recovery']['source'], 'current_version')
         self.assertEqual(row['draft_recovery']['version_no'],
                          version.version_no)
@@ -331,127 +386,15 @@ class ExistingDraftGuardTests(DraftRecoveryBase):
         self.assertEqual(body['draft_recovery']['source'], 'current_version')
 
 
-class ExplicitRebuildTests(DraftRecoveryBase):
-    """明确的「从原始上传文件重建草稿」：确认/密码/会话防线"""
-
-    def _prepare_published_with_draft(self):
-        data = self._add_file('甲.docx', DOCX_A)
-        file_id = data['id']
-        version = self._publish('第一版')
-        return file_id, version
-
-    def _latest_original_id(self, file_id):
-        return ManualOriginal.objects.filter(
-            file_id=file_id).order_by('-id').first().id
-
-    def test_rebuild_requires_confirm_after_versions_exist(self):
-        """已发布过版本：original_id 无 confirm 被拒（高风险二次确认）"""
-        file_id, _ = self._prepare_published_with_draft()
-        resp = self._create_draft(
-            file_id, {'original_id': self._latest_original_id(file_id)})
-        self.assertTrue(has_error(resp))
-        self.assertIn('confirm', resp.json()['error'])
-
-    def test_rebuild_requires_password_when_discarding_draft(self):
-        """丢弃现有草稿的重建必须通过编辑密码（错误密码被拒且计数）"""
-        file_id, _ = self._prepare_published_with_draft()
-        body = {'original_id': self._latest_original_id(file_id),
-                'confirm': True}
-        resp = self._create_draft(file_id, body)
-        self.assertTrue(has_error(resp))
-        self.assertIn('编辑密码', resp.json()['error'])
-        resp = self._create_draft(
-            file_id, dict(body, password='wrong-pass'))
-        self.assertTrue(has_error(resp))
-        self.assertIn('编辑密码错误', resp.json()['error'])
-        self.manual.refresh_from_db()
-        self.assertEqual(self.manual.password_fail_count, 1)
-
-    def test_rebuild_blocked_by_active_session(self):
-        """活跃编辑会话存在时一律拒绝重建（confirm+正确密码也不行）"""
-        file_id, _ = self._prepare_published_with_draft()
-        resp = self._start_session(file_id)
-        self.assertFalse(has_error(resp), resp.content)
-        body = {'original_id': self._latest_original_id(file_id),
-                'confirm': True, 'password': 'edit-pass-1'}
-        resp = self._create_draft(file_id, body)
-        self.assertTrue(has_error(resp))
-        self.assertIn('编辑会话', resp.json()['error'])
-        # 草稿未被替换
-        self.assertEqual(ManualDraft.objects.get(file_id=file_id).revision, 1)
-
-    def test_rebuild_with_confirm_and_password_succeeds(self):
-        """用例8：确认+密码+无会话 -> 重建成功并留痕"""
-        file_id, version = self._prepare_published_with_draft()
-        original_id = self._latest_original_id(file_id)
-        body = {'original_id': original_id, 'confirm': True,
-                'password': 'edit-pass-1'}
-        resp = self._create_draft(file_id, body)
-        self.assertFalse(has_error(resp), resp.content)
-        draft = ManualDraft.objects.get(file_id=file_id)
-        self.assertEqual(draft.revision, 2)
-        self.assertEqual(draft.source_original_id, original_id)
-        # 重建后草稿不再指向发布版本（来源=原稿）
-        self.assertIsNone(draft.base_version_id)
-        # 操作记录含来源原稿/重建前修订号/当前版本号/操作账号
-        log = ManualOperationLog.objects.filter(
-            manual=self.manual, action='create_draft').latest('id')
-        detail = json.loads(log.detail or '{}')
-        self.assertTrue(detail['rebuild_from_original'])
-        self.assertEqual(detail['source_original_id'], original_id)
-        self.assertEqual(detail['previous_revision'], 1)
-        self.assertEqual(detail['current_version_no'], version.version_no)
-        self.assertEqual(detail['file_revision'], 2)
-        # 重建由文件负责人（编制授权）执行：操作人=editor
-        self.assertEqual(log.user_name, self.editor.username)
-
-    def test_rebuild_without_password_configured_needs_confirm_only(self):
-        """未配置编辑密码的手册：confirm 即可（无密码可校验）"""
-        file_id, _ = self._prepare_published_with_draft()
-        # 直接构造"未配置密码"夹具（密码接口不允许空值）
-        Manual.objects.filter(pk=self.manual.pk).update(password_hash='')
-        resp = self._create_draft(
-            file_id, {'original_id': self._latest_original_id(file_id),
-                      'confirm': True})
-        self.assertFalse(has_error(resp), resp.content)
-
-    def test_rebuild_for_out_of_version_file_with_confirm(self):
-        """当前版本不含的后加入文件：confirm 后可从原稿建草稿（明确路径）"""
-        file_id, version = self._prepare_published_with_draft()
-        broken = self._add_file('后加入.doc', BROKEN_DOC)
-        new_file_id = broken['id']
-        # 上传可转换原稿（后加入文件的候选原稿）
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/{new_file_id}/originals/upload/',
-            {'file': SimpleUploadedFile('后加入可转换.doc', RTF_AS_DOC)})
-        self.assertFalse(has_error(resp), resp.content)
-        # 默认路径被拒（用例6），明确 confirm 后走原稿
-        resp = self._create_draft(
-            new_file_id, {'original_id': self._latest_original_id(new_file_id),
-                          'confirm': True})
-        self.assertFalse(has_error(resp), resp.content)
-        draft = ManualDraft.objects.get(file_id=new_file_id)
-        self.assertIsNone(draft.base_version_id)
-        self.assertTrue(draft.source_original_id)
-
-
 class RecoveryFailureCompensationTests(DraftRecoveryBase):
-    """恢复/重建失败：数据库与物理文件不得留下半完成状态"""
-
-    def _drafts_dir_file_count(self):
-        base = storage.get_institution_storage_base()
-        drafts_root = os.path.join(base, 'drafts')
-        count = 0
-        for root, _, names in os.walk(drafts_root):
-            count += len(names)
-        return count
+    """恢复失败：数据库与物理文件不得留下半完成状态"""
 
     def test_restore_copy_failure_leaves_no_partial_state(self):
-        """用例9：恢复复制失败 -> 明确报错，无草稿行、无残留文件"""
+        """恢复复制失败 -> 明确报错，无草稿行、无残留文件"""
         data = self._add_file('甲.docx', DOCX_A)
         file_id = data['id']
         self._publish('第一版')
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         before_count = self._drafts_dir_file_count()
         with patch('apps.institution.services.shutil.copyfile',
                    side_effect=OSError('disk error')):
@@ -463,34 +406,11 @@ class RecoveryFailureCompensationTests(DraftRecoveryBase):
         self.assertEqual(self._drafts_dir_file_count(), before_count)
         # 版本快照完好
         version = ManualVersion.objects.get(manual=self.manual)
+        snapshot = version.files.get(manual_file_id=file_id)
         self.assertEqual(
-            version.files.get(manual_file_id=file_id).file_hash,
-            storage.compute_file_hash(storage.resolve_absolute_path(
-                version.files.get(manual_file_id=file_id).file_path)))
-
-    def test_rebuild_write_failure_leaves_no_partial_state(self):
-        """重建物理写入失败 -> 明确报错，无草稿行、无残留文件"""
-        data = self._add_file('broken.doc', BROKEN_DOC)
-        file_id = data['id']
-        from django.core.files.uploadedfile import SimpleUploadedFile
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/{file_id}/originals/upload/',
-            {'file': SimpleUploadedFile('可转换.doc', RTF_AS_DOC)})
-        self.assertFalse(has_error(resp), resp.content)
-        before_count = self._drafts_dir_file_count()
-        with patch('apps.institution.services.storage.save_stream_to_path',
-                   side_effect=OSError('disk full')):
-            resp = self._create_draft(file_id)
-        self.assertTrue(has_error(resp))
-        self.assertIn('草稿文件写入失败', resp.json()['error'])
-        self.assertEqual(
-            ManualDraft.objects.filter(file_id=file_id).count(), 0)
-        self.assertEqual(self._drafts_dir_file_count(), before_count)
-        # 原稿不受影响
-        original = ManualOriginal.objects.filter(
-            file_id=file_id).latest('id')
-        with open(storage.resolve_absolute_path(original.file_path), 'rb') as f:
-            self.assertEqual(f.read(), RTF_AS_DOC)
+            snapshot.file_hash,
+            storage.compute_file_hash(
+                storage.resolve_absolute_path(snapshot.file_path)))
 
     def test_restore_service_refuses_when_draft_exists(self):
         """恢复服务行锁内复核：草稿已存在时放弃恢复且不覆盖（含复制清理）"""
@@ -517,17 +437,17 @@ class RecoveryFailureCompensationTests(DraftRecoveryBase):
         restored, err = services.restore_draft_from_current_version(
             file_entry, self.manager)
         self.assertIsNone(restored)
-        self.assertIn('没有生效版本', err)
+        self.assertIn('生效版本', err)
 
 
 class RestoreAuditAndImmutabilityTests(DraftRecoveryBase):
-    """用例10/11：操作留痕与历史版本不可变"""
+    """操作留痕与历史版本不可变"""
 
     def test_restore_logs_source_version_file_and_operator(self):
         data = self._add_file('甲.docx', DOCX_A)
         file_id = data['id']
         version = self._publish('第一版')
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         resp = self._create_draft(file_id)
         self.assertFalse(has_error(resp), resp.content)
         draft = ManualDraft.objects.get(file_id=file_id)
@@ -543,7 +463,7 @@ class RestoreAuditAndImmutabilityTests(DraftRecoveryBase):
         self.assertEqual(detail['source'], 'current_version')
 
     def test_history_version_files_immutable_after_recovery(self):
-        """用例11：恢复/重建后历史发布版本的哈希与内容不变"""
+        """恢复后历史发布版本的哈希与内容不变"""
         data = self._add_file('甲.docx', DOCX_A)
         file_id = data['id']
         v1 = self._publish('第一版')
@@ -558,15 +478,8 @@ class RestoreAuditAndImmutabilityTests(DraftRecoveryBase):
 
         v1_before = snapshot_state(v1)
         v2_before = snapshot_state(v2)
-        # 先恢复（草稿丢失场景），再执行一次明确原稿重建
-        ManualDraft.objects.filter(file_id=file_id).delete()
+        self._delete_draft(file_id)
         resp = self._create_draft(file_id)
-        self.assertFalse(has_error(resp), resp.content)
-        original_id = ManualOriginal.objects.filter(
-            file_id=file_id).order_by('-id').first().id
-        resp = self._create_draft(file_id, {
-            'original_id': original_id, 'confirm': True,
-            'password': 'edit-pass-1'})
         self.assertFalse(has_error(resp), resp.content)
         self.assertEqual(snapshot_state(v1), v1_before)
         self.assertEqual(snapshot_state(v2), v2_before)

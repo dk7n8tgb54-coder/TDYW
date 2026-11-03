@@ -3,7 +3,7 @@
  * Released under the AGPL-3.0 License.
  *
  * 操作记录页签：手册级完整时间线。动作文案与详情解析共享自 oplogShared
- * （FileChangeTab 按文件过滤视图共用同一套），本页签不再自行维护映射。
+ * （FileHistoryModal 按文件过滤弹窗共用同一套），本页签不再自行维护映射。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -40,7 +40,7 @@ class RecordsTab extends React.Component {
         </Table>
         <div style={{marginTop: 8, color: '#999', fontSize: 12}}>
           操作记录精确到账号；科室共用账号无法区分账号内的实际操作人，请在管理制度中约定。
-          按具体文件回看变更请使用「文件变更记录」页签。
+          按具体文件回看发布参与与操作记录，请使用文件清单行内「文件历史」。
         </div>
       </div>
     );

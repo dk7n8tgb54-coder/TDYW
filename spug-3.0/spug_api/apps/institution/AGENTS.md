@@ -34,6 +34,56 @@
 > 短路），非所有者账号=页面权限码（功能资格）∩ 逐本授权；新增提交编制
 > 待发布菜单红点 `GET manuals/badge/`（@auth publish + 所有者∪can_publish
 > 授权并集口径，响应键与 layout/expiryBadgeStoreBase.js 契约一致）。
+> **2026-11-01 统一文件历史入口（纯前端信息层级）**：前端「初始来源」顶层
+> 页签与独立历史来源弹窗、「文件历史」顶层页签（FileChangeTab）与「高级
+> 恢复」入口（AdvancedRecoveryModal）全部取消，文件清单行「文件历史」按
+> file_id 直接打开弹窗（FileHistoryModal，仅 发布记录/操作记录 两个子
+> 页签）；`files/<fid>/version-history/`、`operation-logs/?file_id=` 为
+> 弹窗真实调用路径。
+> **2026-11-02 原稿体系移除（迁移 0010，最重要）**：新增制度文件改为
+> 「上传文件直接建立当前草稿」（`.doc` 先转换，失败零残留、不建条目），
+> 不再额外保存原稿副本；删除 `ManualOriginal` 模型/表/`ManualDraft.
+> source_original` 字段/全部原稿接口（originals-overview、文件级 originals
+> 列表/上传/下载、制度级旧 originals 列表/上传/下载/预览、preview-file 的
+> original 类别、draft/create 的 original_id 重建），序列化去掉
+> `originals_count`/`source_original_id`；草稿缺失只从当前生效版本快照
+> 恢复，无可恢复快照时提示「重新上传制度文件建立草稿」（历史版本存在时
+> 可先版本历史回退），绝不回退原稿。原稿记录/物理文件由幂等运维入口
+> `python manage.py purge_institution_originals` 清理（只操作 originals/
+> 根，见第九节）；当前草稿、全部发布快照、操作记录保留。行为测试钉死在
+> `test_storage_simplify.py` + `test_original_cleanup.py`（原
+> `test_history_source_compat.py` 已删除）。
+> **2026-11-02 发布交接规则落地（最重要，无迁移）**：整套发布新增"编制
+> 交接"判定（唯一实现 `version_compare.publish_handoff_blockers`，预检/
+> 发布/落库复核三处共用）：本次新增或内容有变化的文件，发布人=该文件
+> 负责人→无需提交；发布人≠负责人→必须已有有效提交，否则阻断
+> （`submission_pending`/`submission_stale`）；未分配负责人的此类文件阻断
+> `unassigned`；未变化/纯改名排序/已移除文件不要求提交。**提交编制收紧为
+> 仅当前文件负责人**（手册所有者/平台超管不得代提交，未分配明确拒绝，
+> 有效重复提交拒绝；草稿变更后 stale 可重提）。新增文件未携带 owner_id
+> 时默认负责人=手册所有者（显式空串=未分配）；assignment-owners 候选补入
+> 手册所有者。菜单红点口径收严为"待当前用户发布且已有效提交的新增/变化
+> 文件数"（本人负责、未变化、已发布消费的提交不计）。整套发布落库段
+> 复核固化 (file_id, draft.revision, owner_id) 与交接状态，中途改派/
+> 修订推进/提交失效一律拒绝并清理已复制快照。
+> **2026-11-03 提交待发布核对=不可变快照（迁移 0011，最重要，取代上述
+> 「提交编制」的计算式交接）**：有效负责人（`ManualFile.owner` 优先，
+> 为空回退 `Manual.owner`）自己发布时直接纳入整套发布（当前草稿即固定
+> 来源，发布中仍复核修订号+哈希）；发布人≠有效负责人时，新增/内容变化
+> 的文件必须有该负责人当前有效的 pending 提交快照，发布只读该快照。提交
+> 只由有效负责人发起，且必须"保存并结束编辑"后复制独立不可变副本
+> （`submissions/`，快照行绑定 文件/草稿修订号/SHA256/显示名/大小/提交
+> 人/时间），提交后**冻结该文件全部内容写路径**（在线编辑回调/保存/本机
+> 上传/替换/恢复/回退/重建等，服务层行锁内复核；前端禁用仅辅助）。有效
+> 负责人可撤回；发布权者可退回（原因必填）；撤回/退回后快照不可用于发布，
+> 记录与操作痕迹保留。改名/排序/改派/移除被冻结文件必须先撤回或退回，但
+> 不影响其他文件；整套回退在存在 pending 提交时整体拒绝。发布三段式在
+> 复制前按"当前草稿/待核对快照/当前生效快照"逐文件选源，落库前用同一
+> 选择函数重算并比对固化签名（来源类别/快照或提交 id/修订号/哈希/负责人），
+> 任一漂移清理已复制文件、旧生效版不动、且不消费仍然有效的提交。发布成功
+> 后清单文件的 pending 提交置 published（记录发布版本/时间）并事务提交后
+> 清理快照物理副本；存量旧 `submission_revision` 列只作历史，不冒充有效
+> 快照、不批量改写，需负责人重新提交。详见第十节。
 
 ## 〇、生产延迟上线门控（2026-10-28）
 
@@ -72,10 +122,10 @@
    - can_edit_file（内容写路径：会话/保存/editor-config/forcesave/开始修订/草稿建立重建恢复）= **owner（可编辑该手册任意文件）** or（授权 can_edit **且该文件负责人** ManualFile.owner）——非所有者**负责人独占编辑**，密码只是附加验证，已验密不赋予编辑权；
    - can_publish（发布/废止/预检/长期保留标记）= owner or 授权 can_publish（超管不因超管身份可发布）；
    - 工作区可见（draft-status/files 草稿域/work_status）= 超管 or owner or（can_edit or can_publish）；仅查看授权不下发草稿域信息。
-6. **管理操作门禁**：手册元数据/类别/删除走模块权限码（edit/add/delete，manual_auth 后所有者亦过）；**密码=手册所有者或平台超管**（manual_auth('') 页面门 + 视图内业务校验，config 码不能覆盖此对象级限制）；授权整体替换（PUT authorizations）、所有者移交/接管（POST owner）= 手册所有者或平台超管；文件条目维护/原稿上传/批量分工/整套回退 = 手册所有者或平台超管；提交编制 = 文件负责人或所有者或超管。**失权撤销会话**：失去 can_edit 的账号（含授权行删除/清空）与被移交的原所有者，撤销其在本手册全部文件的活跃编辑会话（未落盘内容显式丢弃并留痕）。
+6. **管理操作门禁**：手册元数据/类别/删除走模块权限码（edit/add/delete，manual_auth 后所有者亦过）；**密码=手册所有者或平台超管**（manual_auth('') 页面门 + 视图内业务校验，config 码不能覆盖此对象级限制）；授权整体替换（PUT authorizations）、所有者移交/接管（POST owner）= 手册所有者或平台超管；文件条目维护/批量分工/整套回退 = 手册所有者或平台超管；提交编制 = **仅当前文件负责人**（2026-11-02 收紧：手册所有者/平台超管不得代提交；未分配负责人明确拒绝——发布交接必须由负责人本人确认，代提交会让阻断失效）。**失权撤销会话**：失去 can_edit 的账号（含授权行删除/清空）与被移交的原所有者，撤销其在本手册全部文件的活跃编辑会话（未落盘内容显式丢弃并留痕）。
 7. **权限码清单**：view/add/edit/delete/config/upload/download/draft_edit/publish（**admin 已废除**，勿再授予/引用），定义在 `spug_web/src/pages/system/role/codes.js` 的 `institution.manual` 组。平台级角色（tenant_id=''）仅超管可维护/分配。
-8. 创建人即所有者（POST manuals/create）；account-options（授权界面账号候选=全部启用账号，所有者/超管）、owner-candidates（所有者候选，所有者/超管）与 assignment-owners（文件分工候选=持该手册 can_edit 的启用账号）只回 id+name 最小字段，**禁止改拉账号管理清单 `/api/account/user/`**（其 GET 要求 system.account.view）。
-9. **提交编制红点**：`GET manuals/badge/`（@auth publish 功能资格门，注册在 manuals/<pk>/ re_path 之前）= 所有者∪can_publish 授权的启用手册中 未移除且提交有效（submission_revision==draft.revision 且 draft.file_path 非空）的文件数；轻量提示计数不做物理文件 stat；响应 `{'count','expiring_count':0,'expired_count':0}`（expiryBadgeStoreBase 契约键）。
+8. 创建人即所有者（POST manuals/create）；account-options（授权界面账号候选=全部启用账号，所有者/超管）、owner-candidates（所有者候选，所有者/超管）与 assignment-owners（文件分工候选=**手册所有者 + 持该手册 can_edit 的启用账号**（按 id 去重，所有者即使无授权行也在列，新增文件默认负责人即所有者））只回 id+name 最小字段，**禁止改拉账号管理清单 `/api/account/user/`**（其 GET 要求 system.account.view）。
+9. **提交编制红点**：`GET manuals/badge/`（@auth publish 功能资格门，注册在 manuals/<pk>/ re_path 之前）= 所有者∪can_publish 授权的启用手册中，**待当前用户发布且需要交接**的文件数（唯一实现 `version_compare.count_handoff_badge`，2026-11-02 收严）：未移除；负责人非空且非当前用户（本人负责的文件本人发布无需交接）；草稿有效（`file_path` 非空）；提交有效（`submission_revision==draft.revision`）；该文件相对当前生效版本为新增或内容变化（无 current_version 视为新增；哈希相同=未变化不计；已随发布消费的提交自然不计）。轻量提示计数不做物理文件 stat（允许 DB 哈希比对）；响应 `{'count','expiring_count':0,'expired_count':0}`（expiryBadgeStoreBase 契约键）。
 10. **前端消费契约（2026-10-31 第二轮）**：`spug_web/src/pages/institution/ManualAuthButton.js`（props 同 antd Button + `manual`/`auth`）是「页面码或所有者豁免」的按钮分支，用于写路径与编辑配套按钮（开始编辑/上传保存/提交编制/文件管理/恢复草稿/回退/长期保留/删除手册/草稿工作台等）；view/download 类模块级读按钮维持 `AuthButton`（模块入口仍按 view 码门控，纯无角色所有者本就无法进入模块——UI 豁免不外溢到模块入口）。菜单红点 `layout/InstitutionBadgeStore.js`（perm=institution.manual.publish）挂 `/institution` 菜单；提交编制与发布真实成功后由页面调用 `fetch()` 刷新（事件驱动，禁轮询）。`codes.js` 的 institution.manual 组已无 admin 码（存量角色 JSON 中该码惰性失效，保存时自然剪除）。
 
 ## 三、密码与会话
@@ -87,14 +137,14 @@
 
 ## 四、文件与转换
 
-- 存储根 `storage/institution/{originals,drafts,versions}/manual_<id>/<yyyymm>/`，相对路径不含 `institution/` 前缀（`resolve_absolute_path` 负责拼根+防穿越）。**新增文件类别必须同步 `build_relative_path` 与 `safe_delete_manual_dir`**。
+- 存储根 `storage/institution/{drafts,versions}/manual_<id>/<yyyymm>/`，相对路径不含 `institution/` 前缀（`resolve_absolute_path` 负责拼根+防穿越）。**新增文件类别必须同步 `build_relative_path` 与 `safe_delete_manual_dir`**。`originals/` 为已下线原稿体系的历史遗留目录：本模块不再写入，只由独立幂等清理命令 `purge_institution_originals`（`original_cleanup.py`，路径限定 originals 根内）处理，整本手册删除时 `safe_delete_manual_dir` 一并清理。
 - **显示名与存储名分离（2026-10-29）**：三张文件表的 `original_name` 一律存用户可读显示名（`storage.display_name`），`file_path` 存带唯一后缀的存储名（`build_stored_name`），序列化 `file_name` 与下载/预览文件名取显示名。ONLYOFFICE 回调协议不带文件名，回调保存以 `手册名.docx` 为显示名；发布沿用草稿显示名，遇系统生成名（`callback_`/`oo_cb_` 前缀的历史脏数据）回退为手册名并顺带治愈草稿。禁止再把 `os.path.basename(存储路径)` 当显示名写入。
-- 原稿永不覆盖：每次上传新 `ManualOriginal` 行 + 新文件；发布版文件复制到 `versions/` 独立存储，SHA256 入库，发布后绝不改写；废止只置 `is_effective=False` + `manual.current_version=None`；回退=以旧版本为来源重建草稿，再发布产生新版本号。
-- **保留策略（2026-10-29，重要）**：原稿本体与版本快照文件不再绝对"永不删除"，但**业务流程（编辑/保存/发布/回退/重建）仍然绝不删除**——物理删除只能经 `retention_services.py` 的保留策略入口（`cleanup/preview/` 只读预检、`cleanup/execute/` 可控幂等执行，均 `@auth institution.manual.config`，无定时任务）。不变量见第九节。
-- `.doc → .docx` 转换用 LibreOffice headless（`services.ensure_docx_workfile`）。三个已踩坑点必须保持：① 必须显式 `-env:UserInstallation=<profile URI>`，URI 用 `Path.as_uri()` 生成（手工拼 `file://<path>` 在 Windows/含空格路径下必然失效）；② 源文件必须先复制为 ASCII 名 `input.doc` 再转（容器 locale 下中文文件名无法加载）；③ 源文件形参名为 `src_abs_path`（曾因误写 `src_abs` 触发 NameError 使 .doc 转换整体 500）。生产镜像已加 `libreoffice-writer`（docker/Dockerfile），缺失时转换报业务错误并降级（预览/下载不受影响）。
+- **新增制度文件=直建草稿（2026-11-02）**：`POST files/create/` 接收上传文件后直接写入草稿存储并建「ManualFile 条目+ManualDraft（revision=1、revision_open=True）」，每个上传文件各建独立条目与草稿，**不再保存原稿副本**；`.doc` 先转换 `.docx`，转换/写入/建库任一失败→清理本次临时与已写文件、返回明确业务错误且**不留下半成品条目或孤儿文件**（成功响应不再有 `draft_error`）。发布版文件复制到 `versions/` 独立存储，SHA256 入库，发布后绝不改写；废止只置 `is_effective=False` + `manual.current_version=None`；回退=以旧版本为来源重建草稿，再发布产生新版本号。
+- **保留策略（2026-10-29，重要；2026-11-02 仅保留版本维度）**：版本快照文件不再绝对"永不删除"，但**业务流程（编辑/保存/发布/回退/恢复）仍然绝不删除**——物理删除只能经 `retention_services.py` 的保留策略入口（`cleanup/preview/` 只读预检、`cleanup/execute/` 可控幂等执行，均 `@auth institution.manual.config`，无定时任务）。原稿体系已整体移除，其存量记录/文件由独立幂等命令 `purge_institution_originals` 清理，**不在保留策略端点内**。不变量见第九节。
+- `.doc → .docx` 转换用 LibreOffice headless（`services.ensure_docx_workfile`）。三个已踩坑点必须保持：① 必须显式 `-env:UserInstallation=<profile URI>`，URI 用 `Path.as_uri()` 生成（手工拼 `file://<path>` 在 Windows/含空格路径下必然失效）；② 源文件必须先复制为 ASCII 名 `input.doc` 再转（容器 locale 下中文文件名无法加载）；③ 源文件形参名为 `src_abs_path`（曾因误写 `src_abs` 触发 NameError 使 .doc 转换整体 500）。生产镜像已加 `libreoffice-writer`（docker/Dockerfile）。**新增文件直建草稿后转换失败不再降级保留条目**：`files/create` 返回明确业务错误（「.doc 转换为 .docx 失败，未创建制度文件…」），并清理临时文件与已写文件，数据库不留 ManualFile/ManualDraft 行。
 - 手册删除：有发布版本时拒绝（提示归档）；无版本删除遵循第十二节——先 `safe_delete_manual_dir` 清文件树，成功后才删数据库记录，清理失败直接拒绝（重试幂等），绝不先删库再 on_commit 删文件。
-- 草稿替换（保存/原稿重建/版本回退共用 `_create_draft_record`）：旧草稿物理文件在事务提交后清理（`transaction.on_commit`），回滚则保留旧文件与旧记录一致；`drafts/manual_<id>/` 不得无界增长（forcesave 回调每次都产新文件）。
-- 本模块 8 个模型均显式声明 `objects = TenantModelManager()`：mixin 上的 manager 会被 Django 自动补的默认 Manager 遮蔽（只对模型自身 classdict 里的 Manager 做 add_to_class），省略即静默退化为原生 Manager，新增模型必须带上（TenantManagerDeclarationTests 钉死）。
+- 草稿替换（保存/版本回退/恢复共用 `_create_draft_record`）：旧草稿物理文件在事务提交后清理（`transaction.on_commit`），回滚则保留旧文件与旧记录一致；`drafts/manual_<id>/` 不得无界增长（forcesave 回调每次都产新文件）。
+- 本模块 10 个模型均显式声明 `objects = TenantModelManager()`：mixin 上的 manager 会被 Django 自动补的默认 Manager 遮蔽（只对模型自身 classdict 里的 Manager 做 add_to_class），省略即静默退化为原生 Manager，新增模型必须带上（TenantManagerDeclarationTests 钉死）。
 
 ## 五、preview-file 与 ONLYOFFICE 专用通道约束
 
@@ -191,14 +241,14 @@
 
 - **kkFileView 预览缓存键（2026-10-30，最重要）**：kkFileView 以
   `fullfilename` 作为回源下载文件名与转换缓存键（缓存目录直接以该名存
-  源文件与转换产物，同名即命中同一条目）。四类预览（originals/drafts/
+  源文件与转换产物，同名即命中同一条目）。三类预览（drafts/
   versions/version files，统一走 `_build_preview_url`）的 fullfilename
   **一律取 `storage.stored_filename(obj.file_path)`**（build_stored_name
   生成的含 UUID 唯一存储名，由 `_build_preview_url` 从 obj.file_path 自行
   推导，调用方不再传名）；显示名只作为响应 `file_name` 下发，**绝不作为
   fullfilename**——否则同显示名的两份不同文件（如 草稿 vs 生效版快照）
   串用转换缓存，预览串版（dev 实测：快照预览显示草稿内容）。修复钉死在
-  `tests/characterization/test_preview_cache_key.py`（8 例：四类端点
+  `tests/characterization/test_preview_cache_key.py`（三类端点
   fullfilename==basename(file_path)、同显示名不同内容键互异、file_name
   仍为显示名、preview_token 回源字节各归各）。
 - 通用 preview-file 路由（`<kind>-<id>`）不加 `@auth`，由中间件按 `*/attachments/*/preview-file/*` + preview_token 认证；视图内必须二次校验 token 的 module/object_type/object_id 绑定 + 手册级授权（授权撤销后旧令牌取文件被拒，有测试）。
@@ -212,49 +262,49 @@
 
 - `tests/characterization/` 全部走 test client 真实请求链路；文件系统 patch 到临时目录（`patch.object(storage, 'get_institution_storage_base', ...)`）。
 - ONLYOFFICE 行为测试在 `test_manual_editor.py`：JWT 攻防（篡改/换密钥/alg=none）、config 组装与 key 轮换、editor_token 绑定、回调协议全链路（本地 `ThreadingHTTPServer` 桩模拟 DS 缓存文件源，`requests` 真实下载）、越权/单写/迟到/重复/白名单。forcesave 落盘确认链路在 `test_manual_forcesave.py`（31 例：端点会话/授权校验、命令 JWT 双通道、error 0/4/1 语义、/command 直连与非 JSON 应答失败处理、基址推导、受理→回调落盘→修订号推进全链路；会话撤销与收尾回调时序契约——`FinalCallbackRaceTests` 复现缺省撤销丢弃收尾回调的 benign（notmodified=true）/丢失（新内容）两变体作为对照基线，`FinalCallbackAllowanceTests` 钉死 discard=false 受控放行与全部防线：新内容落盘推进修订号/同内容幂等跳过/status-6 放行/显式 discard=true 拒绝/本人重开拒绝/他人重开拒绝/轮换旧 key 拒绝且最终 key 放行/密码重置后拒绝/编制授权丧失拒绝/归档拒绝/users 不符拒绝）。本机编辑（下载→本机编辑→上传）与迟到回调攻防在 `test_manual_local_upload.py`（5 例：基线一致上传成功且会话保留/基线过期拒绝且内容不覆盖/确认落盘→推进基线→上传全链路/轮换 key 后旧实例回调 409 不覆盖本机上传且新 key 正常落盘/回调与本机上传交错单写串行）。旧 multipart 编辑服务契约（原 test_manual_publish.EditorContractTests）已随协议接入删除，勿恢复 `editor-draft|editor-callback/preview-file` 旧路由。
-- 多文件行为测试在 `test_manual_multi_files.py`（文件管理/并行编辑/越权/整套发布回滚/旧接口委托）；草稿恢复优先级行为测试在 `test_manual_draft_recovery.py`（21 例：默认优先级三档/已有草稿拒绝/多版本取当前版本/部分快照明确报错/历史回退/重建确认密码会话防线/失败补偿/留痕/快照不可变）；文件历史与按文件操作记录在 `test_manual_file_history.py`；保留策略（初始来源聚合/保护边界/候选/预检只读/整套清理/部分失败重试/清理后拒绝）在 `test_manual_retention.py`（26 例，`override_settings` 注入期限/数量/缓冲期配置，时间旅行直改版本 published_at）；存量迁移验证在 `tests/test_multi_file_migration.py`（TransactionTestCase 内 `migrate institution 0002` 双向往返 + 原始 SQL 播种旧形态数据，勿改成 ORM 造数）。
+- 多文件行为测试在 `test_manual_multi_files.py`（文件管理/并行编辑/越权/整套发布回滚/旧接口委托）；**发布交接规则唯一行为测试在 `tests/characterization/test_publish_handoff.py`**（2026-11-02，16 例：13 组场景——本人发布无需提交/多人分工各自提交后他人发布/非负责人含所有者不得代提交/未提交阻断且无残留/提交失效阻断与重提/改派清提交并撤销会话/重复提交拒绝且状态不变/未变化无需提交/纯改名排序无需提交/未分配新增阻断·指派后可发布/未分配未变化不阻断/阻断文案≤3 条/第二发布人同口径/发布与预检权限 + 2 例 TransactionTestCase 并发漂移（patch `services.shutil.copyfile` 在复制中推进修订号或改派，断言拒绝+已复制快照清理+无新版本））；草稿恢复规则行为测试在 `test_manual_draft_recovery.py`（新规则两态：当前生效版本恢复/无可恢复快照提示重新上传、已有草稿拒绝、多版本取当前版本、当前版本不含文件明确报错、失败补偿、留痕、快照不可变；原稿重建确认/密码/会话用例已删除）；文件历史与按文件操作记录在 `test_manual_file_history.py`；保留策略（版本维度：保护边界/候选/预检只读/整套清理/部分失败重试/清理后拒绝）在 `test_manual_retention.py`（`override_settings` 注入期限/数量配置，时间旅行直改版本 published_at；原稿候选用例已删除）；新增文件直建草稿/移除/发布保留草稿/旧草稿替换/发布失败无副作用/快照不可变/草稿恢复规则在 `tests/characterization/test_storage_simplify.py`；原稿数据清理在 `tests/test_original_cleanup.py`；存量迁移验证在 `tests/test_multi_file_migration.py`（TransactionTestCase 内 `migrate institution 0002` 双向往返 + 原始 SQL 播种旧形态数据，勿改成 ORM 造数）。
 - 运行：`docker exec tdyw-test sh -c "cd /data/spug/spug_api && python manage.py test apps.institution --settings=spug.settings_test_isolated --noinput"`。**不要并行跑两个测试进程**（同名隔离测试库会互相销毁，表现为大面积 error）。**测试运行期间不得修改仓库文件**（容器挂载活代码，建库阶段改文件会污染整个 run，表现为与任何代码状态都对不上的 schema 假错，重跑即消）。**全量重建 test_spug_isolated 偶发 DDL 瞬态**：极少数 run 出现 149 例级别的 `IntegrityError`（如 `Column 'deleted_by_id' cannot be null`，与任何代码状态都对不上）；单套件复跑正常即确认是库重建污染，直接重跑全量即可，不要据此改代码。
 - .doc 转换测试用 RTF 内容冒充 .doc（LibreOffice 内容嗅探可转换），损坏文件走真实失败路径。
-- 测试夹具建制度文件一律走 `POST files/create/`（条目+原稿+草稿一步就绪，草稿修订号从 1 起）；旧两步"originals/upload → draft/create"仅在测过渡委托语义时使用。
+- 测试夹具建制度文件一律走 `POST files/create/`（条目+当前草稿一步就绪，草稿修订号从 1 起，不再产生原稿记录/文件）；旧两步"originals/upload → draft/create"过渡用例已随原稿接口删除一并移除。
 
 ## 七、多文件模型不变量（2026-10-29，最重要）
 
 1. **文件级越权防线**：`services.get_manual_file(manual, file_id)` 是所有文件级入口的第一道校验（文件必须属于 URL 中的制度）；`preview-file` 的 draft/vfile 类别以对象自身的 file/version 链反查手册。跨制度文件 ID 一律业务错误，不泄露目标存在性。
 2. **单写以文件为单位**：`ManualEditSession` 绑定 (manual 冗余, file, user)；同一文件同时仅一个活跃会话，不同文件可并行（不同账号）；保存实时复核 会话+负责人独占编辑+该文件修订号。`start_edit_session` 行锁在 `ManualFile` 上。撤销端点 `discard` 参数（缺省 true）决定该已撤销会话（同一 current_doc_key）的收尾 status-2/6 回调是否受控放行落盘——会话行 `final_callback_allowed` 仅撤销端点显式置位，批量失效（密码重置/回退/恢复）一律不置位，完整防线见第五节。
 3. **document.key / editor_token 全链路文件级**：key 格式 `oo-<manual_id>-f<file_id>-r<revision>-<uuid8>`（`DOC_KEY_RE` 同步），editor_token object_id=`<manual>-<file>-<revision>`，回调路由 `files/<fid>/attachments/oo-editor-callback/` 且与 key 解析出的 (manual, file) 交叉核对；AUTHENTICATION_EXCLUDES 只登记文件级四条正则，旧手册级 OO 路由已删除。迁移 0003 已把存量活跃会话整体失效并清空 current_doc_key——新旧协议不复用。
-4. **整套发布三段式**（`publish_whole_set`，视图以 `non_atomic_requests` 注册）：行锁校验固化清单（≥1 文件、每文件有有效草稿、无活跃编辑会话、物理文件存在；**已有生效版本且无内容/结构变化时拒绝——口径与发布预检 `version_compare.has_pending_publish_changes` 一致，首次发布除外**）→ 事务外逐份复制快照（失败清理已复制文件）→ 行锁内复核清单/修订号未漂移后写 版本+ManualVersionFile 快照+切 current_version（落库段独立为 `_commit_publish`）；任一步失败旧生效版保持完整。`ManualVersion` 旧单文件列保留为首快照兼容镜像（两处都发布时一次写入、绝不改写）。**发布收尾（落库事务内）**：发布清单内文件 `revision_open=False`（本轮修订结束）+ 清除 `submission_revision/submitted_at/submitted_by`（提交随本版被消费）；草稿 `base_version` 指向新版本、`source_original` 置 None（解除对初始来源原稿的保留策略引用）；工作副本一律保留。**发布失败不触碰修订状态、草稿与旧生效版本**。
+4. **整套发布三段式**（`publish_whole_set`，视图以 `non_atomic_requests` 注册）：行锁校验固化清单（≥1 文件、每文件有有效草稿、无活跃编辑会话、物理文件存在；**已有生效版本且无内容/结构变化时拒绝——口径与发布预检 `version_compare.has_pending_publish_changes` 一致，首次发布除外**）→ 事务外逐份复制快照（失败清理已复制文件）→ 行锁内复核清单未漂移（文件、草稿修订号、**固化的文件负责人 owner_id**）且**重算编制交接阻断**后写 版本+ManualVersionFile 快照+切 current_version（落库段独立为 `_commit_publish`）；任一步失败旧生效版保持完整。**编制交接阻断（2026-11-02，唯一判定 `version_compare.publish_handoff_blockers`，预检/发布/落库复核三处共用）**：本次新增或内容有变化（草稿哈希≠生效快照）的文件——负责人为空→`unassigned`；发布人=该文件负责人→无需提交；发布人≠负责人→必须有有效提交（`submission_revision==draft.revision` 且草稿有效），从未提交→`submission_pending`、提交已失效→`submission_stale`，均拒绝发布。未变化文件（含仅改名/排序的纯结构变化）与已移除文件不要求提交；草稿缺失/物理文件缺失/活跃编辑会话按既有原因优先阻断。发布错误文案由 `_format_handoff_blockers` 统一（最多列 3 条 + 等 N 项）。**预检不是放行凭证**：`_commit_publish` 复制完成后必须重跑同一判定并比对 `(file_id, draft.revision, owner_id)`，任一漂移/阻断→清理已复制快照、返回统一业务错误、绝不落新版本。`ManualVersion` 旧单文件列保留为首快照兼容镜像（两处都发布时一次写入、绝不改写）。**发布收尾（落库事务内）**：发布清单内文件 `revision_open=False`（本轮修订结束）+ 清除 `submission_revision/submitted_at/submitted_by`（提交随本版被消费）；草稿 `base_version` 指向新版本；工作副本（当前草稿）一律保留，作为后续修订工作副本。**发布失败不触碰修订状态、草稿与旧生效版本**。
 5. **整套回退**（`rollback_to_version`）：按版本快照清单重建待发布集合——属于该版本的文件以快照重建草稿（base_version=该版本、被移除的重新纳入），不属于的启用文件退出待发布集合；先失效手册全部活跃会话；不覆盖历史版本，重发产生更大版本号。
-6. **文件条目永不物理删除**：`ManualFile.is_removed` 软移除（退出待发布集合，原稿/历史快照/ID 保留，回退可重新纳入）；最后一份启用文件不可移除；有活跃会话的文件不可移除。`ManualVersionFile.manual_file` PROTECT。
-7. **过渡期旧单文件接口**（`manuals/<pk>/draft|originals/...`、`versions/<vid>/download|preview-url`）：委托唯一启用文件/唯一快照；零个或多个一律明确报错（'该制度包含多份文件，请使用文件级接口…'），绝不默默操作第一份。文件管理视图在 `views_files.py`（门禁行数拆分），共享助手 `_file_from_request/_can_view_workspace/_session_payload` 从该模块导入（单向依赖 views_draft → views_files，勿反向）。
+6. **文件条目永不物理删除**：`ManualFile.is_removed` 软移除（退出待发布集合，历史快照/ID 保留，回退可重新纳入）；最后一份启用文件不可移除；有活跃会话的文件不可移除。`ManualVersionFile.manual_file` PROTECT。
+7. **过渡期旧单文件接口**（`manuals/<pk>/draft/...`、`versions/<vid>/download|preview-url`；制度级 originals 路由已随原稿体系删除）：委托唯一启用文件/唯一快照；零个或多个一律明确报错（'该制度包含多份文件，请使用文件级接口…'），绝不默默操作第一份。文件管理视图在 `views_files.py`（门禁行数拆分），共享助手 `_file_from_request/_can_view_workspace/_session_payload` 从该模块导入（单向依赖 views_draft → views_files，勿反向）。
 8. **显示名归属**：发布快照显示名取 `ManualFile.display_name`（创建时来自上传名，rename 接口可改），与草稿 `original_name`（回调会写成系统名）彻底分离——草稿脏名不影响版本清单；迁移 0003 存量主文件名按 草稿名>最新版本名>最早原稿名>手册名.docx 派生（系统前缀治愈），带历史存储后缀的名字需人工经 rename 接口清理。
 9. 操作记录涉及具体文件的动作必须带 `file=` 外键 + detail JSON `file_id`/`file_revision`/`file_name`；`log_operation(manual, user, action, version=None, file=None, **detail)`。
-10. **版本变更状态与发布预检（2026-10-29）**：`version_compare.py` 是变更状态的唯一计算点，全部字段服务端按相邻版本快照 SHA256 比较，前端不得以文件名推断——`compute_version_changes` 产出 change_type（added/modified/unchanged）与 `latest_changed_version_no/latest_changed_at`（截至该版本逐版回溯，首版即视为变化），本版本移除的文件不进 items、单独出 `removed_items`（附 `previous_version_id/previous_snapshot_id`，可据此预览/下载上一版快照，绝不静默隐藏）；`GET /manuals/<pk>/versions/<vid>/files/` 响应含 `version_id/previous_version_no/items/removed_items`，items 行内嵌 computed 字段（`to_version_dict` 内嵌 files 快照不含这些字段，完整状态以该端点为准）。`GET /manuals/<pk>/publish-preview/`（view 权限 + `can_publish`，归档拒绝）返回发布计划分组 `changed/unchanged/added/removed/blocked`（草稿哈希 vs 生效版快照哈希；blocked=无草稿/草稿文件缺失/活跃编辑会话，含 reason 与 message）；**预检不是放行凭证**，发布权威校验仍在 `publish_whole_set` 行锁内复核。
-11. **草稿恢复严格优先级（2026-10-29，最重要）**：`FileDraftCreateView`（文件级 `draft/create/`）默认路径（不传 original_id）按固定优先级执行——①已有草稿（有 file_path）一律拒绝（'当前文件已有草稿，请继续编辑或明确执行重建'），绝不无提示覆盖；②无草稿但有 `manual.current_version` → `services.restore_draft_from_current_version` 从该版本中此文件的 `ManualVersionFile` 快照恢复（base_version=来源版本、source_original 不记录、恢复前失效该文件会话、修订号新起；**当前版本不含该文件快照（后加入文件）时明确报错，绝不静默改用原稿补齐**；服务在行锁内复核并发已建草稿即放弃）；③无草稿且 `has_published_versions` 为假（从未发布过任何版本）→ 才从该文件最近原稿创建。已废止（有历史版本、无生效版本）同样拒绝默认回原稿。**原稿重建（original_id）是明确的高级操作**：发布过版本（含废止）必须 `confirm=true` 二次确认；丢弃现有草稿且配置了编辑密码时必须先过 `verify_manual_password`；该文件有活跃编辑会话一律拒绝；重建成功后 base_version 清除（来源由 source_original 表达），操作日志（`create_draft`）必含 `rebuild_from_original/source_original_id/previous_revision/current_version_no`。**草稿缺失的可恢复状态**：`_draft_or_error` 失败分支返回顶层 `{error, draft_recovery}` 的 HTTP 200 响应（detail/session/save/download/preview/editor-config 六入口共用，调用方直接 `return err`，不得再包 json_response）；files 清单行对无草稿文件下发 `draft_recovery`（`build_draft_recovery_hint`：current_version/original(+requires_confirm)），前端恢复入口以它渲染。恢复/重建全程"文件先行、失败补偿"——复制失败不动库、落库失败清理已复制文件；业务流程绝不改写删除历史快照与原稿（行为钉死在 `tests/characterization/test_manual_draft_recovery.py` 21 例；物理删除仅限第九节保留策略入口）。
-12. **文件变更记录数据源（2026-10-29 详情页信息层级改造）**：`GET manuals/<pk>/files/<fid>/version-history/`（@auth view + `can_view_published`，跨制度文件 ID 拒绝）由 `version_compare.compute_file_version_history` 计算——每行一次"包含该文件的发布"，change_type 与相邻上一发布版本同文件快照哈希比较（上一版不含=added，覆盖移除后重新纳入；未参与的版本不出现，不是伪装成一行），**行内 `is_cleaned` 标记该次快照物理文件是否已按保留策略清理**（清理后前端必须关闭预览/下载，后端同样拒绝）；`GET manuals/<pk>/operation-logs/?file_id=` 支持按文件过滤操作记录（非法值明确报错，不过滤=原全量口径）。详情页信息层级（文件清单默认页签/文件变更记录/初始来源）的页签可见性口径见前端 AGENTS.md；测试钉死在 `tests/characterization/test_manual_file_history.py` 与 `test_work_status.py`（已移除文件经 originals-overview 全集仍可选、清理快照带 is_cleaned）。
-13. **初始来源聚合与"更换来源"（2026-10-29）**：`GET manuals/<pk>/originals-overview/`（@auth view + `can_view_manual`）一次返回全部制度文件行（含已移除条目）——`first_original`=该文件最早一条原稿（永不因清理改变归属，已清理仍带元数据 `is_cleaned/cleaned_at`）、`history` 完整原稿历史（新→旧）、`first_published_version_no/at`（原稿保护边界展示）、`has_usable_original`；草稿来源信息仅对 `_can_view_workspace` 通过者下发（与 files/ 清单口径一致）。"为已有文件更换来源"=`POST files/<fid>/originals/upload/`（目标文件在 URL 中明确，只追加原稿记录，绝不改动当前草稿），与"新增制度文件"（`files/create`，每个上传文件各建一份条目）语义严格分开，前端入口亦分开。
+10. **版本变更状态与发布预检（2026-10-29）**：`version_compare.py` 是变更状态的唯一计算点，全部字段服务端按相邻版本快照 SHA256 比较，前端不得以文件名推断——`compute_version_changes` 产出 change_type（added/modified/unchanged）与 `latest_changed_version_no/latest_changed_at`（截至该版本逐版回溯，首版即视为变化），本版本移除的文件不进 items、单独出 `removed_items`（附 `previous_version_id/previous_snapshot_id`，可据此预览/下载上一版快照，绝不静默隐藏）；`GET /manuals/<pk>/versions/<vid>/files/` 响应含 `version_id/previous_version_no/items/removed_items`，items 行内嵌 computed 字段（`to_version_dict` 内嵌 files 快照不含这些字段，完整状态以该端点为准）。`GET /manuals/<pk>/publish-preview/`（view 权限 + `can_publish`，归档拒绝）返回发布计划分组 `changed/unchanged/added/removed/blocked`（草稿哈希 vs 生效版快照哈希；blocked=无草稿/草稿文件缺失/活跃编辑会话/**编制交接未完成**（`unassigned`/`submission_pending`/`submission_stale`），含 reason 与 message；除 removed 外各分组行带 `owner_id/owner_name/submission/publisher_is_owner/submission_required/content_changed` 交接字段，顶层 `blocker_summary` 按 reason 计数）；**预检不是放行凭证**，发布权威校验仍在 `publish_whole_set` 行锁内复核。
+11. **草稿恢复规则（2026-11-02 简化，最重要）**：`FileDraftCreateView`（文件级 `draft/create/`）按固定优先级执行——①已有草稿（有 file_path）一律拒绝（『当前文件已有草稿，请继续编辑或明确执行重建』），绝不无提示覆盖；②无草稿但有 `manual.current_version` → `services.restore_draft_from_current_version` 从当前生效版本中该文件的 `ManualVersionFile` 快照恢复（base_version=来源版本、恢复前失效该文件会话、修订号新起；**当前版本不含该文件快照时明确报错，绝不静默改用原稿补齐——原稿体系已移除**；服务在行锁内复核并发已建草稿即放弃）；③无可用快照（从未发布/当前版本不含/已废止无生效版本）→ 明确业务错误提示『重新上传制度文件建立草稿』（历史版本存在时可先版本历史回退），**绝不回退原稿**；载荷携带 `original_id` 等旧重建参数→明确业务错误且不写入。**草稿缺失的可恢复状态**：`_draft_or_error` 失败分支返回顶层 `{error, draft_recovery}` 的 HTTP 200 响应（detail/session/save/download/preview/editor-config 六入口共用，调用方直接 `return err`，不得再包 json_response）；files 清单行对无草稿文件下发 `draft_recovery`（`build_draft_recovery_hint`：`current_version` 或 `none`+`requires_reupload`+note），前端恢复入口以它渲染（无快照只提示重新上传，不提供任何恢复/重建按钮）。恢复全程『文件先行、失败补偿』——复制失败不动库、落库失败清理已复制文件；业务流程绝不改写删除历史快照（行为钉死在 `tests/characterization/test_manual_draft_recovery.py`；物理删除仅限第九节保留策略入口与原稿清理命令）。
+12. **文件变更记录数据源（2026-10-29 详情页信息层级改造）**：`GET manuals/<pk>/files/<fid>/version-history/`（@auth view + `can_view_published`，跨制度文件 ID 拒绝）由 `version_compare.compute_file_version_history` 计算——每行一次"包含该文件的发布"，change_type 与相邻上一发布版本同文件快照哈希比较（上一版不含=added，覆盖移除后重新纳入；未参与的版本不出现，不是伪装成一行），**行内 `is_cleaned` 标记该次快照物理文件是否已按保留策略清理**（清理后前端必须关闭预览/下载，后端同样拒绝）；`GET manuals/<pk>/operation-logs/?file_id=` 支持按文件过滤操作记录（非法值明确报错，不过滤=原全量口径）。详情页信息层级（文件清单默认页签）的页签可见性口径见前端 AGENTS.md；测试钉死在 `tests/characterization/test_manual_file_history.py` 与 `test_work_status.py`（已移除文件仍可经版本快照/文件历史查阅、清理快照带 is_cleaned）。
+13. **原稿接口已下线（2026-11-02）**：`originals-overview/`、文件级 `files/<fid>/originals/`（列表/上传/下载）、制度级 `manuals/<pk>/originals/...`（列表/上传/下载/预览）、`draft/create` 的 `original_id` 重建、preview-file 的 `original` 类别全部删除（路由 404，前端不再调用）；序列化去掉 `originals_count`/`source_original_id`。『新增制度文件』（`files/create`）每个上传文件各建一条 ManualFile+当前草稿，不再追加原稿；『移除文件』只让条目退出待发布清单，发布后才影响新版本。原稿记录/物理文件由 `purge_institution_originals` 幂等清理（只删 originals/ 根内文件与旧表记录，绝不删草稿/版本文件）。
 14. **草稿状态总览（2026-10-29）**：`GET manuals/<pk>/draft-status/`（@auth view + `_can_view_workspace`：管理员/所有者或编制/发布授权；仅查看授权一律拒绝，不得经它泄漏草稿信息）是"草稿工作区逐份状态 + 详情页整套摘要"的唯一数据源，计算唯一实现 `version_compare.build_draft_status`——内容关系一律按 草稿哈希 vs 当前生效版快照哈希 比较（unchanged/modified/added/awaiting_first_publish，发布后保留的草稿自动归 unchanged），前端不得以修订号或文件名推断；整套待发布变化包含 结构性三项：`removed_items`（生效版存在、已移除）/ 行内 `renamed`+`current_name`（名称与生效快照不同）/ `summary.reordered`（双方共有文件相对次序）。异常状态：`no_draft` 行附 `draft_recovery`；编辑会话占用（含未完成同步/保存回调）与草稿物理文件缺失 = `unconfirmed`（附 reason/message/session.is_mine），**绝不冒充无变化**；`summary.consistent` 仅在 可确认+无缺草稿+无任何待发布变化 时为真。与 publish-preview 的分工：编制者查状态用 draft-status（publish-preview 是 can_publish 域的发布预检，编制者调用必然被拒）；两者都不是放行凭证，发布权威校验仍在 `publish_whole_set` 行锁内。刷新契约：详情进入/文件清单页签挂载/发布/回退/废止 后重新拉取，禁止固定周期轮询。测试钉死在 `tests/characterization/test_draft_status.py`（16 例：首发/发布后一致/再发布/修改/同内容重存/新增/移除/改名/排序/结构变化发布后复位/缺草稿/会话占用/文件缺失/占用优先/编制与发布可读/仅查看拒绝）。
 15. **制度列表工作状态（2026-10-29 交互优化，2026-10-30 增补 revising）**：`GET /manuals/` 行内新增 `work_status`（`serializers.to_manual_list_item` 第 4 参下发，缺省 None）——唯一计算实现 `version_compare.build_manuals_work_status`（批量预取 快照/文件/草稿/会话 各一次查询），与 `build_draft_status` **共享同一套比较口径与 summary 字段**（一致性由 test_work_status 钉死，改状态语义必须两处同步验证）。status 枚举：synced=已生效无未发布修改 / awaiting_first_publish=待首次发布 / pending_changes=有待发布变化（含 移除/改名/排序 结构项）/ **revising=修订进行中（无待发布变化但修订轮开启；pending_changes 优先于它）** / editing=编辑中（会话占用，含未完成同步，优先于其他不可确认原因）/ missing_draft=缺少草稿 / unverifiable=状态无法确认（草稿文件缺失等非会话原因）/ no_files=未上传文件；判定优先级 no_files > editing > unverifiable > missing_draft > awaiting_first_publish > pending_changes > revising > synced。**可见性逐手册判定**：管理员/所有者或持该手册编制/发布授权（授权行从 prefetch 缓存对象就地取值，不额外查询）；仅查看授权行内恒为 None，不得经列表泄漏草稿信息。列表接口响应中行内旧 `draft`（首文件草稿摘要）仅对管理者保留，**不得作为任何状态展示依据**。测试钉死在 `tests/characterization/test_work_status.py`（18 例：八态判定/与 draft-status 摘要一致/编制发布可读/仅查看不下发/已移除文件仍可发现/清理快照 is_cleaned）。
 
 ## 七·之补、修订状态与开始修订（2026-10-30，迁移 0006，最重要）
 
-1. **修订进行中是显式持久状态**：`ManualFile.revision_open`（默认 True）。**绝不凭"草稿哈希 == 生效快照哈希"推断修订已结束**——哈希口径只回答"有无待发布变化"，修订轮由本字段回答。四个概念严格区分：初始来源（ManualOriginal）/ 持续保留的草稿工作副本（ManualDraft，发布后保留）/ 进行中的修订（revision_open）/ 不可变发布快照（ManualVersion*）。
-2. **状态机（唯一写点）**：开启=新文件创建默认 True；`revision_services.start_file_revision`（真实状态动作）；任何草稿内容变更（保存/恢复/回退/原稿重建）经 `services._create_draft_record` 单字段 update 置回 True（工作副本健康时"开始修订"原样复用现有工作副本，不复制新快照）；废止当前版本后全部启用文件置 True（生效集合已不存在）。**关闭=仅整套发布成功**（`_commit_publish` 对发布清单内文件批量置 False）；发布失败（预检拒绝/快照制作失败/落库复核失败）不触碰。移除文件与整套回退会把退出文件的休眠草稿 `base_version/source_original` 置空（休眠草稿不保护历史文件；回退按快照整体重建，不依赖休眠草稿）。
-3. **开始修订端点**：`POST manuals/<pk>/files/<fid>/revision/start/`（@auth draft_edit + `can_edit_file` 负责人独占，手册须启用；发布者不需要也不应该开启修订）。幂等：修订已开启返回 `resumed=true`；工作副本健康返回 `started=true`；工作副本缺失/损坏/与当前生效基线不一致返回 **HTTP 200 + `needs_repair=true`**（reason=draft_missing/draft_corrupt/baseline_mismatch、message、draft_recovery），调用方明确提示后携带 `confirm_repair=true` 重试，经 `services.restore_draft_from_current_version(force_repair=True)` 从当前生效版本快照修复——**绝不静默改用初始来源，绝不静默覆盖可能与基线不同的工作副本**；修复会失效该文件编辑会话并推进修订号（草稿行被删过时修订号从 1 重起）。视图在 `views_files.py`（门控行数拆分），服务在 `revision_services.py`（单向依赖 services，勿反向）。
+1. **修订进行中是显式持久状态**：`ManualFile.revision_open`（默认 True）。**绝不凭"草稿哈希 == 生效快照哈希"推断修订已结束**——哈希口径只回答"有无待发布变化"，修订轮由本字段回答。三个概念严格区分：持续保留的草稿工作副本（ManualDraft，发布后保留）/ 进行中的修订（revision_open）/ 不可变发布快照（ManualVersion*）。
+2. **状态机（唯一写点）**：开启=新文件创建默认 True；`revision_services.start_file_revision`（真实状态动作）；任何草稿内容变更（保存/恢复/回退）经 `services._create_draft_record` 单字段 update 置回 True（工作副本健康时"开始修订"原样复用现有工作副本，不复制新快照）；废止当前版本后全部启用文件置 True（生效集合已不存在）。**关闭=仅整套发布成功**（`_commit_publish` 对发布清单内文件批量置 False）；发布失败（预检拒绝/快照制作失败/落库复核失败）不触碰。移除文件与整套回退会把退出文件的休眠草稿 `base_version` 置空（休眠草稿不保护历史文件；回退按快照整体重建，不依赖休眠草稿）。
+3. **开始修订端点**：`POST manuals/<pk>/files/<fid>/revision/start/`（@auth draft_edit + `can_edit_file` 负责人独占，手册须启用；发布者不需要也不应该开启修订）。幂等：修订已开启返回 `resumed=true`；工作副本健康返回 `started=true`；工作副本缺失/损坏/与当前生效基线不一致返回 **HTTP 200 + `needs_repair=true`**（reason=draft_missing/draft_corrupt/baseline_mismatch、message、draft_recovery），调用方明确提示后携带 `confirm_repair=true` 重试，经 `services.restore_draft_from_current_version(force_repair=True)` 从当前生效版本快照修复——**绝不静默改用其它来源（原稿体系已移除），绝不静默覆盖可能与基线不同的工作副本**；修复会失效该文件编辑会话并推进修订号（草稿行被删过时修订号从 1 重起）。视图在 `views_files.py`（门控行数拆分），服务在 `revision_services.py`（单向依赖 services，勿反向）。
 4. **无意义发布拒绝**：`_commit_publish` 前置 `version_compare.has_pending_publish_changes`（发布端与预检端同口径）：已有生效版本且 内容哈希全同+无新增/移除/改名/排序 时拒绝（'当前没有内容或结构变化，无需重复发布'）；修订开启但内容未变不是发布理由；首次发布（无生效版本，含废止后再发布）不受限。
 5. **draft-status / work_status 增量**：逐份行新增 `revision_open`；summary 新增 `revising`（修订进行中计数）且 `consistent`（已生效、无未发布修改）要求 `revising==0`——修订开启但内容未变既不是一致也不计入待发布变化。publish-preview 行新增 `renamed/current_name`，顶层新增 `reordered/renamed/first_publish/has_changes`，`can_publish = 无受阻 且（首发或 has_changes）`。
 6. **存量迁移 0006（保守回填）**：AddField default=True 全量置"进行中"，RunPython 仅对「当前生效版本快照中存在 + 草稿有效且哈希一致 + 无活跃编辑会话」的文件翻转为 False（迁移模块函数 `_backfill_revision_open`，测试用真实 apps 直接调用验证）；其余一律保持进行中，不丢失可能尚未发布的修改或编辑会话。回滚=RemoveField（值可由发布动作重建）。
-7. 行为测试：`tests/characterization/test_revision_state.py`（发布结束修订/失败保持原状/无变化拒发/开始修订复用/幂等/三种修复路径/修复不碰初始来源/修复失效会话/权限/废止重开/批量分工原子性/改派清空重置提交/发布消费提交/回填规则）。
+7. 行为测试：`tests/characterization/test_revision_state.py`（发布结束修订/失败保持原状/无变化拒发/开始修订复用/幂等/三种修复路径/修复不碰历史快照/修复失效会话/权限/废止重开/批量分工原子性/改派清空重置提交/发布消费提交/回填规则）。
 
 ## 七·补、文件分工与提交编制（2026-10-29，迁移 0005）
 
 1. **分工单位=整份制度文件**：负责人（owner/owner_name）、分工说明（assign_note）、最近分工（assigned_at/assigned_by）与提交编制（submission_revision/submitted_at/submitted_by）都在 `ManualFile` 条目上——每份文件至多一名负责人，**结构上不存在同一文件多条互相冲突的"当前分工"**；owner 为空即"未分配"。owner_name/submitted_by_name 等账号名快照在账号删除后仍可读（SET_NULL + 落库快照，序列化优先快照、回退关联账号昵称）。
-2. **接口**：`files/create/` 接受可选 multipart `owner_id`/`note`（新增时即可指定）；`POST files/<fid>/assignment/` 指定/改派/清空（owner_id 必须显式携带，null=清空；note ≤500 字）；**`POST files/batch-assignment/`（2026-10-30）批量分工**（file_ids 非空整数列表 + owner_id 显式携带 + note；`_validate_batch_assignment` 逐文件校验归属，任一文件不属于该制度整批拒绝，事务内全成功或全失败；逐文件 `assign_file_owner(batch=True)` 写 file_assign 操作记录 + 单条模块审计事件）；`POST files/<fid>/submit/` 提交编制。前两者权限=`manual_auth draft_edit` +（手册所有者或平台超管），`assignment` 与 `rename/move/remove` 同口径；`submit` 页面权限=view（负责人可能仅持查看权限），业务放行=**文件负责人 或 手册所有者 或 平台超管**（提交是状态交接而非编辑操作；2026-10-31 起被指派负责人必持 can_edit 编制授权——分工写路径已校验）。所有入口先经 `_file_from_request` 校验文件归属，跨制度文件 ID 一律拒绝。
-   - **负责人候选接口（2026-10-30，最重要）**：`GET manuals/<pk>/assignment-owners/`（`AssignmentOwnerOptionsView`）是分工弹窗与新增文件负责人下拉的**唯一候选来源**——`manual_auth draft_edit|upload`（与两条携带 owner 的写路径对齐）+（手册所有者或平台超管）；候选=持有该手册 can_edit 编制授权的启用账号（与 `_resolve_assignee` 的校验口径一致，2026-10-31 起负责人独占编辑要求被指派账号具备编制资格；本模块授权按账号授权行判定、tenant_id 不参与归属，**跨租户账号可作负责人是预期行为**，测试钉死）；只回传 `id+name`（昵称，空则账号名）最小字段。**禁止改回拉账号管理列表 `/api/account/user/`**（GET 要求 `system.account.view`，无账号查看权的分工用户打开弹窗即"权限拒绝"且候选被吞成空列表——本接口为修复该缺陷而设），也不得以放宽账号接口权限为替代方案。
+2. **接口**：`files/create/` 接受可选 multipart `owner_id`/`note`（新增时即可指定）；`POST files/<fid>/assignment/` 指定/改派/清空（owner_id 必须显式携带，null=清空；note ≤500 字）；**`POST files/batch-assignment/`（2026-10-30）批量分工**（file_ids 非空整数列表 + owner_id 显式携带 + note；`_validate_batch_assignment` 逐文件校验归属，任一文件不属于该制度整批拒绝，事务内全成功或全失败；逐文件 `assign_file_owner(batch=True)` 写 file_assign 操作记录 + 单条模块审计事件）；`POST files/<fid>/submit/` 提交编制。前两者权限=`manual_auth draft_edit` +（手册所有者或平台超管），`assignment` 与 `rename/move/remove` 同口径；`submit` 页面权限=view（负责人可能仅持查看权限），业务放行=**仅当前文件负责人**（2026-11-02 收紧：手册所有者/平台超管不得代提交；未分配明确拒绝；2026-10-31 起被指派负责人必持 can_edit 编制授权——分工写路径已校验）。所有入口先经 `_file_from_request` 校验文件归属，跨制度文件 ID 一律拒绝。
+   - **负责人候选接口（2026-10-30，最重要）**：`GET manuals/<pk>/assignment-owners/`（`AssignmentOwnerOptionsView`）是分工弹窗与新增文件负责人下拉的**唯一候选来源**——`manual_auth draft_edit|upload`（与两条携带 owner 的写路径对齐）+（手册所有者或平台超管）；候选=**手册所有者（即使无 can_edit 授权行，所有者按对象范围自动具备编辑资格）+ 持有该手册 can_edit 编制授权的启用账号**（2026-11-02 补入所有者；与 `_resolve_assignee` 的校验口径一致，2026-10-31 起负责人独占编辑要求被指派账号具备编制资格；本模块授权按账号授权行判定、tenant_id 不参与归属，**跨租户账号可作负责人是预期行为**，测试钉死；按账号 id 去重）；只回传 `id+name`（昵称，空则账号名）最小字段。**禁止改回拉账号管理列表 `/api/account/user/`**（GET 要求 `system.account.view`，无账号查看权的分工用户打开弹窗即"权限拒绝"且候选被吞成空列表——本接口为修复该缺陷而设），也不得以放宽账号接口权限为替代方案。
 3. **指定负责人不授予任何权限**：编辑要求 模块权限+can_edit 编制授权+该文件负责人身份+密码会话（负责人独占）；`assignment.is_mine` 只是责任标记（`_assignment_payload` 按请求者计算），不得据此放行任何写操作。改派/清空负责人（owner 变化）清除提交记录并撤销该文件活跃会话。
-4. **提交编制的限制**（`services.submit_file_compilation`）：手册未归档；该文件有有效草稿（记录存在、`resolve_absolute_path` 合法、物理文件存在）；无活跃编辑会话。可重复提交（以提交时最新修订号覆盖）。记录 `submission_revision`+`submitted_at`+`submitted_by`，操作记录 action=`file_submit`（file 外键+detail JSON）。
-5. **提交状态为计算式失效（最重要）**：`services.file_submission_state` 是唯一判定实现——`submission_revision == 当前草稿 revision` 且草稿有效 = submitted；否则 stale（"提交已失效"，绝不显示"已完成"）。草稿所有变更路径（multipart 保存、ONLYOFFICE 回调保存、原稿重建、版本回退、恢复）都经 `_create_draft_record` 推进 revision，提交状态随之自动失效，**不依赖任何写路径清除提交**；新增会改草稿修订号的路径必须保持经 `_create_draft_record`。**显式清除（2026-10-30，回到"未提交"而非 stale）**：① `assign_file_owner` 在 owner 变化（改派/清空；负责人未变仅改说明不清）时清除提交记录——旧负责人的交接随负责人变更失效；② 整套发布成功时对发布清单内文件清除——提交随本版被消费，绝不误显示为下一轮的待交接。历史交接保留在操作记录（file_assign detail 带 submission_reset，file_submit 记录不动）。
+4. **提交编制的限制**（`services.submit_file_compilation`，2026-11-02 收紧）：**仅当前文件负责人**（未分配负责人明确拒绝；手册所有者/平台超管不得代提交）；手册未归档；该文件有有效草稿（记录存在、`resolve_absolute_path` 合法、物理文件存在）；无活跃编辑会话；**修订轮必须进行中**（`revision_open=True`，已发布且无待发布修改的文件返回“当前文件没有待发布的修改，无需提交编制”且状态/时间不变——否则会把「无需提交」的文件标成已交接）；**有效重复提交拒绝**（`submission_revision == 当前草稿 revision` 时返回“已提交，无需重复提交”，状态/时间不变）；草稿变更后 stale 允许重新提交并以最新修订号覆盖。记录 `submission_revision`+`submitted_at`+`submitted_by`，操作记录 action=`file_submit`（file 外键+detail JSON）。
+5. **提交状态为计算式失效（最重要）**：`services.file_submission_state` 是唯一判定实现——`submission_revision == 当前草稿 revision` 且草稿有效 = submitted；否则 stale（"提交已失效"，绝不显示"已完成"）。草稿所有变更路径（multipart 保存、ONLYOFFICE 回调保存、版本回退、恢复、新增直建草稿）都经 `_create_draft_record` 推进 revision，提交状态随之自动失效，**不依赖任何写路径清除提交**；新增会改草稿修订号的路径必须保持经 `_create_draft_record`。**显式清除（2026-10-30，回到"未提交"而非 stale）**：① `assign_file_owner` 在 owner 变化（改派/清空；负责人未变仅改说明不清）时清除提交记录——旧负责人的交接随负责人变更失效；② 整套发布成功时对发布清单内文件清除——提交随本版被消费，绝不误显示为下一轮的待交接。历史交接保留在操作记录（file_assign detail 带 submission_reset，file_submit 记录不动）。
 6. **下发口径**：`files/` 清单行对所有可见者带 `assignment`（负责人是责任信息，含 is_mine）；`submission` 属草稿域信息，仅对 `_can_view_workspace` 通过者下发（与 draft/active_session 同口径），序列化在 `to_manual_file_dict` 按传参附加。
-7. **发布核对只增信息、不加阻断**：`build_publish_plan` 各分组行（除 removed=生效快照行构造，无文件条目）携带 `owner_name` 与 `submission`（`_plan_row_base`），供发布者在确认窗口核对交接状态；`can_publish` 与 `publish_whole_set` 的整套发布校验保持不变（第一阶段无任何新阻断）。
+7. **发布交接阻断（2026-11-02，取代原“只增信息不加阻断”）**：`build_publish_plan` 各分组行（除 removed=生效快照行构造，无文件条目）携带 `owner_id/owner_name/submission/publisher_is_owner/submission_required/content_changed`（`_plan_row_base` 扩参），供发布者在确认窗口核对交接状态；**本次新增或内容有变化的文件，发布人≠负责人且无有效提交时进入 blocked 分组**（reason=`unassigned`/`submission_pending`/`submission_stale`），`can_publish=false` 且 `publish_whole_set` 同样拒绝；未变化/纯结构变化/已移除文件不要求提交。顶层 `has_changes` 计入**交接受阻且确属内容变化的行**（`_bucket_plan_rows` 的 `blocked_changed`；no_draft/session_busy/draft_missing 保守 False），避免前端确认窗同时显示“无需重复发布”与受阻 Alert；`can_publish` 语义不变。预检与发布共用唯一判定 `version_compare.publish_handoff_blockers` / `classify_publish_plan`，落库段复核 `(file_id, draft.revision, owner_id)`、交接状态，并**重算 `has_pending_publish_changes`**（复制期间另一发布人已先发布同一内容→清理已复制副本、拒绝写入重复版本）。
 8. **旧章节分工（ManualChapter）遗留只读**：表与记录一律不动（旧记录只关联制度、无法按章节名称猜测所属文件，人工核对完成前不删不改）；`GET manuals/<pk>/chapters/` 继续开放供过渡展示；`chapters/create|<cid>|<cid>/progress/` 全部写接口返回 `LEGACY_CHAPTER_READONLY_ERROR`（urls 保留，路由不删以免 404 语义含混）。前端过渡展示在文件清单页签底部（ChaptersTab 组件已删除）。
 9. 行为测试：`tests/characterization/test_manual_file_assignment.py`（分工/改派/未分配/越权/提交/失效三路径/发布预检携带/多文件并行/旧章节保留；`AssignmentOwnerOptionsTests` 钉死候选接口的权限匹配/最小字段/跨租户口径/停用账号排除，并固化根因=账号管理清单仍按 system.account.view 拒绝）；`test_manual_chapters.py` 已改写为遗留只读语义。
 
@@ -262,13 +312,106 @@
 ## 八、发布版本快照与旧接口清理状态（2026-10-29 保留策略配套）
 
 - `ManualVersionFile.cleaned_at` 标记单份快照物理文件已按保留策略清理；`ManualVersion.files_cleaned_at`（任一快照清理即置位=整版不可完整使用）/`files_clean_status`（''/partial/cleaned）/`files_clean_error`（失败说明，可重试）。版本号、发布人/时间、变更说明与快照行（含哈希）在清理后永久保留。
-- 清理后防线（后端独立校验，前端同时关闭入口）：`rollback_to_version` 对 `files_cleaned_at` 非空的版本直接拒绝；快照/旧单文件版本的下载与预览对已清理快照拒绝（'该文件已按保留策略清理…'）；preview-file 通道对已清理的 original/version/vfile 同样拒绝；已清理原稿的下载/预览/重建拒绝（`storage.ORIGINAL_CLEANED_ERROR`）。
-- `serializers.to_version_dict/to_version_file_dict/to_original_dict` 已带清理状态字段；新增涉及版本/原稿/快照的接口时不得把已清理对象当作可用文件返回。
+- 清理后防线（后端独立校验，前端同时关闭入口）：`rollback_to_version` 对 `files_cleaned_at` 非空的版本直接拒绝；快照/旧单文件版本的下载与预览对已清理快照拒绝（『该文件已按保留策略清理…』）；preview-file 通道对已清理的 version/vfile 同样拒绝（`original` 类别已随原稿体系删除）。
+- `serializers.to_version_dict/to_version_file_dict` 已带清理状态字段；新增涉及版本/快照的接口时不得把已清理对象当作可用文件返回。
 
 ## 九、文件生命周期保留策略（2026-10-29，唯一物理删除入口）
 
-- **自动清理不启用**：无定时任务、无 Celery beat 项。物理删除只能经 `retention_services.execute_cleanup`（`POST cleanup/execute/`）；`INSTITUTION_VERSION_RETENTION_DAYS<=0`（默认）时预检不产出候选、执行直接业务错误拒绝。三个配置全部在 `spug/settings.py`（`INSTITUTION_VERSION_RETENTION_DAYS`/`INSTITUTION_VERSION_RECENT_KEEP_COUNT`/`INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS`，环境变量注入）。
-- **原稿保护边界**：该文件"首次进入成功发布的版本"（`get_first_published_version` 按 ManualVersionFile 快照回溯）之前原稿本体永久受保护；首次发布并超过缓冲期后才可成为候选。候选另需同时通过：草稿来源引用（`ManualDraft.source_original` 仍指向该原稿时阻止——注意编辑器保存/恢复/回退会清空该字段，**2026-10-30 起整套发布成功同样解除该引用**（修订轮结束、基线改为生效版本，来源历史由原稿记录与操作日志承载），原稿重建会重新建立）、活跃编辑会话、共享路径引用（`count_other_path_references` 跨 原稿/草稿/版本镜像列/版本快照 四表核对，删除前排除自身）。
+- **自动清理不启用**：无定时任务、无 Celery beat 项。物理删除只能经 `retention_services.execute_cleanup`（`POST cleanup/execute/`）；`INSTITUTION_VERSION_RETENTION_DAYS<=0`（默认）时预检不产出候选、执行直接业务错误拒绝。两个配置全部在 `spug/settings.py`（`INSTITUTION_VERSION_RETENTION_DAYS`/`INSTITUTION_VERSION_RECENT_KEEP_COUNT`，环境变量注入）；原稿缓冲期配置 `INSTITUTION_ORIGINAL_CLEAN_BUFFER_DAYS` 已随原稿体系删除。
+- **原稿清理入口（2026-11-02，独立于版本保留策略）**：`python manage.py purge_institution_originals [--dry-run] [--manual-id ID]`（实现 `original_cleanup.cleanup_originals`）。旧表 `tdyw_institution_original` 存在时逐条『路径校验→删文件→删记录』，表已迁移删除后只扫描 originals/ 根；路径必须位于 `<storage>/institution/originals/`（首段 originals、manual_<id>/ 结构、拒绝绝对路径/`..`/realpath 逃逸），非法/删除失败计入 failures 并保留记录、命令非 0 退出；绝不删除或改写 drafts/、versions/ 下草稿与发布快照，也不修改任何草稿/版本/操作记录。重复执行幂等（已缺失视为完成）。推荐部署顺序：先清命令、成功后再 migrate 0010。
 - **版本保护集合**：当前生效版本永久受保护；`long_term_protected` 标记（`versions/<vid>/protect/`，@auth publish + can_publish，发布域操作不走管理权限码）排除；最近 N 个版本（按 version_no）排除；发布时间未超期限排除；`ManualDraft.base_version` 仍引用（业务引用）排除。`is_effective=False` 绝不参与候选判定。
 - **整套语义与幂等**：候选按整版评估、逐快照删除并逐份记录成功/失败；任一失败整版标 partial（`files_clean_error` 记录、快照行不动、可重试），全部成功才置 cleaned；已清理项二次执行跳过（幂等）。删除与落库之间不包显式长事务（单条更新自原子），由候选评估+共享引用核对+下游存在性检查兜底。预检（`build_cleanup_preview`）完全只读且不是执行凭证。
 - 长阻塞文件 IO 不得包进 ATOMIC_REQUESTS：`cleanup/execute/` 若将来改造成批量大删除，参照 `publish/` 用 `transaction.non_atomic_requests` 注册。
+
+## 十、提交待发布核对固定快照（2026-11-03，迁移 0011，最重要）
+
+> 本节取代第七、七·补、七·之补中"提交编制=记录修订号的计算式交接"语义；
+> 旧 `ManualFile.submission_revision/submitted_at/submitted_by` 列保留为
+> 历史痕迹（只在存量数据上可读，发布/改派时按既有行为清除），**绝不**
+> 据此判定"已提交"，也绝不为存量记录伪造快照或使用迁移时刻草稿。
+
+1. **有效负责人（唯一实现 `services.effective_owner(_id/_display)`）**：
+   `ManualFile.owner` 优先；`owner_id` 为空时回退 `Manual.owner`（含
+   `owner_is_fallback=True`）；两者皆空则无有效负责人（新增/变化文件发布
+   阻断）。**不得批量回填 `owner_id`**，回退在读取时计算；显式负责人仍以
+   `owner_id/owner_name/is_mine` 原样下发，另增
+   `effective_owner_id/effective_owner_name/is_effective_owner/owner_assigned`。
+   `is_mine` 不授予权限；编辑资格仍是 `can_edit_file`（所有者，或 can_edit
+   授权 + 显式文件负责人）。
+2. **提交（`ManualSubmission`，状态机 pending→withdrawn/returned/published）**：
+   仅有效负责人本人可发起（`submit_file_compilation`）；必须已有有效草稿、
+   无活跃编辑会话、`revision_open=True`；已有 pending 重复提交拒绝。提交
+   在行锁内复核冻结条件，把当前草稿**复制**到
+   `storage/institution/submissions/manual_<id>/<yyyymm>/`（
+   `FILE_KIND_SUBMISSION='submission'`，`_KIND_TO_SUBDIR` 含 submissions），
+   快照行固化 `file/draft_revision/file_path/original_name/file_size/
+   file_hash/submitted_by/submitted_by_name/submitted_at`；哈希与大小当场
+   核验，复制前/后均不读"可被替换的草稿路径"。操作记录 action=
+   `file_submit`，detail 带 submission_id。
+3. **快照不可变且独立于草稿**：提交副本与草稿物理文件分离，后续草稿替换/
+   清理/保留策略都不得触碰它；只有三种显式动作会使其失效：负责人撤回
+   （`withdraw_file_submission`，pending→withdrawn，记录保留）、发布权者
+   退回（`return_file_submission`，reason 必填 ≤500，pending→returned，
+   记录保留）、整套发布消费（pending→published，写
+   `published_version/consumed_at`）。物理副本在撤回/退回/发布事务提交后
+   由 `_schedule_submission_file_cleanup`（on_commit）删除；DB 行永不物理
+   删除，`cleaned_at` 标记副本已清理。
+4. **冻结（提交后禁止修改内容）**：冻结判定唯一实现
+   `services.file_is_frozen/get_pending_submission`（pending 且
+   `draft_revision == 当前草稿 revision` 且草稿有效）。所有内容写路径在
+   服务层拒绝（前端禁用只是辅助）：`start_edit_session`、
+   `save_file_draft`（含 multipart/本机上传/回调保存，行锁内二次复核）、
+   `restore_draft_from_current_version`、`rollback_to_version`、
+   `revision_services.start_file_revision`、ONLYOFFICE 编辑配置/forcesave/
+   callback（`editor_services.process_editor_callback` 在下载回调文件前
+   409，含 `discard=false` 的迟到收尾回调）。错误文案统一
+   `FROZEN_EDIT_ERROR`（撤回/退回后再编辑）；回退整本手册是
+   `FROZEN_ROLLBACK_ERROR`。改名/移动/改派/移除只冻结**该文件**
+   （`FROZEN_STRUCT_ERROR`），不影响其他文件；批量分工含冻结文件整批
+   拒绝。
+5. **撤回/退回（`views_submission.py`）**：`submit/withdraw/`=页面 view +
+   服务层校验有效负责人本人；`submit/return/`=页面 publish +
+   `can_publish`（所有者或逐本 can_publish 授权，超管不因超管身份可发布）。
+   两者均先经 `_file_from_request` 校验文件归属，返回更新后的文件行
+   （含新状态）。**权限不因显式负责人存在而转移**：手册所有者移交后，
+   fallback 文件有效负责人变为新所有者；原提交人若已非有效负责人则失去
+   撤回权，pending 快照仍可由新发布人用于发布。
+6. **待核对快照预览/下载（发布人核对）**：`submission/preview-url/` 与
+   `submission/download/`（页面 view + `_can_view_workspace`），只读
+   pending 快照副本；响应/文件名带 `submitted_by_name/at` 与
+   `submission_id`；预览令牌 object_type=`submission`，preview-file
+   的 `<kind>-<id>` 已支持该类别（`_resolve_preview_object` 归属反查
+   手册 + 工作区可见）。缺失/已清理明确业务错误，不读草稿或生效版替代。
+7. **整套发布来源选择（唯一实现 `version_compare.build_publish_manifest`）**：
+   逐文件分类后选源——未变化（哈希==当前生效快照，含纯改名/排序）
+   →`current_version`（复制当前生效快照，不要求提交）；变化且发布人=有效
+   负责人→`draft`（复制当前草稿，固化 draft_revision+draft_hash）；变化且
+   发布人≠有效负责人→`submission`（复制 pending 提交副本，固化
+   submission_id+draft_revision+hash）。发布预检/预览/最终发布同源同判定；
+   预检不是凭证，`_commit_publish` 在行锁内用同一函数重算 manifest 并逐项
+   比对签名 `_manifest_signature`（文件顺序、显式/有效负责人、来源类别、
+   快照/提交 id、修订号、哈希），任一漂移/阻断→清理已复制版本文件、返回
+   统一错误、旧生效版完整、不消费仍有效的提交。复制后逐份核对复制哈希与
+   来源固定哈希，不一致即中止。
+8. **发布成功收尾**：写 `ManualVersion`+`ManualVersionFile`（SHA256 不可变）
+   →切 `current_version`→清单文件 `revision_open=False`、清旧提交列→清单
+   内全部 pending 提交置 `published`（`published_version/consumed_at`）并
+   on_commit 清理快照物理副本→草稿 `base_version` 指向新版本（工作副本
+   保留）。**重复发布**：无内容/结构变化一律拒绝（`has_pending_publish_changes`，
+   首发除外）；仅存在 pending 提交但无变化也不算发布理由。
+9. **红点（`count_handoff_badge`）**：当前用户为所有者或持 can_publish 的
+   启用手册中，未移除 + 有效负责人非当前用户 + 草稿有效 + 存在 pending
+   提交（`draft_revision==草稿 revision`）+ 相对当前生效版本新增/内容变化
+   的文件数；不做物理 stat；已消费提交自然不计。
+10. **存量兼容与迁移**：`0011_manual_submission` 只 CreateModel（依赖 0010），
+    无数据迁移、无物理删除、无回填；旧 `submission_revision` 有效记录在界
+    面上按 `legacy_submitted` 只读提示（**不冒充可发布快照**），对应文件
+    必须走新提交获得快照后才能由他人发布；存量文件 owner 为空继续按手册
+    所有者回退，不回填、不改历史分工记录。
+11. **测试**：新行为钉死在 `tests/characterization/test_submission_snapshot.py`
+    （快照不可变/冻结全写路径/撤回退回重提/有效负责人回退/多文件来源选择/
+    发布补偿/并发漂移/ONLYOFFICE 交错/权限/存量兼容/迁移往返/清理），
+    现有 `test_publish_handoff.py`、`test_revision_state.py`、
+    `test_manual_file_assignment.py`、`test_manual_editor.py`、
+    `test_manual_forcesave.py`、`test_manual_local_upload.py` 等按新语义
+    更新；运行命令与隔离库纪律见第六节（测试期间不得改仓库文件）。

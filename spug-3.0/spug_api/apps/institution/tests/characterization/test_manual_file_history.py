@@ -70,7 +70,23 @@ class FileHistoryBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
+    def _ensure_handoff(self):
+        """发布前由各文件负责人经真实接口提交编制（预期成功发布夹具）"""
+        resp = self.manager_client.get(
+            f'/institution/manuals/{self.manual.id}/files/')
+        self.assertFalse(has_error(resp), resp.content)
+        for row in get_data(resp):
+            owner_id = row['assignment']['owner_id']
+            if not owner_id or owner_id == self.publisher.id:
+                continue
+            owner = ManualFile.objects.get(pk=row['id']).owner
+            post_json(
+                make_client(owner),
+                f'/institution/manuals/{self.manual.id}/files/'
+                f'{row["id"]}/submit/', {})
+
     def _publish(self, note):
+        self._ensure_handoff()
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': note})

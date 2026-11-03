@@ -53,8 +53,8 @@ class DraftStatusSummary extends React.Component {
       return (
         <Alert type="info" showIcon style={{marginTop: 8}} message={
           <span>
-            该制度还没有待发布文件。请在「初始来源」页签上传原始文件
-            （每份文件各建一个制度文件与草稿）。{refresh}
+            该制度还没有待发布文件。请在文件清单页签使用「新增待发布文件」
+            上传，上传文件作为待发布文件的当前草稿。{refresh}
           </span>}/>
       );
     }

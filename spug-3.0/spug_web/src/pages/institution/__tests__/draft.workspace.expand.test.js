@@ -73,7 +73,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: {
       id: 100 + id,
       revision: id,
@@ -81,7 +80,6 @@ function makeFile(id, overrides) {
       file_size: 1024,
       file_hash: `hash-${id}`,
       base_version_id: null,
-      source_original_id: null,
       last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00',
@@ -281,6 +279,9 @@ describe('草稿工作台（放大/还原）', () => {
     // （在线编辑无确认记录：独立保存状态显示"尚未确认落盘"警示）
     expect(textVisible(container, '文件1')).toBe(true);
     expect(textVisible(container, '编辑中：内容尚未经服务端确认落盘')).toBe(true);
+    // 放大态顶栏的编制状态 Tag 与详情页/导航同一口径（此处无待发布变化
+    // 与提交记录 → 无需提交；隐藏的文件头部同名 Tag 不算，必须可见）
+    expect(textVisible(container, '无需提交')).toBe(true);
     expect(findVisibleButton(container, '返回 测试手册')).not.toBeUndefined();
     expect(findVisibleButton(container, '保存并结束编辑')).not.toBeUndefined();
     expect(findVisibleButton(container, '还原')).not.toBeUndefined();

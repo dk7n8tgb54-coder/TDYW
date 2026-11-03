@@ -2,17 +2,18 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 制度详情页信息层级测试（jsdom + ReactDOM，2026-10-29 交互优化）：
- * - 页签结构：文件清单（默认，由原「当前生效文件」与「草稿工作区」合并，
- *   顶层页签只减不增）→ 版本与发布 → 文件变更记录 → 初始来源 →
- *   操作记录（→ 权限配置）。
+ * 制度详情页信息层级测试（jsdom + ReactDOM，2026-11-01 文件历史简化版）：
+ * - 页签结构：文件清单（默认）→ 版本与发布 → 操作记录（→ 权限配置）。
+ * - 顶层页签只减不增：「初始来源」（2026-11-01）与「文件历史」（2026-11-01
+ *   简化）顶层页签均已取消——按文件回看发布参与与操作记录统一经文件清单
+ *   行内「文件历史」弹窗（FileHistoryModal）打开，不再切换顶层页签；
+ *   原稿历史（历史上传记录）不在界面展示。
  * - 2026-10-29 文件分工替代章节分工：独立的「章节分工」顶层页签取消，
  *   分工入口在文件清单行内；旧章节记录由文件清单页签只读过渡展示。
  * - 页签可见性对所有可见者统一（文件清单对查看/编制/发布角色都渲染，
  *   列内容按权限收窄），不再按发布可见权切换默认页签。
  * - 头部渲染 整套草稿状态摘要 + 发布新版本入口（PublishButton）；
  *   进入详情按权限拉取草稿状态（fetchDraftStatusIfAllowed）。
- * - 文件清单行「变更记录」可切换到文件变更记录页签。
  */
 import React from 'react';
 import ReactDOM from 'react-dom';
@@ -32,12 +33,13 @@ jest.mock('libs', () => ({
 
 // 子页签全部 mock 为可识别文本占位，隔离页签结构与可见性断言
 jest.mock('../detail/FileListTab', () =>
-  function FileListTab({onOpenFileHistory}) {
+  function FileListTab(props) {
     return (
       <div data-testid="file-list-tab">
         FILE_LIST_TAB
-        {onOpenFileHistory && (
-          <button id="jump-history" onClick={onOpenFileHistory}>跳转变更记录</button>
+        {/* 详情页不再下发页签跳转回调：行内「文件历史」自行开弹窗 */}
+        {props.onOpenFileHistory && (
+          <button id="jump-history">跳转文件历史</button>
         )}
       </div>
     );
@@ -45,14 +47,6 @@ jest.mock('../detail/FileListTab', () =>
 jest.mock('../detail/VersionsTab', () =>
   function VersionsTab() {
     return <div data-testid="versions-tab">VERSIONS_TAB</div>;
-  });
-jest.mock('../detail/FileChangeTab', () =>
-  function FileChangeTab() {
-    return <div data-testid="file-changes-tab">FILE_CHANGES_TAB</div>;
-  });
-jest.mock('../detail/OriginalsTab', () =>
-  function OriginalsTab() {
-    return <div data-testid="originals-tab">ORIGINALS_TAB</div>;
   });
 jest.mock('../detail/RecordsTab', () =>
   function RecordsTab() {
@@ -153,14 +147,18 @@ afterEach(() => {
 });
 
 describe('制度详情页（信息层级与页签结构）', () => {
-  it('默认页签为文件清单（合并页签），页签按层级排序且无「草稿工作区/章节分工」', async () => {
+  it('默认页签为文件清单（合并页签），页签按层级排序且无「初始来源/草稿工作区/章节分工」', async () => {
     container = renderPage();
     await flush();
     const titles = tabTitles(container);
     expect(titles).toEqual([
-      '文件清单', '版本与发布', '文件变更记录',
-      '初始来源', '操作记录', '权限配置',
+      '文件清单', '版本与发布', '操作记录', '权限配置',
     ]);
+    // 历史来源与文件历史顶层页签均已取消：行内「文件历史」直接开弹窗
+    expect(titles).not.toContain('初始来源');
+    expect(titles).not.toContain('文件历史');
+    expect(document.querySelector('[data-testid="originals-tab"]')).toBeNull();
+    expect(document.querySelector('[data-testid="file-changes-tab"]')).toBeNull();
     // 不再有与"草稿工作台"编辑页撞名的只读页签
     expect(titles).not.toContain('草稿工作区');
     expect(titles).not.toContain('当前生效文件');
@@ -247,16 +245,10 @@ describe('制度详情页（信息层级与页签结构）', () => {
     expect(tabTitles(container)).not.toContain('权限配置');
   });
 
-  it('文件清单行「变更记录」切换到文件变更记录页签', async () => {
+  it('详情页不再下发文件历史页签跳转回调（行入口自行开弹窗）', async () => {
     container = renderPage();
     await flush();
-    const jump = document.querySelector('#jump-history');
-    expect(jump).not.toBeNull();
-    act(() => {
-      jump.dispatchEvent(new MouseEvent('click', {bubbles: true}));
-    });
-    await flush();
-    expect(activeTabText()).toContain('FILE_CHANGES_TAB');
+    expect(document.querySelector('#jump-history')).toBeNull();
   });
 });
 

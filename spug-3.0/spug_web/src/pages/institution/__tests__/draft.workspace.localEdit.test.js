@@ -17,6 +17,14 @@
  *   下载成功记录基线修订号。
  * - 本机上传：成功提示只在后端真实成功响应后；.doc 被客户端拒绝；
  *   基线过期失败不清会话不报成功，可重新下载后重试。
+ * - 整份替换当前草稿（2026-10-31 二轮拆分，不要求先下载）：本机面板
+ *   同时渲染日常「上传保存（需先下载草稿）」与次级「用本机文件替换当前
+ *   草稿」两个入口；点击替换先 Modal.confirm（目标制度文件名 + 当前草稿
+ *   修订号 rN + 整份替换/不发布/不影响历史版本影响说明），取消不打开
+ *   文件选择器也不上传，确认后才打开；选文件后以**确认时快照的修订号**
+ *   上传（确认后清单被推进也不改用最新修订号）；.doc 拒绝；冲突
+ *   「草稿已被其他会话更新」不报成功、保留会话、刷新清单并提示重新确认；
+ *   文案不得承诺"系统已校验所选文件基于下载草稿"。
  * mock 约定与 draft.workspace.test.js 相同（见该文件头注释）。
  */
 import React from 'react';
@@ -63,7 +71,6 @@ function makeFile(id, overrides) {
     sort_order: id,
     is_removed: false,
     created_at: '2026-10-01T10:00:00',
-    originals_count: 1,
     draft: {
       id: 100 + id,
       revision: id,
@@ -71,7 +78,6 @@ function makeFile(id, overrides) {
       file_size: 1024,
       file_hash: `hash-${id}`,
       base_version_id: null,
-      source_original_id: null,
       last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00',
@@ -236,7 +242,7 @@ describe('草稿工作台（编辑方式切换：在线 → 本机）', () => {
     expect(container.textContent).toContain('已切换为本机编辑');
     expect(container.textContent).toContain('尚未下载草稿');
     expect(container.textContent).toContain('下载草稿');
-    expect(container.textContent).toContain('上传保存（.docx）');
+    expect(container.textContent).toContain('上传保存（需先下载草稿）');
     // 本机面板保留切回在线入口；会话保留（本机上传依赖有效会话）
     expect(container.querySelector('.ant-segmented')).not.toBeNull();
     expect(store.sessionKeyOf(1)).toBe('sess-1');
@@ -279,7 +285,7 @@ describe('草稿工作台（编辑方式切换：在线 → 本机）', () => {
     });
     expect(store.effectiveEditMode(1)).toBe('local');
     expect(store.editorConfigs[1]).toBeUndefined();
-    expect(container.textContent).toContain('上传保存（.docx）');
+    expect(container.textContent).toContain('上传保存（需先下载草稿）');
   });
 });
 
@@ -417,5 +423,178 @@ describe('草稿工作台（本机上传）', () => {
     expect(warningSpy).toHaveBeenCalledWith('请先下载草稿到本机编辑后再上传保存');
     expect(http.post).not.toHaveBeenCalled();
     expect(successSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('草稿工作台（整份替换当前草稿：先确认后选文件）', () => {
+  /** 本机方式（会话 + 已主动切换，无下载基线要求） */
+  function setupLocalMode() {
+    mockFetch([makeFile(1)]);
+    const container = renderPage();
+    return flush().then(() => {
+      store.passwordVerified = true;
+      store.saveSession(1, 'sess-1', '2099-01-01T00:00:00');
+      store.editModes[1] = 'local';
+      store.onlineAvailable[1] = true;
+      return flush().then(() => container);
+    });
+  }
+
+  /** 第三个隐藏 input = 整份替换控件（前两个=新增文件/日常上传） */
+  function replaceInputOf(container) {
+    return findFileInputs(container)[2];
+  }
+
+  /** antd Modal 经 portal 渲染到 document.body：按钮/文案断言都查 document */
+  function findModalButton(text) {
+    const modal = document.querySelector('.ant-modal');
+    if (!modal) return undefined;
+    const normalized = text.replace(/\s+/g, '');
+    return Array.from(modal.querySelectorAll('button')).find(b =>
+      b.textContent.replace(/\s+/g, '').includes(normalized));
+  }
+
+  function pickForReplace(container, name) {
+    const input = replaceInputOf(container);
+    Object.defineProperty(input, 'files', {value: [new File(['x'], name)]});
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+
+  it('本机面板同时提供两个入口，且不承诺校验所选文件基于下载草稿', async () => {
+    const container = await setupLocalMode();
+    expect(findButton(container, '上传保存（需先下载草稿）')).not.toBeUndefined();
+    expect(findButton(container, '用本机文件替换当前草稿')).not.toBeUndefined();
+    // 两条路径语义在面板文案中明确区分
+    expect(container.textContent).toContain(
+      '系统不会校验所选文件是否基于已下载的草稿修改');
+    expect(container.textContent).toContain('整份替换');
+    expect(container.textContent).not.toContain('已验证基于');
+    expect(container.textContent).not.toContain('已校验所选文件');
+  });
+
+  it('点击替换先弹确认（目标文件名与 rN）；取消不打开文件选择器也不上传', async () => {
+    const container = await setupLocalMode();
+    // 替换不要求先下载：无基线也可进入确认
+    store.localBaselines[1] = undefined;
+    await flush();
+    const replaceInput = replaceInputOf(container);
+    const clickSpy = jest.spyOn(replaceInput, 'click').mockImplementation(() => {});
+    await act(async () => {
+      click(findButton(container, '用本机文件替换当前草稿'));
+      await flush();
+    });
+    const modal = document.querySelector('.ant-modal');
+    expect(modal).not.toBeNull();
+    // 确认窗必须展示目标制度文件名、当前草稿修订号与整份替换影响
+    expect(modal.textContent).toContain('目标制度文件');
+    expect(modal.textContent).toContain('文件1');
+    expect(modal.textContent).toContain('r1');
+    expect(modal.textContent).toContain('整份替换');
+    expect(modal.textContent).toContain('不会发布');
+    expect(modal.textContent).toContain('历史发布版本不受影响');
+    expect(modal.textContent).toContain(
+      '系统不会校验所选文件是否基于已下载的草稿修改');
+    // 未确认前：不打开文件选择器、不上传
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalled();
+    await act(async () => {
+      click(findModalButton('取消'));
+      await flush();
+    });
+    expect(clickSpy).not.toHaveBeenCalled();
+    expect(http.post).not.toHaveBeenCalled();
+    expect(successSpy).not.toHaveBeenCalled();
+    clickSpy.mockRestore();
+  });
+
+  it('确认后才打开文件选择器；选文件后以确认时修订号上传（清单推进也不改）', async () => {
+    const container = await setupLocalMode();
+    const replaceInput = replaceInputOf(container);
+    const clickSpy = jest.spyOn(replaceInput, 'click').mockImplementation(() => {});
+    await act(async () => {
+      click(findButton(container, '用本机文件替换当前草稿'));
+      await flush();
+    });
+    const okBtn = findModalButton('选择文件并替换');
+    expect(okBtn).not.toBeUndefined();
+    await act(async () => {
+      okBtn.click();
+      await flush();
+    });
+    // 确认后才打开文件选择器（恰好一次）
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    clickSpy.mockRestore();
+    // 确认之后、选文件之前清单/服务端修订号被其他会话推进到 9：
+    // 上传仍必须用确认时快照的 r1，绝不改用最新修订号
+    store.files[0].draft.revision = 9;
+    http.post.mockResolvedValue({revision: 10, file_name: '文件1.docx'});
+    await act(async () => {
+      pickForReplace(container, 'a.docx');
+      await flush();
+    });
+    expect(http.post).toHaveBeenCalledTimes(1);
+    const [url, formData] = http.post.mock.calls[0];
+    expect(url).toBe('/api/institution/manuals/5/files/1/draft/save/');
+    expect(formData.get('session_key')).toBe('sess-1');
+    expect(formData.get('revision')).toBe('1');
+    // 成功提示只在后端真实响应后
+    expect(successSpy).toHaveBeenCalledWith(
+      expect.stringContaining('已用本机文件替换草稿（修订号 r10）'));
+    // 只更新草稿：不发布、不新增文件、不改历史发布版本
+    expect(http.put).not.toHaveBeenCalled();
+    expect(http.delete).not.toHaveBeenCalled();
+  });
+
+  it('.doc 被客户端拒绝替换，不发请求', async () => {
+    const container = await setupLocalMode();
+    const replaceInput = replaceInputOf(container);
+    const clickSpy = jest.spyOn(replaceInput, 'click').mockImplementation(() => {});
+    await act(async () => {
+      click(findButton(container, '用本机文件替换当前草稿'));
+      await flush();
+    });
+    await act(async () => {
+      findModalButton('选择文件并替换').click();
+      await flush();
+    });
+    clickSpy.mockRestore();
+    await act(async () => {
+      pickForReplace(container, 'a.doc');
+      await flush();
+    });
+    expect(errorSpy).toHaveBeenCalledWith('草稿工作文件必须是 .docx 格式');
+    expect(http.post).not.toHaveBeenCalled();
+  });
+
+  it('冲突（草稿已被其他会话更新）：不报成功、会话保留、刷新清单并提示重新确认', async () => {
+    const container = await setupLocalMode();
+    const replaceInput = replaceInputOf(container);
+    const clickSpy = jest.spyOn(replaceInput, 'click').mockImplementation(() => {});
+    await act(async () => {
+      click(findButton(container, '用本机文件替换当前草稿'));
+      await flush();
+    });
+    await act(async () => {
+      findModalButton('选择文件并替换').click();
+      await flush();
+    });
+    clickSpy.mockRestore();
+    const filesCallsBefore = http.get.mock.calls.filter(
+      ([u]) => u.includes('/files/')).length;
+    http.post.mockRejectedValue('草稿已被其他会话更新，请刷新草稿后重试');
+    await act(async () => {
+      pickForReplace(container, 'a.docx');
+      await flush();
+    });
+    // 绝不报成功；修订号冲突与会话无关：会话保留可重试
+    expect(successSpy).not.toHaveBeenCalled();
+    expect(store.sessionKeyOf(1)).toBe('sess-1');
+    // 刷新清单并提示重新确认（错误本身由拦截器提示，不在此重复弹错）
+    const filesCallsAfter = http.get.mock.calls.filter(
+      ([u]) => u.includes('/files/')).length;
+    expect(filesCallsAfter).toBeGreaterThan(filesCallsBefore);
+    expect(warningSpy).toHaveBeenCalledWith(
+      expect.stringContaining('重新点击「用本机文件替换当前草稿」'));
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 });

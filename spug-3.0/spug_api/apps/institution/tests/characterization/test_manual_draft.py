@@ -6,7 +6,8 @@
 - 只存密码哈希；失败次数限制；重置密码使旧会话失效。
 - 同一时间每本手册只有一个可写会话（不同账号拒绝、同账号续用）。
 - 草稿保存重新校验角色、会话与修订序号；迟到/旧修订不得覆盖。
-- .doc 原稿保留，转换失败给明确反馈且不影响预览下载。
+- 新增文件直建草稿（不再保存原稿副本）；.doc 转换失败零残留并给出
+  明确业务错误。
 """
 import os
 import tempfile
@@ -19,7 +20,7 @@ from django.utils import timezone
 
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualAuthorization, ManualDraft,
-                                     ManualEditSession, ManualOriginal)
+                                     ManualEditSession)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_CONFIG, PERM_DOWNLOAD, PERM_DRAFT, PERM_VIEW,
     delete_json, get_data, has_error, make_client, make_grant, make_user,
@@ -57,9 +58,9 @@ class DraftWorkflowBase(TestCase):
         self.editor_client = make_client(self.editor)
         self.file_id = None
 
-    def _add_file(self, name='原稿.docx', content=b'PK\x03\x04 draft-base',
+    def _add_file(self, name='正文.docx', content=b'PK\x03\x04 draft-base',
                   owner=None):
-        """新增制度文件：条目+原稿+草稿一次创建（草稿修订号从 1 起）
+        """新增制度文件：条目+当前草稿一步创建（草稿修订号从 1 起）
 
         默认指派 editor 为文件负责人（会话/保存等写路径要求负责人独占）。
         """
@@ -83,22 +84,11 @@ class DraftWorkflowBase(TestCase):
         """主文件草稿（测试夹具通常只建一份文件；多文件用例请按 file_id 取）"""
         return ManualDraft.objects.get(file_id=self._main_file_id())
 
-    def _upload_original(self, name='原稿.docx', content=b'PK\x03\x04 draft-base'):
-        """向主文件上传候选原稿（不建草稿）；要求文件已存在"""
-        upload = SimpleUploadedFile(name, content)
-        resp = self.manager_client.post(
-            f'/institution/manuals/{self.manual.id}/files/'
-            f'{self._main_file_id()}/originals/upload/',
-            {'file': upload})
-        self.assertFalse(has_error(resp), resp.content)
-        return get_data(resp)['id']
-
-    def _create_draft(self, original_id=None):
-        body = {'original_id': original_id} if original_id else {}
+    def _create_draft(self):
         resp = post_json(
             self.manager_client,
             f'/institution/manuals/{self.manual.id}/files/'
-            f'{self.file_id or self._main_file_id()}/draft/create/', body)
+            f'{self.file_id or self._main_file_id()}/draft/create/', {})
         self.assertFalse(has_error(resp), resp.content)
         return get_data(resp)
 
@@ -238,28 +228,30 @@ class DraftSaveTests(DraftWorkflowBase):
         super().setUp()
         self._set_password()
         self.file_data = self._add_file()
-        self.original_id = ManualOriginal.objects.filter(
-            file_id=self.file_data['id']).latest('id').id
 
-    def test_create_draft_from_docx(self):
-        data = self._add_file('原稿.docx')
+    def _originals_leftovers(self):
+        originals_dir = os.path.join(self._tmp.name, 'originals')
+        if not os.path.isdir(originals_dir):
+            return []
+        return [name for _, _, names in os.walk(originals_dir) for name in names]
+
+    def test_create_file_builds_draft_directly(self):
+        data = self._add_file('正文.docx')
         draft_data = data['draft']
         self.assertEqual(draft_data['revision'], 1)
         draft = ManualDraft.objects.get(file_id=self.file_id)
         self.assertTrue(draft.file_path.startswith('drafts/'))
         self.assertTrue(os.path.exists(
             storage.resolve_absolute_path(draft.file_path)))
-        # 显示名=用户原稿名（不带存储后缀）；存储路径仍唯一
-        self.assertEqual(draft_data['file_name'], '原稿.docx')
-        self.assertEqual(draft.original_name, '原稿.docx')
+        # 显示名=用户上传名（不带存储后缀）；存储路径仍唯一
+        self.assertEqual(draft_data['file_name'], '正文.docx')
+        self.assertEqual(draft.original_name, '正文.docx')
         self.assertIn('_', draft.file_path.rsplit('/', 1)[-1])
-        # 原稿文件保持原样
-        original = ManualOriginal.objects.get(pk=self.original_id)
-        abs_orig = storage.resolve_absolute_path(original.file_path)
-        with open(abs_orig, 'rb') as f:
-            self.assertEqual(f.read(), b'PK\x03\x04 draft-base')
+        # 直建草稿不再产生原稿记录/原稿物理文件
+        self.assertEqual(self._originals_leftovers(), [])
+        self.assertNotIn('draft_error', data)
 
-    def test_create_draft_requires_original(self):
+    def test_create_draft_without_files_reports_no_files(self):
         empty = Manual.objects.create(
             name='空手册', code='K-001', org_type=Manual.OWNER_SECTION,
             org_name='乙科室', owner=self.manager, tenant_id='deptA')
@@ -340,37 +332,52 @@ class DraftSaveTests(DraftWorkflowBase):
 
 
 class DocConversionTests(DraftWorkflowBase):
-    """容器内真实 LibreOffice 转换：.doc 原稿保留 + 生成 .docx 工作副本"""
+    """容器内真实 LibreOffice 转换：.doc 直接转成当前草稿（不保留原稿）"""
 
-    def test_doc_original_preserved_and_draft_converted(self):
+    def _originals_leftovers(self):
+        originals_dir = os.path.join(self._tmp.name, 'originals')
+        if not os.path.isdir(originals_dir):
+            return []
+        return [name for _, _, names in os.walk(originals_dir) for name in names]
+
+    def test_doc_converted_into_draft_without_original_copy(self):
         data = self._add_file('第一章.doc', RTF_AS_DOC)
         self.assertEqual(data['draft']['revision'], 1)
-        original = ManualOriginal.objects.filter(manual=self.manual).latest('id')
-        abs_orig = storage.resolve_absolute_path(original.file_path)
-        with open(abs_orig, 'rb') as f:
-            before = f.read()
-        self.assertEqual(before, RTF_AS_DOC)
-        # .doc 原稿的草稿显示名=原稿主体名 + .docx 扩展名
+        # .doc 草稿显示名=上传主体名 + .docx 扩展名
         self.assertEqual(data['draft']['file_name'], '第一章.docx')
         draft = self._main_draft()
         self.assertTrue(draft.file_path.startswith('drafts/'))
         self.assertEqual(draft.original_name, '第一章.docx')
-        # 原稿字节不变
-        with open(abs_orig, 'rb') as f:
-            self.assertEqual(f.read(), before)
-
-    def test_doc_conversion_failure_clear_feedback(self):
-        """损坏的 .doc：文件条目与原稿保留，草稿建立失败给明确提示，
-        不影响原稿预览/下载，也不产生可发布草稿"""
-        data = self._add_file('broken.doc', b'\x00\x01not-a-word-file')
-        self.assertIn('转换', data['draft_error'])
-        self.assertIsNone(data['draft'])
-        original = ManualOriginal.objects.filter(manual=self.manual).latest('id')
         self.assertTrue(os.path.exists(
-            storage.resolve_absolute_path(original.file_path)))
+            storage.resolve_absolute_path(draft.file_path)))
+        self.assertEqual(self._originals_leftovers(), [])
+        self.assertNotIn('draft_error', data)
+
+    def test_doc_conversion_failure_zero_residue(self):
+        """损坏的 .doc：返回明确业务错误，不建文件条目/草稿，磁盘零残留"""
+        upload = SimpleUploadedFile('broken.doc', b'\x00\x01not-a-word-file')
+        resp = self.manager_client.post(
+            f'/institution/manuals/{self.manual.id}/files/create/',
+            {'file': upload})
+        self.assertTrue(has_error(resp), resp.content)
+        self.assertIn('转换', resp.json()['error'])
+        self.assertEqual(self.manual.files.count(), 0)
+        self.assertEqual(self._originals_leftovers(), [])
+        # 转换/写入失败：存储根下零残留（无草稿文件、无原稿文件）
+        leftovers = []
+        for _, _, names in os.walk(self._tmp.name):
+            leftovers.extend(names)
+        self.assertEqual(leftovers, [])
+        # 文件清单仍为空，无半成品条目下发
         resp = self.manager_client.get(
-            f'/institution/manuals/{self.manual.id}/originals/{original.id}/preview-url/')
+            f'/institution/manuals/{self.manual.id}/files/')
         self.assertFalse(has_error(resp), resp.content)
+        self.assertEqual(get_data(resp), [])
+
+    def test_empty_upload_rejected(self):
+        resp = self.manager_client.post(
+            f'/institution/manuals/{self.manual.id}/files/create/', {})
+        self.assertTrue(has_error(resp))
 
     def test_draft_create_denied_without_role(self):
         file_id = self._add_file()['id']

@@ -10,7 +10,7 @@
   未完成同步）/ 缺少草稿 / 状态无法确认（草稿文件缺失）/ 未上传文件。
 - 权限：编制/发布角色与管理者可见；仅查看角色 work_status=None
   （不得经列表泄漏草稿信息）。
-- 文件变更记录：已移除文件可被找到（originals-overview 全集）；
+- 文件变更记录：已移除文件仍可经版本快照/文件历史查阅；
   快照按保留策略清理后 version-history 行带 is_cleaned。
 """
 import json
@@ -207,24 +207,6 @@ class ManualListWorkStatusTests(VersionChangesTestBase):
 
 class RemovedFileHistoryTests(VersionChangesTestBase):
     """已移除文件的可发现性与清理快照的 is_cleaned 标记"""
-
-    def _originals_overview(self):
-        resp = self.manager_client.get(
-            f'/institution/manuals/{self.manual.id}/originals-overview/')
-        self.assertFalse(has_error(resp), resp.content)
-        return get_data(resp)['files']
-
-    def test_removed_file_still_listed_in_originals_overview(self):
-        """已移除文件仍在 originals-overview 全集中（变更记录可找到）"""
-        self._publish('v1')
-        resp = post_json(
-            self.manager_client,
-            f'/institution/manuals/{self.manual.id}/files/'
-            f'{self.file_b["id"]}/remove/', {})
-        self.assertFalse(has_error(resp), resp.content)
-        rows = self._originals_overview()
-        row = next(x for x in rows if x['file_id'] == self.file_b['id'])
-        self.assertTrue(row['is_removed'])
 
     def test_removed_file_version_history_accessible(self):
         """已移除文件的 version-history 仍可查（发布参与历史不丢）

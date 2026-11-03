@@ -2,31 +2,53 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 文件清单页签（详情页默认页签，2026-10-30 双视图版）：
+ * 文件清单页签（详情页默认页签，2026-10-30 双视图版；2026-11-03 固定
+ * 快照交接改造）：
  * 页签内分两个内容视图（不新增顶层页签），杜绝"已发布文件 / 待发布草稿 /
- * 编制提交"三种状态混为一谈：
+ * 提交待发布核对"三种状态混为一谈：
  * - 「当前生效版本 vN」：最近一次发布形成的不可变快照清单。预览/下载始终
  *   打开发布快照，按钮与预览标题均注明版本来源（预览当前生效版 vN）；
  *   草稿侧的"已从待发布移除"以行内 Tag 提示（发布后该文件将不在清单中）。
  *   2026-10-31 起不展示负责人列（负责人属修订分工，只在「修订草稿」视图
  *   展示与维护；assignment 数据仍随行关联，供「只看我负责的文件」筛选）。
- * - 「修订草稿」：待发布工作内容。展示 草稿修订号(rN)/负责人/状态(草稿 vs
- *   生效版本关系+修订进行中)/编制提交；预览与下载明确打开待发布草稿
- *   （预览待发布草稿 rN），仅持编制角色者可用（后端同样要求 draft_edit +
- *   can_edit_draft，前端不扩权）。
+ * - 「修订草稿」：待发布工作内容。列=顺序/文件名/大小/负责人/状态（草稿 vs
+ *   生效版本关系+修订进行中）/编制状态/操作。未冻结文件的预览与下载明确
+ *   打开**当前**待发布草稿（预览待发布草稿：文件名），仅持编制角色者可用
+ *   （后端同样要求 draft_edit + can_edit_draft，前端不扩权）。
  * 默认视图：有生效版本 → 当前生效版本；首次发布前 → 修订草稿。切换视图
  * 保留「只看我负责的文件」筛选并清空行勾选（勾选属于草稿视图的批量分工）。
- * 「编制提交」是交接状态不是发布状态：提交有效时对应提交时的修订号（当前
- * 草稿与提交修订号一致，预览草稿即为提交内容）；草稿再次变更即显示"提交
- * 已失效"。系统不保存提交时刻的文件副本（无历史快照机制），该限制在
- * 提示文案中明确说明，绝不把最新草稿冒充"已提交版本"。
- * 负责人是当前责任归属（仅在「修订草稿」视图展示与维护）：2026-10-31
- * 授权模型下负责人独占编辑——编辑=模块 draft_edit 权限 + 手册编制授权
- * （my_roles.edit）+ 该文件负责人身份（is_mine），同一文件受单写会话
+ * **2026-11-03 固定快照交接（最重要）**：提交待发布核对由服务端创建独立
+ * 不可变快照并冻结该文件内容——冻结期间不能编辑/改名/排序/移除/改派分工/
+ * 重复提交；预览与下载改读 `submission/preview-url/`、`submission/download/`
+ * （标题「预览待核对快照：文件名（提交人 X，提交时间 Y）」），发布时使用
+ * 同一快照。编制状态唯一实现 `../compilationStatusShared.js`
+ * buildCompilationState（待发布人核对/可直接纳入整套发布/待提交待发布核对/
+ * 待负责人提交待发布核对/已撤回/已退回/提交已失效/旧版提交记录/编制中/
+ * 无需提交），服务端字段只映射不推断；`legacy_submitted` 旧提交记录**不可
+ * 用于发布**，必须按新规则重新提交（说明与 Tooltip 明确提示）。
+ * 提交入口（「提交待发布核对」/「重新提交」）只对文件有效负责人
+ * （assignment.is_effective_owner，旧 payload 回退 is_mine）渲染；pending
+ * 显示不可点击「待发布人核对」+「撤回提交」（有效负责人本人）；持发布权且
+ * 非该文件有效负责人可「退回修改」（原因必填 ≤500）。撤回/退回后旧快照
+ * 作废、内容解冻。编辑会话进行中禁用提交并提示先「保存并结束编辑」。
+ * 负责人列展示**有效负责人**（文件负责人 > 手册所有者默认 > 未分配）：
+ * `owner_assigned=false` 时后缀「（手册所有者，默认）」，只有 effective_owner
+ * 为空才显示「未分配」。负责人是当前责任归属（仅在「修订草稿」视图展示与
+ * 维护）：2026-10-31 授权模型下负责人独占编辑——编辑=模块 draft_edit 权限 +
+ * 手册编制授权（my_roles.edit）+ 该文件负责人身份，同一文件受单写会话
  * 限制（同一时间仅一人）；分工入口在「修订草稿」视图的负责人列
- * （仅所有者/制度管理员可写），不改变任何权限。
+ * （仅所有者/制度管理员可写；冻结文件不可改派），不改变任何权限。
  * 行操作：修订进行中 → 「继续编辑」深链复用工作副本；修订已结束 →
  * 「开始修订」（真实状态动作，needs_repair 时经确认从生效版本快照修复）。
+ * 两个视图的行操作都提供统一的「文件历史」入口：按 file_id 直接打开
+ * FileHistoryModal（标题=制度文件名，内含 发布记录/操作记录 两个子页签，
+ * 始终定位同一份制度文件；不切换顶层页签，弹窗关闭后清单视图、滚动位置
+ * 与行勾选保持不变）。已取消的「历史来源/高级恢复/更换来源」入口不再提供。
+ * 「新增制度文件」入口在「修订草稿」视图顶部（隐藏 input 由 ref 程序触发）：
+ * 选择文件后**先弹分工弹窗**（负责人默认手册所有者=manual.owner_id，候选
+ * 走 assignment-owners，可改选其他持编制资格账号或清空），确认后才逐份
+ * files/create 并携带 owner_id/note（每个上传文件各建立一个独立制度文件
+ * 与当前草稿；创建失败由拦截器提示；业务门=所有者或制度管理员）。
  * 数据源（均为服务端权威计算，前端只展示、不推断）：
  * - /files/：待发布集合 + 修订状态 + 文件分工（草稿与提交状态仅工作区
  *   可见者返回；负责人为责任信息对所有可见者下发）
@@ -49,20 +71,18 @@ import {
 } from '../utils';
 import PreviewModal from './PreviewModal';
 import FileAssignmentModal from './FileAssignmentModal';
+import FileHistoryModal from './FileHistoryModal';
 import { buildFileState } from './draftStatusShared';
+import { buildCompilationState } from '../compilationStatusShared';
+import {
+  buildSubmissionPreviewTitle, canReturnSubmission, canWithdrawSubmission,
+  effectiveOwnerIdOf, effectiveOwnerNameOf, isEffectiveOwnerOf,
+  isFrozenSubmission, ownerIsDefaultAssignment, submissionIsStale,
+  submissionOf, submissionSnapshotFileName, submissionStatusOf,
+  SUBMISSION_STATUS,
+} from '../submissionShared';
 import store from './store';
 import institutionBadge from '../../../layout/InstitutionBadgeStore';
-
-// 提交编制状态文案（服务端 submission.state：none/submitted/stale）。
-// 提交是"负责人→发布者"的交接标记，不代表已发布生效；系统不保存提交
-// 时刻的文件副本（无历史快照机制），有效/失效的差异与该限制在 Tooltip
-// 中说明，绝不把更新后的草稿冒充"已提交版本"。
-const SUBMISSION_META = {
-  none: {label: '未提交', color: 'default',
-    tip: '负责人完成编制后可在此提交（记录提交时的草稿修订号）'},
-  submitted: {label: '已提交', color: 'green', tip: null},
-  stale: {label: '提交已失效', color: 'orange', tip: null},
-};
 
 const VIEW_EFFECTIVE = 'effective';
 const VIEW_DRAFT = 'draft';
@@ -72,6 +92,11 @@ class FileListTab extends React.Component {
   state = {
     preview: null, assignmentFile: null, batchAssign: false,
     onlyMine: false, selectedKeys: [], activeView: null,
+    // 行「文件历史」弹窗目标（file_id + 展示名；两种清单视图行入口共用）
+    historyFileId: null, historyFileName: '',
+    uploading: false,
+    // 新增制度文件：已选待创建文件（非空时展示分工弹窗，确认后才逐份创建）
+    uploadFiles: null,
   };
 
   componentDidMount() {
@@ -88,6 +113,10 @@ class FileListTab extends React.Component {
     if (canViewWorkspace(manual)) {
       store.fetchDraftStatus(store.id);
     }
+  }
+
+  componentWillUnmount() {
+    this.unmounted = true;
   }
 
   /** 默认视图：有生效版本 → 当前生效版本；首次发布前 → 修订草稿 */
@@ -134,6 +163,67 @@ class FileListTab extends React.Component {
     });
   }
 
+  /**
+   * 「新增制度文件」批量上传（2026-11-02 改造：先分工后上传）。
+   * 选择文件后**先弹分工弹窗**（负责人默认手册所有者=manual.owner_id，
+   * 候选走 assignment-owners，可改选其他持编制资格账号或清空），确认后
+   * 才逐份 files/create 并携带 owner_id/note（每个上传文件各建立一个
+   * 独立制度文件与当前草稿，绝不把多个文件追加到同一项）。门禁与后端
+   * files/create 一致：upload 页面权限码 且（手册所有者或制度管理员）；
+   * 无权限时只给只读说明。隐藏 input 由 ref 程序触发，不得嵌套在
+   * Button/label 内。
+   */
+  handleUploadClick = () => {
+    if (this.uploadInput) this.uploadInput.click();
+  };
+
+  handleUploadChange = (e) => {
+    const picked = Array.from(e.target.files || []);
+    e.target.value = '';
+    if (!picked.length) return;
+    // 只暂存所选文件，真正创建等分工弹窗确认（默认负责人=手册所有者）
+    this.setState({uploadFiles: picked});
+  };
+
+  /** 分工弹窗确认：逐份创建（owner_id 显式携带，null 以空串提交=未分配） */
+  handleUploadAssignSubmit = (ownerId, note) => {
+    const picked = this.state.uploadFiles || [];
+    if (!picked.length) return Promise.resolve();
+    return this.createFiles(picked, ownerId, note).then(() => {
+      if (!this.unmounted) this.setState({uploadFiles: null});
+    });
+  };
+
+  async createFiles(picked, ownerId, note) {
+    this.setState({uploading: true});
+    let okCount = 0;
+    // 逐个顺序上传：单个失败（拦截器已弹错）不中断剩余文件
+    for (const file of picked) {
+      const formData = new FormData();
+      formData.append('file', file);
+      // 负责人/分工说明显式携带：owner_id 空串=清空为未分配（后端按字段
+      // 是否存在区分"未指定"与"显式未分配"，不得省略该字段）
+      formData.append('owner_id', ownerId == null ? '' : String(ownerId));
+      if (note) formData.append('note', note);
+      try {
+        // 每份上传文件各自创建一个独立制度文件与当前草稿；失败由 HTTP
+        // 拦截器提示一次，这里不重复弹错、也不额外警示
+        await http.post(
+          `/api/institution/manuals/${store.id}/files/create/`, formData);
+        okCount += 1;
+      } catch (err) {
+        // 拦截器已提示单个失败，继续传剩余文件
+      }
+    }
+    if (this.unmounted) return;
+    this.setState({uploading: false});
+    if (okCount) {
+      message.success(
+        `已新增 ${okCount} 份待发布文件，上传文件作为各自文件的当前草稿`);
+    }
+    this.refresh();
+  }
+
   handleDeprecate = () => {
     Modal.confirm({
       title: '废止确认',
@@ -154,10 +244,11 @@ class FileListTab extends React.Component {
     });
   };
 
-  /** 从文件行跳到"文件变更记录"页签并预选该文件（父级切页签） */
-  openFileHistory = (fileId) => {
-    store.fileChangeTarget = fileId;
-    if (this.props.onOpenFileHistory) this.props.onOpenFileHistory();
+  /** 行「文件历史」：按 file_id 直接打开弹窗（不切顶层页签）。
+   *  两种清单视图共用：始终定位同一份制度文件；弹窗关闭后清单视图、
+   *  滚动位置与行勾选保持不变 */
+  openFileHistory = (fileId, fileName) => {
+    this.setState({historyFileId: fileId, historyFileName: fileName || ''});
   };
 
   /** 生效视图预览/下载：始终打开当前生效版本的发布快照（不可变）；
@@ -183,14 +274,14 @@ class FileListTab extends React.Component {
     );
   }
 
-  /** 草稿视图预览/下载：明确打开待发布草稿（尚未生效）。后端要求
-   *  draft_edit + 编制授权（负责人域），前端只在 负责人（编制授权 +
-   *  is_mine）行渲染，与负责人独占编辑口径一致，不扩权 */
+  /** 草稿视图预览/下载（未冻结文件）：明确打开**当前**待发布草稿（尚未
+   *  生效）。后端要求 draft_edit + 编制授权（负责人域），前端只在 负责人
+   *  （编制授权 + is_mine）行渲染，与负责人独占编辑口径一致，不扩权。
+   *  冻结文件（有效提交固定快照）改用 renderSubmissionSnapshotActions。 */
   renderDraftFileActions(file) {
     const draft = file.draft;
     if (!draft) return null;
     const name = draft.file_name || file.name;
-    const revision = draft.revision;
     const manual = store.manual || {};
     return (
       <span>
@@ -198,10 +289,10 @@ class FileListTab extends React.Component {
           type="link" size="small"
           onClick={() => this.showPreview(
             http.get(`/api/institution/manuals/${store.id}/files/${file.id}/draft/preview-url/`),
-            name, `预览待发布草稿 r${revision}：${name}`)}>
-          预览草稿 r{revision}
+            name, `预览待发布草稿：${name}`)}>
+          预览草稿
         </ManualAuthButton>
-        <Tooltip title={`下载待发布草稿 r${revision}（尚未生效的工作副本）`}>
+        <Tooltip title="下载当前待发布草稿（尚未生效的工作副本）">
           <ManualAuthButton manual={manual} auth="institution.manual.download"
             type="link" size="small"
             onClick={() => downloadFile(
@@ -211,6 +302,49 @@ class FileListTab extends React.Component {
       </span>
     );
   }
+
+  /** 冻结文件（有效提交固定快照）的预览/下载：改读 submission 快照端点，
+   *  不再打开当前草稿——负责人核对与发布人核对读同一份**不可变快照**，
+   *  发布时也使用该快照；下载文件名用接口返回的快照文件名 */
+  renderSubmissionSnapshotActions(file) {
+    const manual = store.manual || {};
+    const name = submissionSnapshotFileName(file);
+    return (
+      <span>
+        <ManualAuthButton manual={manual} auth="institution.manual.view"
+          type="link" size="small"
+          onClick={() => this.showSubmissionPreview(file)}>
+          预览待核对快照
+        </ManualAuthButton>
+        <Tooltip title={`下载该文件已提交的固定快照（${name}）；整套发布将使用该快照内容`}>
+          <ManualAuthButton manual={manual} auth="institution.manual.download"
+            type="link" size="small"
+            onClick={() => this.handleDownloadSubmission(file)}>
+            下载待核对快照
+          </ManualAuthButton>
+        </Tooltip>
+      </span>
+    );
+  }
+
+  /** 待核对快照预览：标题统一为「预览待核对快照：<文件名>（提交人 X，提交时间 Y）」，
+   *  提交人/提交时间/文件名优先取接口返回（其次快照落库字段），绝不冒充当前草稿 */
+  showSubmissionPreview = (file) => {
+    store.fetchSubmissionPreviewUrl(file.id)
+      .then(data => this.setState({preview: {
+        url: data && data.preview_url,
+        fileName: (data && data.file_name) || submissionSnapshotFileName(file),
+        title: buildSubmissionPreviewTitle(file, data),
+      }}))
+      .catch(() => {});
+  };
+
+  /** 下载待核对快照（二进制失败由拦截器提示；文件名用接口下发的快照文件名） */
+  handleDownloadSubmission = (file) => {
+    downloadFile(
+      `/api/institution/manuals/${store.id}/files/${file.id}/submission/download/`,
+      submissionSnapshotFileName(file));
+  };
 
   /** 开始修订：真实状态动作。needs_repair 时明确提示并二次确认修复 */
   handleStartRevision = (file) => {
@@ -234,8 +368,7 @@ class FileListTab extends React.Component {
           <p>{data.message}</p>
           {data.draft_recovery && data.draft_recovery.source === 'current_version' && (
             <p style={{color: '#888'}}>
-              修复来源：当前生效版本 v{data.draft_recovery.version_no} 的文件快照
-              （绝不改用初始来源）。
+              修复来源：当前生效版本 v{data.draft_recovery.version_no} 的文件快照。
             </p>
           )}
         </div>
@@ -271,7 +404,7 @@ class FileListTab extends React.Component {
     Modal.confirm({
       title: `清空 ${ids.length} 份文件的负责人`,
       content: `将把已选 ${ids.length} 份文件全部置为「未分配」：${names.join('、')}。` +
-        '对应文件的提交编制记录同步失效（历史操作记录保留）。',
+        '这些文件已提交待发布核对的固定快照将作废、内容解冻（历史操作记录保留）。',
       okText: '确认清空',
       onOk: () => store.batchAssignFiles(ids, null, '')
         .then(() => {
@@ -281,35 +414,87 @@ class FileListTab extends React.Component {
     });
   };
 
-  /** 提交编制：记录提交时草稿修订号；此后草稿再变更提交状态自动失效 */
-  handleSubmitCompile = (file) => {
-    const assignment = (file.assignment || {});
+  /** 提交/重新提交待发布核对（仅文件有效负责人本人）：服务端会创建独立
+   *  不可变快照并冻结该文件内容，发布人预览/下载/最终发布读同一快照。
+   *  成功提示只在后端真实成功后出现，随后刷新详情清单（服务端权威数据）；
+   *  菜单红点在 store 方法内刷新（不做乐观更新） */
+  handleSubmitCompile = (file, actionLabel) => {
+    const label = actionLabel || '提交待发布核对';
     const revision = file.draft ? file.draft.revision : null;
     Modal.confirm({
-      title: `提交编制：${file.name}`,
+      title: `${label}：${file.name}`,
       content: (
         <div>
-          <p>确认该文件已完成编制并提交核对？</p>
+          <p>确认提交该文件待发布核对？</p>
           <p style={{color: '#888'}}>
-            将记录当前草稿修订号 {revision != null ? `r${revision}` : '-'} 与提交时间；
-            此后草稿再次保存或重建、负责人改派或整套发布完成，提交状态都会
-            自动失效，需重新提交。
+            提交将创建该文件固定不可变内容快照（记录当前草稿修订号
+            {revision != null ? ` r${revision}` : ' -'} 与提交时间），并冻结该文件
+            内容：本轮不能开始/继续编辑、改名、调整顺序、移除或改派分工。
+            发布人核对固定快照后，整套发布将使用该快照内容（不再读取当前草稿）；
+            提交有效期间不能重复提交，可「撤回提交」后修改，或由发布人「退回修改」。
           </p>
-          {!assignment.owner_id && (
-            <p style={{color: '#fa8c16'}}>该文件尚未指定负责人，建议先指定负责人再提交。</p>
-          )}
         </div>
       ),
       okText: '确认提交',
       onOk: () => store.submitCompile(file.id)
-        .then(data => {
-          const state = data && data.submission && data.submission.state;
-          message.success(state === 'submitted'
-            ? '已提交编制，等待发布核对' : '已更新提交记录');
-          // 后端真实成功后立即刷新菜单红点（待核对提交数；fetch 静默失败，
-          // 不影响本流程）
+        .then(() => {
+          message.success('已提交待发布核对，等待发布人核对固定快照');
+          // 后端真实成功后刷新详情清单（快照/冻结状态以服务端为准）与
+          // 菜单红点（待核对快照数属红点口径，事件驱动、禁轮询）
+          store.fetchFiles(store.id);
           institutionBadge.fetch();
         }),
+    });
+  };
+
+  /** 撤回提交待发布核对（仅文件有效负责人本人）：撤回后旧快照作废、
+   *  内容解冻，可修改后按新规则重新提交；发布人将不能使用该快照 */
+  handleWithdrawSubmission = (file) => {
+    Modal.confirm({
+      title: `撤回提交：${file.name}`,
+      content: '撤回后该文件已提交的固定快照作废、内容解冻，你可以继续修改并按新规则重新提交；发布人将不能再使用该快照核对与发布。',
+      okText: '确认撤回',
+      onOk: () => store.withdrawSubmission(file.id)
+        .then(() => {
+          message.success('已撤回提交，可继续修改该文件');
+          store.fetchFiles(store.id);
+        }),
+    });
+  };
+
+  /** 退回修改（持发布权且非该文件有效负责人）：退回原因必填（≤500），
+   *  退回后旧快照作废、内容解冻，负责人修改后可重新提交待发布核对 */
+  handleReturnSubmission = (file) => {
+    let reason = '';
+    Modal.confirm({
+      title: `退回修改：${file.name}`,
+      content: (
+        <div>
+          <p>退回后该文件已提交的固定快照作废、内容解冻，负责人修改后可重新提交待发布核对。</p>
+          <textarea id="institution-return-reason" rows={3} maxLength={500}
+            style={{width: '100%'}}
+            placeholder="请填写退回原因（必填，最多 500 字）"
+            onChange={e => { reason = e.target.value; }}/>
+        </div>
+      ),
+      okText: '确认退回',
+      okType: 'danger',
+      onOk: () => {
+        const trimmed = String(reason || '').trim();
+        if (!trimmed) {
+          message.warning('请填写退回原因');
+          return Promise.reject();
+        }
+        if (trimmed.length > 500) {
+          message.warning('退回原因不能超过 500 字');
+          return Promise.reject();
+        }
+        return store.returnSubmission(file.id, trimmed)
+          .then(() => {
+            message.success('已退回修改，等待负责人重新提交待发布核对');
+            store.fetchFiles(store.id);
+          });
+      },
     });
   };
 
@@ -335,7 +520,7 @@ class FileListTab extends React.Component {
     );
   }
 
-  /** 生效视图行操作：预览/下载（发布快照，注明版本来源）+ 变更记录；
+  /** 生效视图行操作：预览/下载（发布快照，注明版本来源）+ 文件历史；
    *  已清理快照只显示元数据 Tag */
   renderEffectiveRowActions(row, cf) {
     const isCleaned = !!(row.snap && row.snap.is_cleaned);
@@ -348,32 +533,39 @@ class FileListTab extends React.Component {
         )}
         {!isCleaned && this.renderSnapshotActions(row.snap, cf)}
         <AuthButton type="link" size="small"
-          onClick={() => this.openFileHistory(row.snap.manual_file_id)}>
-          变更记录
+          onClick={() => this.openFileHistory(
+            row.snap.manual_file_id, row.snap.file_name)}>
+          文件历史
         </AuthButton>
       </span>
     );
   }
 
-  /** 草稿视图行操作：开始修订/继续编辑 与 预览/下载待发布草稿
-   *  （负责人独占：编制授权 + 该文件负责人；例外：手册所有者可编辑任意
-   *  文件——后端 can_edit_file 同口径。非负责人的编制授权账号不渲染编辑
-   *  入口，占位提示指引先获得分工）+ 提交编制（负责人或所有者）+ 变更记录 */
-  renderDraftRowActions(row, canEdit, manualActive) {
+  /** 草稿视图行操作（2026-11-03 固定快照交接）：
+   *  - 未冻结文件：开始修订/继续编辑 + 预览/下载当前草稿（负责人独占：
+   *    编制授权 + 该文件负责人；手册所有者可编辑任意文件，后端
+   *    can_edit_file 同口径；非负责人只给占位提示）；
+   *  - **冻结文件（有效提交固定快照）**：不渲染任何编辑/改结构入口，改为
+   *    「预览待核对快照」「下载待核对快照」（读同一份不可变快照）；
+   *  - 提交/撤回/退回入口见 renderSubmissionActions；
+   *  - 两种状态都保留「文件历史」（按 file_id 打开弹窗）。 */
+  renderDraftRowActions(row, canEdit, manualActive, canPublish) {
     const file = row.file;
     const isOwner = !!(store.manual && store.manual.is_owner);
+    const frozen = isFrozenSubmission(file);
     // 负责人独占编辑：can_edit 授权 且 该文件负责人；手册所有者例外
     // （可编辑该手册任意文件，后端 can_edit_file 同口径）；非负责人
-    // 不渲染，避免点开必然被拒的入口
-    const isAssignee = isOwner ||
-      !!(canEdit && file.assignment && file.assignment.is_mine);
-    const editEntry = (label, onClick) => (isOwner ? (
+    // 不渲染，避免点开必然被拒的入口。冻结文件一律不渲染编辑入口
+    // （后端内容写路径/结构写路径同样拒绝）
+    const isAssignee = !frozen &&
+      (isOwner || !!(canEdit && file.assignment && file.assignment.is_mine));
+    const editEntry = (label, onClick, extra) => (isOwner ? (
       // 所有者对象级豁免：不要求 draft_edit 页面权限码（规则：所有者
       // 不需要再获得角色权限；后端 manual_auth 同口径）
-      <Button type="link" size="small" onClick={onClick}>{label}</Button>
+      <Button type="link" size="small" onClick={onClick} {...extra}>{label}</Button>
     ) : (
       <AuthButton auth="institution.manual.draft_edit" type="link" size="small"
-        onClick={onClick}>{label}</AuthButton>
+        onClick={onClick} {...extra}>{label}</AuthButton>
     ));
     return (
       <span>
@@ -388,74 +580,169 @@ class FileListTab extends React.Component {
             editEntry('开始修订', () => this.handleStartRevision(file))
           )
         )}
-        {canEdit && !isOwner && manualActive && !isAssignee && (
+        {!frozen && canEdit && !isOwner && manualActive && !isAssignee && (
           <Tooltip title="编辑仅限文件负责人（须持本手册编制资格）。你持编制授权但不是该文件负责人，请先由手册所有者指派分工。">
             <span style={{color: '#999', fontSize: 12}}>编辑限负责人</span>
           </Tooltip>
         )}
-        {manualActive && (isOwner ||
-          (file.assignment && file.assignment.is_mine)) && (
-          <Button type="link" size="small"
-            onClick={() => this.handleSubmitCompile(file)}>
-            提交编制
-          </Button>
-        )}
-        {isAssignee && this.renderDraftFileActions(file)}
+        {manualActive && this.renderSubmissionActions(file, canPublish)}
+        {manualActive && (frozen
+          ? this.renderSubmissionSnapshotActions(file)
+          : (isAssignee ? this.renderDraftFileActions(file) : null))}
         <AuthButton type="link" size="small"
-          onClick={() => this.openFileHistory(file.id)}>
-          变更记录
+          onClick={() => this.openFileHistory(file.id, file.name)}>
+          文件历史
         </AuthButton>
       </span>
     );
   }
 
-  /** 负责人单元格：有分工权限者点击姓名/「未分配」编辑，无权限只读 */
-  renderOwnerCell(assignment, canAssign, file) {
-    if (!assignment || !assignment.owner_id) {
-      const unassigned = <Tag>未分配</Tag>;
-      return canAssign ? (
-        <a onClick={() => this.setState({assignmentFile: file})}
-          title="点击指定负责人">未分配</a>
-      ) : unassigned;
+  /** 提交待发布核对 / 撤回提交 / 退回修改入口（2026-11-03 固定快照交接）：
+   *  - 「提交待发布核对」/「重新提交」**仅对 assignment.is_effective_owner
+   *    渲染**（手册所有者非该文件有效负责人不得代提交，后端同口径）；
+   *    提交后服务端创建独立不可变快照并冻结内容；
+   *  - pending（有效快照）显示不可点击「待发布人核对」（不能重复提交），
+   *    有效负责人本人可「撤回提交」；有发布权且非该文件有效负责人可
+   *    「退回修改」（原因必填 ≤500）；
+   *  - 该文件有活跃编辑会话时禁用提交并提示先「保存并结束编辑」（后端亦拒绝）；
+   *  - 有效负责人兼发布权时 Tooltip 说明可直接纳入整套发布、提交只是可选动作。 */
+  renderSubmissionActions(file, canPublish) {
+    const manual = store.manual || {};
+    const status = submissionStatusOf(submissionOf(file));
+    const isEffectiveOwner = isEffectiveOwnerOf(file);
+    const stale = submissionIsStale(file);
+    if (status === SUBMISSION_STATUS.PENDING && !stale) {
+      return (
+        <span>
+          <Tooltip title="该文件已提交待发布核对：固定不可变快照有效期间不能重复提交（内容已冻结）。发布人核对快照后整套发布将使用该快照内容">
+            <span><Button type="link" size="small" disabled>待发布人核对</Button></span>
+          </Tooltip>
+          {canWithdrawSubmission(file) && (
+            <Button type="link" size="small" danger
+              onClick={() => this.handleWithdrawSubmission(file)}>
+              撤回提交
+            </Button>
+          )}
+          {canReturnSubmission(file, manual) && (
+            <Tooltip title="退回后该文件快照作废、内容解冻，负责人可修改后重新提交；必须填写退回原因（≤500 字）">
+              <Button type="link" size="small"
+                onClick={() => this.handleReturnSubmission(file)}>
+                退回修改
+              </Button>
+            </Tooltip>
+          )}
+        </span>
+      );
     }
-    const note = assignment.note;
-    const name = assignment.owner_name || '-';
-    const body = note ? (
-      <Tooltip title={`分工说明：${note}（点击修改分工）`}>
-        <span>{name}</span>
+    if (!isEffectiveOwner) return null;
+    // 已发布且无待发布修改（revision_open=false）的文件没有需要交接的草稿：
+    // 不渲染必然无意义、且会与同行「无需提交」Tag 冲突的入口（stale 兜底可重提）
+    if (!file.revision_open) return null;
+    const label = stale ? '重新提交' : '提交待发布核对';
+    const activeSession = !!file.active_session;
+    let tip = '提交会为该文件创建固定不可变快照并冻结内容，等待发布人核对；' +
+      '发布人核对快照后整套发布将使用该快照内容（不再读取当前草稿）';
+    if (activeSession) {
+      tip = '该文件有进行中的编辑会话，请先「保存并结束编辑」后再提交待发布核对';
+    } else if (canPublish) {
+      tip = '你是该文件有效负责人且具备发布权：本人发布时可直接纳入整套发布并' +
+        '使用当前草稿；提交待发布核对只是交给其他发布人核对固定快照的可选动作';
+    }
+    return (
+      <Tooltip title={tip}>
+        {/* disabled 的原生按钮不派发鼠标事件，须用 span 包裹让提示可达 */}
+        <span>
+          <Button type="link" size="small" disabled={activeSession}
+            onClick={() => this.handleSubmitCompile(file, label)}>
+            {label}
+          </Button>
+        </span>
       </Tooltip>
-    ) : <span>{name}</span>;
-    return canAssign ? (
-      <a onClick={() => this.setState({assignmentFile: file})}
-        title="点击修改分工">{body}</a>
-    ) : body;
+    );
   }
 
-  /** 提交编制状态单元格（submission 仅工作区可见者下发；前端只映射不推断）。
-   *  提交是交接状态不是发布状态：有效=提交时修订号与当前草稿一致（预览
-   *  草稿即为提交内容）；失效=草稿已更新且系统不保留提交时刻的文件副本
-   *  （无历史快照机制），绝不提供"已提交版本"预览。 */
-  renderSubmissionCell(file) {
-    const submission = file.submission;
-    if (!submission) return '-';
-    const meta = SUBMISSION_META[submission.state] || SUBMISSION_META.none;
-    const tipParts = [];
-    if (submission.state === 'submitted') {
-      tipParts.push(
-        `${submission.submitted_by_name || '-'} 提交于 ${formatDateTime(submission.submitted_at)}`,
-        `提交时修订号 r${submission.submission_revision} 与当前草稿 r${submission.draft_revision} 一致，预览待发布草稿即为提交时内容`,
-        '提交编制仅是交接标记，不代表已发布生效；系统不保存提交时刻的文件副本');
-    } else if (submission.state === 'stale') {
-      tipParts.push(
-        `提交已失效：原提交 r${submission.submission_revision}，草稿已更新至 r${submission.draft_revision}`,
-        '系统不保留提交时刻的文件副本，无法查看提交时内容（预览打开的是当前草稿）',
-        '请负责人确认后重新提交');
+  /** 负责人单元格：展示**有效负责人**（文件负责人 > 手册所有者默认 >
+   *  未分配）。`owner_assigned=false` 时后缀「（手册所有者，默认）」；只有
+   *  有效负责人为空时才显示「未分配」。有分工权限且文件未冻结时可点击打开
+   *  分工弹窗；冻结文件（有效提交快照）禁改分工，只读展示。 */
+  renderOwnerCell(assignment, canAssign, file) {
+    const ownerId = effectiveOwnerIdOf(file);
+    const frozen = isFrozenSubmission(file);
+    const canEditAssignment = canAssign && !frozen;
+    if (ownerId == null || ownerId === '') {
+      return canEditAssignment ? (
+        <a onClick={() => this.setState({assignmentFile: file})}
+          title="点击指定负责人">未分配</a>
+      ) : <Tag>未分配</Tag>;
     }
-    if (meta.tip) tipParts.push(meta.tip);
+    const name = effectiveOwnerNameOf(file) || '-';
+    const isDefault = ownerIsDefaultAssignment(file);
+    const note = assignment && assignment.note;
+    const body = (
+      <span>
+        {note ? (
+          <Tooltip title={`分工说明：${note}${frozen ? '' : '（点击修改分工）'}`}>
+            <span>{name}</span>
+          </Tooltip>
+        ) : <span>{name}</span>}
+        {isDefault && (
+          <span style={{color: '#888'}}>（手册所有者，默认）</span>
+        )}
+      </span>
+    );
+    if (!canEditAssignment) return body;
     return (
-      <Tooltip title={tipParts.join('；')}>
-        <Tag color={meta.color}>{meta.label}</Tag>
-      </Tooltip>
+      <a onClick={() => this.setState({assignmentFile: file})}
+        title="点击修改分工">{body}</a>
+    );
+  }
+
+  /** 编制状态单元格（2026-11-03 固定快照交接，唯一渲染依据=
+   *  compilationStatusShared.buildCompilationState）：
+   *  - 主 Tag 映射 待发布人核对/可直接纳入整套发布/待提交待发布核对/
+   *    待负责人提交待发布核对/已撤回/已退回/提交已失效/旧版提交记录/
+   *    编制中/无需提交（服务端快照状态 + draft-status 关系 + revision_open
+   *    + 编辑占用，前端只映射不推断）；
+   *  - 次要信息=最后保存时间（服务端草稿 last_saved_at），草稿变更后即刷新，
+   *    回调未落盘时绝不显示"已保存"；
+   *  - 草稿修订号 rN 只出现在 Tooltip 内部辅助信息中，不再作为列值；
+   *  - 冻结文件附加「已冻结」Tag（内容已冻结，不能编辑/改结构/重复提交）。 */
+  renderCompilationCell(file, relation, canPublish) {
+    const state = buildCompilationState(file, relation, {canPublish});
+    const draft = file.draft;
+    const savedText = draft
+      ? (draft.last_saved_at
+        ? `最后保存 ${formatDateTime(draft.last_saved_at)}`
+        : '尚无保存记录')
+      : '无草稿';
+    const tipParts = [state.tip];
+    if (draft && draft.revision != null) {
+      tipParts.push(`当前草稿 r${draft.revision}`);
+    }
+    const ownerName = effectiveOwnerNameOf(file);
+    if (effectiveOwnerIdOf(file) != null && effectiveOwnerIdOf(file) !== '') {
+      tipParts.push(`有效负责人 ${ownerName || '-'}` +
+        (ownerIsDefaultAssignment(file) ? '（手册所有者，默认）' : ''));
+    } else {
+      tipParts.push('有效负责人 未分配');
+    }
+    if (isFrozenSubmission(file)) {
+      tipParts.push('已冻结：内容/结构写路径与再次提交均被拒绝，需撤回提交或由发布人退回');
+    }
+    return (
+      <span>
+        <Tooltip title={tipParts.join('；')}>
+          <Tag color={state.color}>{state.label}</Tag>
+        </Tooltip>
+        {isFrozenSubmission(file) && (
+          <Tooltip title="该文件已提交待发布核对：内容已冻结，发布人核对固定快照后整套发布使用该快照">
+            <Tag color="blue">已冻结</Tag>
+          </Tooltip>
+        )}
+        <div style={{color: '#999', fontSize: 12, lineHeight: '16px'}}>
+          {savedText}
+        </div>
+      </span>
     );
   }
 
@@ -585,13 +872,19 @@ class FileListTab extends React.Component {
     );
   }
 
-  /** 草稿视图表格：顺序/文件名/大小/草稿修订/负责人/状态/编制提交/操作。
-   *  预览与下载打开待发布草稿（仅编制角色），操作按修订状态分叉 */
-  renderDraftTable(rows, {canEdit, canAssign, manualActive}) {
+  /** 草稿视图表格：顺序/文件名/大小/负责人/状态/编制状态/操作。
+   *  预览与下载打开**当前**待发布草稿（仅编制角色）；冻结文件改读待核对
+   *  快照。2026-11-03 固定快照交接：编制状态列合并提交快照状态与冻结提示，
+   *  rN 只出现在 Tooltip 内部；冻结行不可勾选（内容/结构写路径已被拒绝）。 */
+  renderDraftTable(rows, {canEdit, canAssign, canPublish, manualActive}) {
     const rowSelection = canAssign ? {
       selectedRowKeys: this.state.selectedKeys,
       onChange: keys => this.setState({selectedKeys: keys}),
-      getCheckboxProps: () => ({disabled: false}),
+      // 冻结文件（有效提交固定快照）不参与批量分工：后端结构写路径拒绝，
+      // 前端不得提供必然被拒的批量入口
+      getCheckboxProps: record => ({
+        disabled: !!(record.file && isFrozenSubmission(record.file)),
+      }),
     } : null;
     return (
       <Table rowKey="key" size="small" scroll={{x: true}}
@@ -601,7 +894,16 @@ class FileListTab extends React.Component {
         <Table.Column title="顺序" width={55}
           render={(_, r, i) => i + 1}/>
         <Table.Column title="文件名" ellipsis
-          render={(_, r) => r.file.name}/>
+          render={(_, r) => (
+            <span title={r.file.name}>
+              {r.file.name}
+              {isFrozenSubmission(r.file) && (
+                <Tooltip title="该文件已提交待发布核对并冻结内容：不能开始/继续编辑、改名、调整顺序、移除或改派分工；需负责人撤回提交或发布人退回修改">
+                  <Tag color="blue" style={{marginLeft: 8}}>待核对快照</Tag>
+                </Tooltip>
+              )}
+            </span>
+          )}/>
         <Table.Column title="大小" width={85}
           render={(_, r) => {
             const snapSize = r.snap && r.snap.file_size;
@@ -609,26 +911,24 @@ class FileListTab extends React.Component {
               ? snapSize : (r.file.draft && r.file.draft.file_size));
           }}/>
         <Table.Column title={
-          <Tooltip title="当前待发布草稿的修订号：每次保存/重建 +1。提交编制按该修订号比对自动失效。">
-            <span>草稿修订</span>
-          </Tooltip>
-        } width={95}
-          render={(_, r) => (r.file.draft && r.file.draft.revision != null
-            ? <Tag>r{r.file.draft.revision}</Tag> : '-')}/>
-        <Table.Column title={
-          <Tooltip title="负责人是当前责任归属：负责人独占编辑（须持本手册编制资格），同一文件同一时间仅一人可编辑（单写会话）。点击姓名可修改分工（仅所有者/制度管理员）。">
+          <Tooltip title="负责人=有效负责人：文件负责人，未单独指派时为手册所有者（默认）；负责人是当前责任归属，负责人独占编辑（须持本手册编制资格），同一文件同一时间仅一人可编辑（单写会话）。点击姓名可修改分工（仅所有者/制度管理员；已提交待发布核对的冻结文件不可改派）。">
             <span>负责人</span>
           </Tooltip>
-        } width={120}
+        } width={150}
           render={(_, r) => this.renderOwnerCell(
             r.file.assignment, canAssign, r.file)}/>
         <Table.Column title="状态" width={190}
           render={(_, r) => this.renderStateCell(r.file, r.relation)}/>
-        <Table.Column title="编制提交" width={110}
-          render={(_, r) => this.renderSubmissionCell(r.file)}/>
-        <Table.Column title="操作" width={390} fixed="right"
+        <Table.Column title={
+          <Tooltip title="编制状态是提交待发布核对的固定快照状态（待发布人核对/可直接纳入整套发布/待提交待发布核对/待负责人提交待发布核对/已撤回/已退回/提交已失效/旧版提交记录/编制中/无需提交）。提交会创建固定不可变快照并冻结内容，发布人核对快照后整套发布使用该快照。">
+            <span>编制状态</span>
+          </Tooltip>
+        } width={220}
+          render={(_, r) => this.renderCompilationCell(
+            r.file, r.relation, canPublish)}/>
+        <Table.Column title="操作" width={520} fixed="right"
           render={(_, r) => this.renderDraftRowActions(
-            r, canEdit, manualActive)}/>
+            r, canEdit, manualActive, canPublish)}/>
       </Table>
     );
   }
@@ -643,8 +943,8 @@ class FileListTab extends React.Component {
       <div>
         <div style={{marginBottom: 8, color: '#666', fontSize: 12}}>
           {workspace
-            ? '当前生效版本是最近一次发布形成的不可变清单：本视图的预览与下载始终打开该发布快照，不受草稿修改影响。修订中的待发布内容（含各文件负责人、草稿修订号、编制提交）请切换到「修订草稿」视图。'
-            : '当前生效版本是最新一次发布形成的完整清单（不可变）：预览与下载始终打开该发布快照。各文件的发布参与与维护动作见「变更记录」，最初上传的原始文件在「初始来源」。'}
+            ? '当前生效版本是最近一次发布形成的不可变清单：本视图的预览与下载始终打开该发布快照，不受草稿修改影响。修订中的待发布内容（含各文件负责人、修订状态、编制状态）请切换到「修订草稿」视图；新增文件请在「修订草稿」视图顶部使用「新增待发布文件」；各文件的发布参与与操作记录可经行内「文件历史」查阅。'
+            : '当前生效版本是最新一次发布形成的完整清单（不可变）：预览与下载始终打开该发布快照。各文件的发布参与与操作记录可经行内「文件历史」查阅。'}
         </div>
         {viewPublished && current && (
           <div style={{marginBottom: 12, padding: '12px 16px',
@@ -682,19 +982,67 @@ class FileListTab extends React.Component {
     );
   }
 
-  /** 草稿视图：待发布工作内容（尚未生效）。草稿修订号/负责人/状态/
-   *  编制提交集中呈现；预览与下载明确打开待发布草稿（负责人独占域） */
-  renderDraftView({canEdit, canAssign, manualActive, rows}) {
+  /** 「新增制度文件」入口（草稿视图顶部；0 文件时同样可见）。
+   *  隐藏 input 由 ref 程序触发（禁止把 input 嵌套在 Button/label 内）；
+   *  选择文件后先弹分工弹窗（默认负责人=手册所有者，可改选/清空），确认后
+   *  才逐份创建；业务门=手册所有者或制度管理员（与后端 files/create 一致），
+   *  无权限只给只读说明，不渲染必然被拒的入口。 */
+  renderUploadEntry() {
+    const manual = store.manual || {};
+    const canManageFiles = !!(manual.is_owner || manual.is_admin);
+    if (!canManageFiles) {
+      return (
+        <div style={{marginBottom: 8}}>
+          <span style={{color: '#999', fontSize: 12}}>
+            新增待发布文件仅限手册所有者或制度管理员；当前账号只读，不能上传。
+          </span>
+        </div>
+      );
+    }
+    return (
+      <div style={{marginBottom: 8, display: 'flex', alignItems: 'center',
+        flexWrap: 'wrap', gap: 8}}>
+        <input ref={el => { this.uploadInput = el; }} type="file"
+          accept=".doc,.docx" multiple style={{display: 'none'}}
+          onChange={this.handleUploadChange}/>
+        <ManualAuthButton manual={manual} auth="institution.manual.upload"
+          type="primary" size="small"
+          loading={this.state.uploading}
+          disabled={!canManageFiles}
+          onClick={this.handleUploadClick}>
+          新增待发布文件（.doc/.docx，可多选）
+        </ManualAuthButton>
+      </div>
+    );
+  }
+
+  /** 草稿视图：待发布工作内容（尚未生效）。负责人/状态/编制状态集中呈现；
+   *  预览与下载明确打开**当前**待发布草稿（负责人独占域），rN 只出现在
+   *  Tooltip 等内部说明中 */
+  renderDraftView({canEdit, canAssign, canPublish, manualActive, rows}) {
     return (
       <div>
+        {this.renderUploadEntry()}
         <div style={{marginBottom: 8, color: '#666', fontSize: 12}}>
-          本视图是待发布的工作内容（尚未生效）：预览与下载打开的是待发布草稿
-          （行内标注修订号 rN），整套发布后才会成为新的生效版本。
+          本视图是待发布的工作内容（尚未生效）：每份上传文件
+          单独加入待发布清单，上传内容直接作为该文件草稿；
+          未冻结文件的预览与下载打开当前草稿，已提交待发布核对的文件
+          改为预览/下载待核对固定快照。
+          上传的文件经整套发布后才会成为新的生效版本；
+          移除文件只让该文件退出待发布清单，发布后才影响新版本
+          （已发布的历史版本不受影响）。
+          「编制状态」是提交待发布核对的固定快照状态：提交入口仅对文件
+          有效负责人（文件负责人，未单独指派时为手册所有者默认）开放；
+          提交会为该文件创建固定不可变内容快照并冻结编辑，等待发布人核对，
+          发布人核对后整套发布使用该快照；提交有效期间不能重复提交，负责人
+          可撤回提交、发布人可退回修改（必填原因），撤回/退回后可修改并重新提交。
+          有效负责人本人且具备发布权时可直接纳入整套发布（无需提交）。
+          旧版提交记录不可用于发布，需按新规则重新提交待发布核对。
           负责人是当前责任归属：编辑仅限文件负责人（须持本手册编制资格），
           单写会话（同一文件同一时间仅一人）；持编制授权但未被指派负责人的
           账号可查看清单，编辑前请先由手册所有者指派分工。
-          提交编制是交接标记、不代表已发布：仅记录提交时的草稿修订号，系统
-          不保存提交时刻的文件副本，草稿再次保存或重建后提交自动失效。
+          各文件的发布参与与操作记录可在行内「文件历史」查阅；新增文件请
+          使用上方按钮，并先指定负责人。
         </div>
         {store.draftStatusError && (
           <Alert type="warning" showIcon style={{marginBottom: 8}}
@@ -705,10 +1053,10 @@ class FileListTab extends React.Component {
         {canAssign && this.renderBatchBar(rows)}
         {rows.length === 0 && !store.isFetchingFiles && (
           <Alert type="info" showIcon
-            message="该制度还没有待发布文件。请在「初始来源」页签上传原始文件（每份文件各建一个制度文件与草稿）。"/>
+            message="该制度还没有待发布文件。请使用上方「新增待发布文件」上传，上传文件作为待发布文件的当前草稿。"/>
         )}
         {rows.length > 0 && this.renderDraftTable(rows,
-          {canEdit, canAssign, manualActive})}
+          {canEdit, canAssign, canPublish, manualActive})}
       </div>
     );
   }
@@ -723,6 +1071,10 @@ class FileListTab extends React.Component {
     // draft_edit 或非所有者/管理员时保存必然被"权限拒绝"，入口必须只读
     const canAssign = hasPermission('institution.manual.draft_edit') &&
       (manual.is_owner || manual.is_admin);
+    // 发布权口径（编制状态「本人发布无需提交」与提交入口 Tooltip 共用，
+    // 与 PublishButton 渲染口径一致：所有者对象级豁免 或 发布授权）
+    const canPublish = !!(manual.is_owner ||
+      (manual.my_roles || []).includes('publish'));
     const current = manual.current_version;
     const manualActive = manual.status === 'active';
     const cf = store.currentFiles;
@@ -740,7 +1092,7 @@ class FileListTab extends React.Component {
     }
 
     const viewProps = {manual, current, cf, workspace, viewPublished,
-      canEdit, canAssign, manualActive, rows};
+      canEdit, canAssign, canPublish, manualActive, rows};
     return (
       <div>
         {viewPublished && workspace && (
@@ -776,10 +1128,31 @@ class FileListTab extends React.Component {
             onClose={() => this.setState({batchAssign: false})}
             onSubmit={this.handleBatchSubmit(this.batchFileIds())}/>
         )}
+        {/* 新增制度文件：选文件后先指定负责人（默认手册所有者，可改选/
+             清空），确认后才逐份创建；隐藏 input 已在上方由 ref 程序触发，
+             本弹窗不嵌套任何 file input */}
+        {this.state.uploadFiles && this.state.uploadFiles.length > 0 && (
+          <FileAssignmentModal manualId={store.id}
+            title={`新增待发布文件分工（${this.state.uploadFiles.length} 份）`}
+            files={this.state.uploadFiles.map((f, i) => ({
+              id: `upload-${i}`, name: f.name, assignment: {},
+            }))}
+            initialOwnerId={(store.manual || {}).owner_id}
+            createMode
+            onClose={() => this.setState({uploadFiles: null})}
+            onSubmit={this.handleUploadAssignSubmit}/>
+        )}
         <PreviewModal visible={!!this.state.preview} url={this.state.preview && this.state.preview.url}
           fileName={this.state.preview && this.state.preview.fileName}
           title={this.state.preview && this.state.preview.title}
           onClose={() => this.setState({preview: null})}/>
+        {/* 文件历史弹窗（两种清单视图行入口共用）：按 file_id 打开，
+            发布记录/操作记录在弹窗内查阅；关闭后清单视图、滚动位置与
+            行勾选保持不变 */}
+        <FileHistoryModal visible={this.state.historyFileId != null}
+          fileId={this.state.historyFileId}
+          fileName={this.state.historyFileName}
+          onClose={() => this.setState({historyFileId: null})}/>
       </div>
     );
   }

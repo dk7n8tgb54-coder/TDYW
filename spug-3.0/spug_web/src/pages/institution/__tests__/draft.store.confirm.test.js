@@ -29,7 +29,7 @@ function makeFile(id, overrides) {
     is_removed: false,
     draft: {id: 100 + id, revision: id, file_name: `文件${id}.docx`,
       file_size: 1024, file_hash: `hash-${id}`, base_version_id: null,
-      source_original_id: null, last_saved_by_name: '张三',
+      last_saved_by_name: '张三',
       last_saved_at: '2026-10-01T10:00:00',
       created_at: '2026-10-01T10:00:00'},
     active_session: null,

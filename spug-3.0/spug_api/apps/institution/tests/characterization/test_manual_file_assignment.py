@@ -1,21 +1,25 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""文件分工与提交编制的真实行为测试（2026-10-29，替代旧章节分工）
+"""文件分工与提交待发布核对的真实行为测试（2026-10-29，2026-11-03 修订）
 
-覆盖（《制度管理模块设计方案》文件分工节 + 2026-10-31 授权模型改造）：
-- 文件分工：新增文件时指定负责人、assignment 接口改派/清空（未分配）、
-  文件清单行下发负责人与提交状态（草稿域信息按工作区可见口径门控）。
-- 权限：分工业务门禁=手册所有者/制度管理员（2026-10-31 起）；被指派
-  负责人必须持有该手册 can_edit 编制资格；负责人身份+授权才有编辑权；
-  跨制度文件 ID 拒绝；提交编制放行口径=文件负责人/手册所有者/制度管理员。
-- 提交编制：记录提交时草稿修订号与时间；无有效草稿、活跃编辑会话、
-  归档手册拒绝；草稿再次保存/重建/回退后提交状态失效（不得显示已完成）；
-  可重复提交；改派/清空撤销在途编辑会话。
-- 发布核对：publish-preview 各分组行携带负责人与提交状态，但提交与否
-  不新增发布阻断（现有整套发布校验保持不变）。
+覆盖（《制度管理模块设计方案》文件分工节 + 2026-10-31 授权模型改造 +
+2026-11-03 固定快照交接）：
+- 文件分工：新增文件时指定负责人（**不携带 owner_id=默认手册所有者，
+  显式空串=owner_id 空，回退手册所有者为有效负责人**）、assignment
+  接口改派/清空、文件清单行下发负责人与提交状态。
+- 权限：分工业务门禁=手册所有者/平台超管；被指派负责人必须持有该
+  手册 can_edit 编制资格；负责人身份+授权才有编辑权；跨制度文件 ID
+  拒绝；**提交放行口径=仅该文件有效负责人本人**（手册所有者/平台超管
+  不得代提交）。
+- 提交：仅有效负责人、需无活跃会话且“保存并结束编辑”后复制独立
+  不可变快照；提交后内容写路径冻结（撤回/退回后才能继续修改）；
+  重复 pending 拒绝且原记录不变。
+- 发布交接：publish-preview 各分组行携带交接字段；新增/变化文件发布人
+  ≠有效负责人时必须有当前有效 pending 快照才可发布。
 - 旧章节数据：ManualChapter 记录保留可读，写接口全部关闭且不删改记录。
 """
 import json
+import os
 import tempfile
 from unittest.mock import patch
 
@@ -25,7 +29,8 @@ from django.test import TestCase
 from apps.institution import storage
 from apps.institution.models import (Manual, ManualChapter, ManualDraft,
                                      ManualEditSession, ManualFile,
-                                     ManualOperationLog, ManualVersion)
+                                     ManualOperationLog, ManualSubmission,
+                                     ManualVersion)
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_DOWNLOAD, PERM_PUBLISH,
     PERM_UPLOAD, PERM_VIEW,
@@ -34,6 +39,9 @@ from apps.institution.tests.base import (
 )
 
 DOCX = b'PK\x03\x04 file-assignment-docx'
+# files/create 的 owner_id 三态：未传字段=默认手册所有者；
+# _UNSET 表示"不携带字段"，None 表示"显式空串（未分配）"
+_UNSET = object()
 
 
 class FileAssignmentBase(TestCase):
@@ -80,12 +88,14 @@ class FileAssignmentBase(TestCase):
         self.assertFalse(has_error(resp), resp.content)
         return password
 
-    def _add_file(self, name=None, owner=None, note=''):
+    def _add_file(self, name=None, owner=_UNSET, note=''):
+        """新增制度文件；owner 传账号=指定负责人，传 None=显式未分配，
+        不传=默认手册所有者（与 files/create 的 owner_id 三态一致）"""
         self.file_seq += 1
         name = name or f'文件{self.file_seq}.docx'
         payload = {'file': SimpleUploadedFile(name, DOCX)}
-        if owner:
-            payload['owner_id'] = str(owner.id)
+        if owner is not _UNSET:
+            payload['owner_id'] = '' if owner is None else str(owner.id)
         if note:
             payload['note'] = note
         resp = self.manager_client.post(
@@ -140,15 +150,34 @@ class AssignmentTests(FileAssignmentBase):
         self.assertEqual(entry.assigned_by_id, self.manager.id)
         self.assertIsNotNone(entry.assigned_at)
 
-    def test_create_without_owner_is_unassigned(self):
+    def test_create_without_owner_defaults_to_manual_owner(self):
+        """不携带 owner_id = 默认手册所有者（新增文件默认由所有者负责）"""
         data = self._add_file('附录.docx')
+        self.assertEqual(data['assignment']['owner_id'], self.manager.id)
+        self.assertEqual(data['assignment']['owner_name'],
+                         self.manager.username)
+        entry = ManualFile.objects.get(pk=data['id'])
+        self.assertEqual(entry.owner_id, self.manager.id)
+        self.assertEqual(entry.assigned_by_id, self.manager.id)
+
+    def test_create_with_explicit_empty_owner_is_unassigned(self):
+        """显式携带空串：owner_id 为空（有效负责人回退手册所有者）
+
+        2026-11-03 有效负责人判定：owner_id 为空时回退 Manual.owner，
+        因此清单仍下发 owner_id=None/owner_assigned=false，但该文件由
+        手册所有者作为有效负责人参与提交/发布判定。
+        """
+        data = self._add_file('显式未分配.docx', owner=None)
         self.assertIsNone(data['assignment']['owner_id'])
         self.assertEqual(data['assignment']['owner_name'], '')
         self.assertIsNone(ManualFile.objects.get(pk=data['id']).owner_id)
+        self.assertEqual(data['assignment']['effective_owner_id'],
+                         self.manager.id)
+        self.assertFalse(data['assignment']['owner_assigned'])
 
     def test_assign_by_owner_and_reassign(self):
-        """分工业务门禁=手册所有者（或制度管理员）：编制授权不足以分工"""
-        data = self._add_file('甲.docx')
+        """分工业务门禁=手册所有者（或平台超管）：编制授权不足以分工"""
+        data = self._add_file('甲.docx', owner=None)
         # 仅持编制授权的账号不能分工
         resp = self._assign(self.editor_client, data['id'],
                             owner_id=self.editor2.id, note='由乙编制')
@@ -173,7 +202,7 @@ class AssignmentTests(FileAssignmentBase):
 
     def test_assign_requires_can_edit_qualification(self):
         """被指派账号必须持有该手册 can_edit 编制资格"""
-        data = self._add_file('资格.docx')
+        data = self._add_file('资格.docx', owner=None)
         # 无任何授权的账号被拒
         outsider = make_user('no-grant', tenant_id='deptW', perms=[PERM_VIEW])
         resp = self._assign(self.manager_client, data['id'],
@@ -207,7 +236,7 @@ class AssignmentTests(FileAssignmentBase):
         self.assertTrue(has_error(resp))
 
     def test_assign_denied_for_view_only_grant(self):
-        data = self._add_file('丁.docx')
+        data = self._add_file('丁.docx', owner=None)
         resp = self._assign(self.viewer_client, data['id'],
                             owner_id=self.editor.id)
         self.assertTrue(has_error(resp))
@@ -270,8 +299,12 @@ class OwnerPermissionTests(FileAssignmentBase):
         self.assertTrue(has_error(resp))
 
     def test_owner_can_submit_with_view_page_perm_only(self):
-        """负责人完成编制后可提交（提交是状态交接，不要求 draft_edit
-        页面权限；编制资格由授权行承载）"""
+        """有效负责人完成编制后可提交（要求“保存并结束编辑”后固定快照）
+
+        2026-11-03：提交不再写 ManualFile 旧列，而是创建 ManualSubmission
+        独立快照；页面 view 权限 + 负责人身份即放行（提交是交接，不要求
+        draft_edit 页面码）。
+        """
         owner = make_user('owner2', tenant_id='deptW', perms=[PERM_VIEW])
         make_grant(self.manual, owner, can_view=True, can_edit=True)
         data = self._add_file('提交.docx', owner=owner)
@@ -279,27 +312,56 @@ class OwnerPermissionTests(FileAssignmentBase):
         self.assertFalse(has_error(resp), resp.content)
         body = get_data(resp)
         self.assertEqual(body['submission']['state'], 'submitted')
-        self.assertEqual(body['submission']['submission_revision'], 1)
-        entry = ManualFile.objects.get(pk=data['id'])
-        self.assertEqual(entry.submitted_by_id, owner.id)
-        self.assertIsNotNone(entry.submitted_at)
+        self.assertEqual(body['submission']['status'], 'pending')
+        submission = ManualSubmission.objects.get(file_id=data['id'])
+        self.assertEqual(submission.draft_revision,
+                         body['submission']['submission_revision'])
+        self.assertEqual(submission.submitted_by_id, owner.id)
+        self.assertIsNotNone(submission.submitted_at)
+        self.assertTrue(submission.file_path.startswith('submissions/'))
 
-    def test_non_assignee_cannot_submit(self):
-        """放行口径=文件负责人/手册所有者/制度管理员：编制资格（非负责人）
-        与仅查看授权均不可提交"""
+    def test_only_file_owner_can_submit(self):
+        """放行口径=仅文件负责人：手册所有者/平台超管/其他编制授权均不得代提交"""
         data = self._add_file('越权提交.docx', owner=self.editor)
-        resp = self._submit(self.viewer_client, data['id'])
+        for client, message in (
+                (self.viewer_client, '负责人'),
+                (self.editor2_client, '负责人'),
+                (self.manager_client, '负责人')):
+            resp = self._submit(client, data['id'])
+            self.assertTrue(has_error(resp), resp.content)
+            self.assertIn(message, resp.json()['error'])
+        self.assertFalse(ManualSubmission.objects.filter(
+            file_id=data['id']).exists())
+        # 平台超管同样不得代提交
+        admin = make_user('root', is_supper=True, tenant_id='root')
+        resp = self._submit(make_client(admin), data['id'])
         self.assertTrue(has_error(resp))
-        entry = ManualFile.objects.get(pk=data['id'])
-        self.assertIsNone(entry.submitted_at)
-        # 编制授权（非负责人）不可提交：负责人独占编辑后提交随负责人走
-        resp = self._submit(self.editor2_client, data['id'])
-        self.assertTrue(has_error(resp))
-        # 手册所有者可代为提交
+        self.assertIn('负责人', resp.json()['error'])
+        self.assertFalse(ManualSubmission.objects.filter(
+            file_id=data['id']).exists())
+        # 负责人本人提交成功：创建 pending 固定快照
+        resp = self._submit(self.editor_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
+        submission = ManualSubmission.objects.get(file_id=data['id'])
+        self.assertEqual(submission.status, ManualSubmission.STATUS_PENDING)
+
+    def test_unassigned_file_falls_back_to_manual_owner(self):
+        """owner_id 为空：回退 Manual.owner 为有效负责人（可提交）
+
+        2026-11-03 有效负责人判定；真正的 unassigned 是显式负责人与手册
+        所有者都为空（由 test_submission_snapshot 独立手册场景覆盖）。
+        """
+        data = self._add_file('未分配提交.docx', owner=None)
+        row = self._files_list()
+        target = {x['id']: x for x in row}[data['id']]
+        self.assertIsNone(target['assignment']['owner_id'])
+        self.assertEqual(target['assignment']['effective_owner_id'],
+                         self.manager.id)
         resp = self._submit(self.manager_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
-        self.assertIsNotNone(
-            ManualFile.objects.get(pk=data['id']).submitted_at)
+        self.assertEqual(
+            ManualSubmission.objects.get(file_id=data['id']).status,
+            ManualSubmission.STATUS_PENDING)
 
     def test_submit_cross_manual_file_rejected(self):
         other = Manual.objects.create(name='别册手册', owner=self.manager,
@@ -352,7 +414,8 @@ class SubmitValidationTests(FileAssignmentBase):
         ManualDraft.objects.filter(file_id=data['id']).update(file_path='')
         resp = self._submit(self.editor_client, data['id'])
         self.assertTrue(has_error(resp))
-        self.assertIsNone(ManualFile.objects.get(pk=data['id']).submitted_at)
+        self.assertFalse(ManualSubmission.objects.filter(
+            file_id=data['id']).exists())
 
     def test_submit_rejected_with_active_session(self):
         data = self._prepare()
@@ -369,12 +432,38 @@ class SubmitValidationTests(FileAssignmentBase):
         resp = self._submit(self.editor_client, data['id'])
         self.assertTrue(has_error(resp))
 
-    def test_resubmit_overwrites_revision_and_time(self):
+    def test_duplicate_submit_rejected_state_unchanged(self):
+        """有效重复提交拒绝：原 pending 记录/修订号不变"""
         data = self._prepare()
         resp = self._submit(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
-        first_at = ManualFile.objects.get(pk=data['id']).submitted_at
-        # 保存推进修订号后退出会话再提交：以最新修订号覆盖
+        first = ManualSubmission.objects.get(file_id=data['id'])
+        resp = self._submit(self.editor_client, data['id'])
+        self.assertTrue(has_error(resp), resp.content)
+        self.assertIn('该文件已有待发布人核对的提交，请勿重复提交',
+                      resp.json()['error'])
+        first.refresh_from_db()
+        self.assertEqual(first.status, ManualSubmission.STATUS_PENDING)
+        self.assertEqual(ManualSubmission.objects.filter(
+            file_id=data['id']).count(), 1)
+
+    def test_resubmit_after_draft_change_updates_revision_and_time(self):
+        """提交后冻结；撤回修改再提交创建新快照行（旧行保留）"""
+        data = self._prepare()
+        resp = self._submit(self.editor_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
+        first = ManualSubmission.objects.get(file_id=data['id'])
+        # 冻结期间不能直接保存；先撤回
+        resp = self._start_session(self.editor_client, data['id'])
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{data["id"]}/submit/withdraw/', {})
+        self.assertFalse(has_error(resp), resp.content)
+        first.refresh_from_db()
+        self.assertEqual(first.status, ManualSubmission.STATUS_WITHDRAWN)
         resp = self._start_session(self.editor_client, data['id'])
         session_key = get_data(resp)['session_key']
         resp = self._save(self.editor_client, data['id'], session_key, 1,
@@ -385,13 +474,14 @@ class SubmitValidationTests(FileAssignmentBase):
                     {'session_key': session_key})
         resp = self._submit(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
-        entry = ManualFile.objects.get(pk=data['id'])
-        self.assertEqual(entry.submission_revision, 2)
-        self.assertGreater(entry.submitted_at, first_at)
+        second = ManualSubmission.objects.get(
+            file_id=data['id'], status=ManualSubmission.STATUS_PENDING)
+        self.assertNotEqual(second.id, first.id)
+        self.assertEqual(second.draft_revision, 2)
 
 
 class SubmissionInvalidationTests(FileAssignmentBase):
-    """提交后草稿再次变化：提交状态必须失效，不得继续显示已完成"""
+    """提交后内容写路径冻结；撤回/退回后旧快照作废，重提产生新行"""
 
     def _submitted_file(self, name='失效.docx'):
         data = self._add_file(name, owner=self.editor)
@@ -404,54 +494,88 @@ class SubmissionInvalidationTests(FileAssignmentBase):
         client = client or self.manager_client
         return {x['id']: x for x in self._files_list(client)}[file_id]
 
-    def test_save_after_submit_marks_stale(self):
-        data = self._submitted_file()
-        resp = self._start_session(self.editor_client, data['id'])
-        session_key = get_data(resp)['session_key']
-        resp = self._save(self.editor_client, data['id'], session_key, 1,
-                          content=DOCX + b'-changed')
-        self.assertFalse(has_error(resp), resp.content)
-        row = self._row(data['id'])
-        self.assertEqual(row['submission']['state'], 'stale')
-        # 提交痕迹保留（何时由谁提交过），但不再是"有效提交"
-        self.assertEqual(row['submission']['submission_revision'], 1)
-        self.assertEqual(row['submission']['draft_revision'], 2)
-
-    def test_rebuild_from_original_after_submit_marks_stale(self):
-        data = self._submitted_file('重建.docx')
-        original_id = ManualDraft.objects.get(file_id=data['id']).source_original_id
-        # 重建是内容写路径：负责人独占，由文件负责人执行
+    def _withdraw(self, data):
         resp = post_json(
             self.editor_client,
-            f'/institution/manuals/{self.manual.id}/files/{data["id"]}/draft/create/',
-            {'original_id': original_id})
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{data["id"]}/submit/withdraw/', {})
+        self.assertFalse(has_error(resp), resp.content)
+        return resp
+
+    def test_save_after_submit_is_frozen(self):
+        """提交后保存/开启编辑会话均被冻结拒绝；待核对快照不变"""
+        data = self._submitted_file()
+        submission = ManualSubmission.objects.get(file_id=data['id'])
+        resp = self._start_session(self.editor_client, data['id'])
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        submission.refresh_from_db()
+        self.assertEqual(submission.status,
+                         ManualSubmission.STATUS_PENDING)
+        self.assertEqual(submission.draft_revision, 1)
+        self.assertEqual(self._row(data['id'])['submission']['state'],
+                         'submitted')
+
+    def test_content_change_after_submit_requires_withdraw(self):
+        """提交后即使真实验证会话也不能保存；撤回后才能修改并重提"""
+        data = self._submitted_file('重建.docx')
+        self._withdraw(data)
+        resp = self._start_session(self.editor_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
+        session_key = get_data(resp)['session_key']
+        resp = self._save(self.editor_client, data['id'], session_key, 1,
+                          name='重建-改.docx',
+                          content=DOCX + b'-after-submit')
+        self.assertFalse(has_error(resp), resp.content)
+        delete_json(self.editor_client,
+                    f'/institution/manuals/{self.manual.id}/files/{data["id"]}/draft/session/',
+                    {'session_key': session_key})
+        resp = self._submit(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
         row = self._row(data['id'])
-        self.assertEqual(row['submission']['state'], 'stale')
+        self.assertEqual(row['submission']['state'], 'submitted')
         self.assertEqual(row['submission']['draft_revision'], 2)
 
-    def test_rollback_after_submit_marks_stale(self):
+    def test_rollback_after_submit_rejected_until_withdrawn(self):
+        """存在 pending 提交时整套回退整体拒绝；撤回后才可回退"""
         data = self._submitted_file('回退.docx')
-        # 发布 -> 整套回退：草稿被重建，修订号推进，提交失效
+        # 首版发布消费首份提交；开始新一轮修订后再提交形成 pending
         resp = post_json(self.publisher_client,
                          f'/institution/manuals/{self.manual.id}/publish/',
                          {'change_note': '首版'})
         self.assertFalse(has_error(resp), resp.content)
         version_id = ManualVersion.objects.filter(
             manual=self.manual).order_by('-version_no').first().id
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{data["id"]}/revision/start/', {})
+        self.assertFalse(has_error(resp), resp.content)
         resp = self._submit(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
         resp = post_json(
             self.manager_client,
             f'/institution/manuals/{self.manual.id}/draft/from-version/',
             {'version_id': version_id})
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        self._withdraw(data)
+        resp = post_json(
+            self.manager_client,
+            f'/institution/manuals/{self.manual.id}/draft/from-version/',
+            {'version_id': version_id})
         self.assertFalse(has_error(resp), resp.content)
         row = self._row(data['id'])
-        self.assertEqual(row['submission']['state'], 'stale')
+        self.assertEqual(row['submission']['state'], 'none')
+        self.assertEqual(row['submission']['status'], 'withdrawn')
 
     def test_resubmit_restores_valid_state(self):
+        """撤回后修改并重新提交：新 pending 生效，旧行状态保留"""
         data = self._submitted_file('再提交.docx')
+        first = ManualSubmission.objects.get(file_id=data['id'])
+        self._withdraw(data)
         resp = self._start_session(self.editor_client, data['id'])
+        self.assertFalse(has_error(resp), resp.content)
         session_key = get_data(resp)['session_key']
         resp = self._save(self.editor_client, data['id'], session_key, 1,
                           content=DOCX + b'-again')
@@ -459,66 +583,106 @@ class SubmissionInvalidationTests(FileAssignmentBase):
         delete_json(self.editor_client,
                     f'/institution/manuals/{self.manual.id}/files/{data["id"]}/draft/session/',
                     {'session_key': session_key})
-        self.assertEqual(self._row(data['id'])['submission']['state'], 'stale')
         resp = self._submit(self.editor_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
         row = self._row(data['id'])
         self.assertEqual(row['submission']['state'], 'submitted')
-        self.assertEqual(row['submission']['submission_revision'], 2)
+        second = ManualSubmission.objects.get(
+            file_id=data['id'], status=ManualSubmission.STATUS_PENDING)
+        self.assertNotEqual(second.id, first.id)
+        self.assertEqual(second.draft_revision, 2)
+        first.refresh_from_db()
+        self.assertEqual(first.status, ManualSubmission.STATUS_WITHDRAWN)
 
 
 class PublishPlanAssignmentTests(FileAssignmentBase):
-    """发布者核对：预检行携带负责人与提交状态；不新增发布阻断"""
+    """发布交接（2026-11-01）：预检行携带交接字段；未完成交接阻断发布"""
 
-    def test_plan_rows_carry_owner_and_submission(self):
+    HANDOFF_KEYS = ('owner_id', 'owner_name', 'submission',
+                    'publisher_is_owner', 'submission_required',
+                    'content_changed')
+
+    def _preview(self):
+        resp = self.publisher_client.get(
+            f'/institution/manuals/{self.manual.id}/publish-preview/')
+        self.assertFalse(has_error(resp), resp.content)
+        return get_data(resp)
+
+    def _publish(self, note='发布'):
+        return post_json(self.publisher_client,
+                         f'/institution/manuals/{self.manual.id}/publish/',
+                         {'change_note': note})
+
+    def _version_dir_files(self):
+        root = os.path.join(self._tmp.name, 'versions')
+        found = []
+        for dirpath, _, filenames in os.walk(root):
+            found.extend(os.path.join(dirpath, name) for name in filenames)
+        return found
+
+    def test_plan_rows_carry_handoff_fields(self):
         submitted = self._add_file('已提交.docx', owner=self.editor,
                                    note='甲编制')
-        self._set_password()
         resp = self._submit(self.editor_client, submitted['id'])
         self.assertFalse(has_error(resp), resp.content)
         pending = self._add_file('未提交.docx', owner=self.editor2)
-        resp = self.publisher_client.get(
-            f'/institution/manuals/{self.manual.id}/publish-preview/')
-        self.assertFalse(has_error(resp), resp.content)
-        plan = get_data(resp)
-        rows = {r['file_id']: r for g in ('changed', 'unchanged', 'added')
-                for r in plan[g]}
-        self.assertEqual(rows[pending['id']]['owner_name'], self.editor2.username)
-        self.assertEqual(rows[pending['id']]['submission']['state'], 'none')
-        self.assertEqual(rows[submitted['id']]['owner_name'], self.editor.username)
-        self.assertEqual(rows[submitted['id']]['submission']['state'],
-                         'submitted')
-        self.assertEqual(rows[submitted['id']]['submission']['submitted_by_name'],
+        plan = self._preview()
+        added = {r['file_id']: r for r in plan['added']}
+        row = added[submitted['id']]
+        for key in self.HANDOFF_KEYS:
+            self.assertIn(key, row)
+        self.assertEqual(row['owner_id'], self.editor.id)
+        self.assertEqual(row['owner_name'], self.editor.username)
+        self.assertEqual(row['submission']['state'], 'submitted')
+        self.assertEqual(row['submission']['submitted_by_name'],
                          self.editor.username)
+        self.assertFalse(row['publisher_is_owner'])
+        self.assertTrue(row['submission_required'])
+        self.assertTrue(row['content_changed'])
+        # 未提交文件进入 blocked：交接阻断（不再只是核对信息）
+        blocked = {r['file_id']: r for r in plan['blocked']}
+        self.assertIn(pending['id'], blocked)
+        pending_row = blocked[pending['id']]
+        for key in self.HANDOFF_KEYS:
+            self.assertIn(key, pending_row)
+        self.assertEqual(pending_row['reason'], 'submission_pending')
+        self.assertIn('等待负责人', pending_row['message'])
+        self.assertIn(self.editor2.username, pending_row['message'])
+        self.assertEqual(pending_row['submission']['state'], 'none')
+        self.assertEqual(plan['blocker_summary'], {'submission_pending': 1})
+        self.assertFalse(plan['can_publish'])
 
-    def test_unsubmitted_file_does_not_block_publish(self):
-        """第一阶段：提交与否不改变发布校验，未提交文件照常发布"""
+    def test_unsubmitted_file_blocks_publish(self):
+        """未提交阻断真实发布：无新版本、无快照残留"""
         self._add_file('未提交也发布.docx', owner=self.editor)
-        self._set_password()
-        resp = self.publisher_client.get(
-            f'/institution/manuals/{self.manual.id}/publish-preview/')
-        self.assertFalse(has_error(resp), resp.content)
-        plan = get_data(resp)
-        self.assertEqual(plan['blocked'], [])
-        self.assertTrue(plan['can_publish'])
-        resp = post_json(self.publisher_client,
-                         f'/institution/manuals/{self.manual.id}/publish/',
-                         {'change_note': '无提交标记也发布'})
-        self.assertFalse(has_error(resp), resp.content)
+        plan = self._preview()
+        self.assertEqual(plan['blocked'][0]['reason'], 'submission_pending')
+        self.assertFalse(plan['can_publish'])
+        resp = self._publish('无提交标记也发布')
+        self.assertTrue(has_error(resp))
+        self.assertIn('存在未完成的提交待发布核对', resp.json()['error'])
+        self.assertIn('等待负责人', resp.json()['error'])
+        self.assertFalse(ManualVersion.objects.filter(
+            manual=self.manual).exists())
+        self.assertEqual(self._version_dir_files(), [])
 
-    def test_blocked_row_still_carries_owner(self):
+    def test_blocked_row_still_carries_handoff_fields(self):
+        """既有受阻原因行（会话占用）同样携带交接字段（前端统一取键）"""
         data = self._add_file('受阻.docx', owner=self.editor2)
         self._set_password()
         resp = self._start_session(self.editor2_client, data['id'])
         self.assertFalse(has_error(resp), resp.content)
-        resp = self.publisher_client.get(
-            f'/institution/manuals/{self.manual.id}/publish-preview/')
-        self.assertFalse(has_error(resp), resp.content)
-        plan = get_data(resp)
+        plan = self._preview()
         self.assertEqual(len(plan['blocked']), 1)
-        self.assertEqual(plan['blocked'][0]['owner_name'],
-                         self.editor2.username)
-        self.assertIn('submission', plan['blocked'][0])
+        blocked = plan['blocked'][0]
+        for key in self.HANDOFF_KEYS:
+            self.assertIn(key, blocked)
+        self.assertEqual(blocked['reason'], 'session_busy')
+        self.assertEqual(blocked['owner_name'], self.editor2.username)
+        self.assertEqual(blocked['submission']['state'], 'none')
+        self.assertFalse(blocked['content_changed'])
+        self.assertFalse(blocked['submission_required'])
+        self.assertIn('session', blocked)
 
 
 class LegacyChapterRecordTests(FileAssignmentBase):
@@ -568,11 +732,12 @@ class LegacyChapterRecordTests(FileAssignmentBase):
 class AssignmentOwnerOptionsTests(FileAssignmentBase):
     """负责人候选接口（2026-10-31 授权模型改造后口径）
 
-    - 业务门禁与分工写路径一致：手册所有者或制度管理员（仅页面权限
+    - 业务门禁与分工写路径一致：手册所有者或平台超管（仅页面权限
       不再放行无授权调用者）；
-    - 候选=持有该手册 can_edit 编制授权的启用账号（与
+    - 候选=手册所有者（即使无 can_edit 授权行，所有者按对象范围自动
+      具备编辑资格）+ 持有该手册 can_edit 编制授权的启用账号（与
       _resolve_assignee 的校验口径一致；跨租户账号可作负责人是预期）；
-    - 只返回 id + name（昵称，空则账号名）最小字段。
+    - 按 id 去重，只返回 id + name（昵称，空则账号名）最小字段。
     """
 
     def _owners(self, client):
@@ -587,8 +752,8 @@ class AssignmentOwnerOptionsTests(FileAssignmentBase):
         self.assertTrue(has_error(resp))
         self.assertEqual(resp.json()['error'], '权限拒绝')
 
-    def test_owner_gets_can_edit_holders_as_candidates(self):
-        """核心回归：所有者可取候选，候选=持该手册 can_edit 的启用账号"""
+    def test_owner_gets_owner_and_can_edit_holders_as_candidates(self):
+        """核心回归：所有者可取候选；候选含所有者本人 + 持 can_edit 的启用账号"""
         resp = self._owners(self.manager_client)
         self.assertFalse(has_error(resp), resp.content)
         rows = get_data(resp)
@@ -597,15 +762,21 @@ class AssignmentOwnerOptionsTests(FileAssignmentBase):
         self.assertIn(self.editor.id, by_id)
         self.assertEqual(by_id[self.editor.id]['name'], self.editor.nickname)
         self.assertIn(self.editor2.id, by_id)
+        # 手册所有者本人即使无 can_edit 授权行也在候选（可作为文件负责人）
+        self.assertIn(self.manager.id, by_id)
+        self.assertEqual(by_id[self.manager.id]['name'], self.manager.nickname)
         # 仅 can_view / can_publish 授权或无授权账号不在候选
         self.assertNotIn(self.viewer.id, by_id)
         self.assertNotIn(self.publisher.id, by_id)
-        self.assertNotIn(self.manager.id, by_id)
         outsider = make_user('no-grant', tenant_id='deptW', perms=[PERM_DRAFT])
         self.assertNotIn(outsider.id, by_id)
         # 仅返回最小字段（ID+显示名），不回传账号管理字段
         for row in rows:
             self.assertEqual(set(row.keys()), {'id', 'name'})
+        # 去重：所有者同时持 can_edit 授权行时只出现一次
+        make_grant(self.manual, self.manager, can_edit=True)
+        rows = get_data(self._owners(self.manager_client))
+        self.assertEqual(len([r for r in rows if r['id'] == self.manager.id]), 1)
 
     def test_platform_admin_gets_candidates_for_any_manual(self):
         """平台超管（is_supper）对任意手册可取候选（"制度管理员"码已废除）"""
@@ -702,7 +873,23 @@ class MultiFileParallelAssignmentTests(FileAssignmentBase):
         rows = {x['id']: x for x in self._files_list()}
         self.assertEqual(rows[first['id']]['submission']['state'], 'submitted')
         self.assertEqual(rows[second['id']]['submission']['state'], 'none')
-        # 改派第一份不清第二份分工；改派后旧负责人的提交不再有效
+        # 第一份已提交：冻结期间改派被拒，第二份分工不受影响
+        resp = self._assign(self.manager_client, first['id'],
+                            owner_id=self.editor2.id, note='改派')
+        self.assertTrue(has_error(resp))
+        self.assertIn('已提交待发布核对', resp.json()['error'])
+        rows = {x['id']: x for x in self._files_list()}
+        self.assertEqual(rows[first['id']]['assignment']['owner_id'],
+                         self.editor.id)
+        self.assertEqual(rows[second['id']]['assignment']['owner_id'],
+                         self.editor2.id)
+        self.assertEqual(rows[first['id']]['submission']['state'], 'submitted')
+        # 撤回后才可改派：旧快照作废（记录保留），第二份仍不受影响
+        resp = post_json(
+            self.editor_client,
+            f'/institution/manuals/{self.manual.id}/files/'
+            f'{first["id"]}/submit/withdraw/', {})
+        self.assertFalse(has_error(resp), resp.content)
         resp = self._assign(self.manager_client, first['id'],
                             owner_id=self.editor2.id, note='改派')
         self.assertFalse(has_error(resp), resp.content)
@@ -712,3 +899,4 @@ class MultiFileParallelAssignmentTests(FileAssignmentBase):
         self.assertEqual(rows[second['id']]['assignment']['owner_id'],
                          self.editor2.id)
         self.assertEqual(rows[first['id']]['submission']['state'], 'none')
+        self.assertEqual(rows[first['id']]['submission']['status'], 'withdrawn')

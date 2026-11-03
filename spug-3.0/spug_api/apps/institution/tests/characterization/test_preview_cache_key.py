@@ -8,7 +8,7 @@ kkFileView 以 fullfilename 作为回源下载文件名与转换缓存键（缓�
 （串版）。dev 环境实测复现：先预览草稿，再预览同显示名的生效版快照，
 看到的是草稿内容（快照物理文件与其哈希本身完好，串版只发生在缓存层）。
 
-契约（originals / drafts / versions / version files 四类预览同一口径）：
+契约（drafts / versions / version files 三类预览同一口径）：
 - fullfilename = basename(file_path)（build_stored_name 生成的含 UUID 存储
   名，与物理文件唯一对应）；显示名只作为 file_name 下发，不参与缓存键；
 - 同显示名、不同内容的两个文件，fullfilename 必须互不相同；
@@ -24,8 +24,7 @@ from django.test import TestCase, override_settings
 
 from apps.institution import storage
 from apps.institution.models import (
-    Manual, ManualDraft, ManualFile, ManualOriginal, ManualVersion,
-    ManualVersionFile)
+    Manual, ManualDraft, ManualFile, ManualVersion, ManualVersionFile)
 from apps.institution.tests.base import (
     PERM_DRAFT, PERM_VIEW, get_data, has_error, make_client, make_grant,
     make_user, setup_test_env)
@@ -142,45 +141,6 @@ class DraftPreviewCacheKeyTests(PreviewCacheKeyMixin, TestCase):
             streams[entry.id] = body
         self.assertEqual(streams[entry_a.id], CONTENT_A)
         self.assertEqual(streams[entry_b.id], CONTENT_B)
-
-
-@override_settings(KKFILEVIEW_API_URL='/kkfileview',
-                   KKFILEVIEW_SERVER_URL='http://tdyw-test')
-class OriginalPreviewCacheKeyTests(PreviewCacheKeyMixin, TestCase):
-    """原稿预览：fullfilename 用存储名，显示名只进 file_name"""
-
-    def _make_original(self, content):
-        entry = ManualFile.objects.create(
-            manual=self.manual, display_name=DISPLAY_NAME, sort_order=0)
-        rel = self._write_physical('original', content)
-        return ManualOriginal.objects.create(
-            manual=self.manual, file=entry, file_path=rel,
-            original_name=DISPLAY_NAME, ext='.docx', file_size=len(content),
-            uploaded_by=self.editor)
-
-    def test_fullfilename_is_stored_name_and_display_name_in_file_name(self):
-        original = self._make_original(CONTENT_A)
-        resp = make_client(self.viewer).get(
-            f'/institution/manuals/{self.manual.id}/originals/{original.id}/preview-url/')
-        self.assertFalse(has_error(resp))
-        data = get_data(resp)
-        _, query = parse_preview(data['preview_url'])
-        key = query['fullfilename'][0]
-        self.assertEqual(key, os.path.basename(original.file_path.replace('\\', '/')))
-        self.assertNotEqual(key, DISPLAY_NAME)
-        self.assertEqual(data['file_name'], DISPLAY_NAME)
-
-    def test_same_display_name_originals_have_distinct_keys(self):
-        original_a = self._make_original(CONTENT_A)
-        original_b = self._make_original(CONTENT_B)
-        keys = []
-        for original in (original_a, original_b):
-            resp = make_client(self.viewer).get(
-                f'/institution/manuals/{self.manual.id}/originals/{original.id}/preview-url/')
-            self.assertFalse(has_error(resp))
-            _, query = parse_preview(get_data(resp)['preview_url'])
-            keys.append(query['fullfilename'][0])
-        self.assertNotEqual(keys[0], keys[1])
 
 
 @override_settings(KKFILEVIEW_API_URL='/kkfileview',

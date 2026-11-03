@@ -4,22 +4,19 @@
 
 接口约定（nginx 对外前缀 /api/institution/）。多文件模型（2026-10-29）：
 文件级路由挂在 manuals/<pk>/files/<fid>/ 下，每个请求先校验文件确属
-当前制度；旧单文件路由（manuals/<pk>/draft|originals/...）在过渡期
-委托唯一启用文件，多文件制度明确拒绝。
+当前制度；新增制度文件由上传文件直接建立当前草稿（不再保存额外副本）；
+旧单文件 draft 路由（manuals/<pk>/draft/...）在过渡期委托唯一启用文件，
+多文件制度明确拒绝。
 
   GET    /manuals/<pk>/files/                     待发布文件清单（含草稿/占用状态）
-  POST   /manuals/<pk>/files/create/              新增文件（multipart，建条目+原稿+草稿）
+  POST   /manuals/<pk>/files/create/              新增文件（multipart，建条目+当前草稿）
   POST   /manuals/<pk>/files/<fid>/rename/        文件改名
   POST   /manuals/<pk>/files/<fid>/move/          文件排序（position 目标序位）
   POST   /manuals/<pk>/files/<fid>/remove/        移除出待发布集合
-  GET    /manuals/<pk>/files/<fid>/originals/     文件原稿列表
-  POST   /manuals/<pk>/files/<fid>/originals/upload/   上传原稿
-  GET    /manuals/<pk>/files/<fid>/originals/<oid>/download/    下载原稿
-  GET    /manuals/<pk>/files/<fid>/originals/<oid>/preview-url/ 预览原稿
   GET    /manuals/<pk>/files/<fid>/draft/         文件草稿信息
-  POST   /manuals/<pk>/files/<fid>/draft/create/  草稿建立/恢复（优先级：已有草稿拒绝
-                                                   > 当前生效版本快照 > 最近原稿；
-                                                   original_id=明确的原稿重建，需确认）
+  POST   /manuals/<pk>/files/<fid>/draft/create/  草稿建立/恢复（已有草稿拒绝
+                                                   > 当前生效版本快照；无可用快照
+                                                   时明确提示重新上传制度文件）
   POST   /manuals/<pk>/files/<fid>/revision/start/ 开始修订（状态动作；工作副本
                                                    缺失/损坏/基线不一致时带
                                                    confirm_repair 从生效快照修复）
@@ -78,7 +75,7 @@ from libs.pagination import paginate
 
 from . import authorization_services, editor_services, serializers, \
     services, storage, version_compare
-from .models import (Manual, ManualDraft, ManualFile, ManualOriginal,
+from .models import (Manual, ManualDraft, ManualFile, ManualSubmission,
                      ManualVersion, ManualVersionFile)
 from .views import _download_response, _manual_from_request, manual_auth
 from .views_files import (_assignment_payload, _can_view_workspace,
@@ -144,17 +141,22 @@ def _build_preview_url(request, manual, file_kind, obj, file_name=None):
 def _draft_missing_response(file_entry):
     """草稿缺失的业务错误响应：error + draft_recovery（HTTP 200）
 
-    draft_recovery 顶层字段说明恢复途径（source=current_version/original、
-    version_no、requires_confirm），供 API 消费方与测试读取；浏览器端由
-    拦截器以 error 文本提示一次，前端恢复入口以 files/ 清单行的
-    draft_recovery 为准渲染。
+    draft_recovery 顶层字段说明恢复途径（source=current_version 或 none、
+    version_no、requires_reupload、note），供 API 消费方与测试读取；浏览器
+    端由拦截器以 error 文本提示一次，前端恢复提示以 files/ 清单行的
+    draft_recovery 为准。无可恢复快照时明确提示重新上传制度文件（历史
+    版本存在时可先在版本历史回退），绝不回退到任何上传副本。
     """
     hint = services.build_draft_recovery_hint(file_entry)
     if hint['source'] == 'current_version':
         message = (f'当前文件没有草稿，'
                    f'请从当前生效版本（v{hint["version_no"]}）恢复草稿')
     else:
-        message = '当前文件没有草稿，请从初始原稿创建草稿或在版本历史中回退'
+        message = f'当前文件没有草稿：{hint["note"]}'
+        if file_entry.manual.current_version:
+            message += '；请重新上传制度文件建立草稿'
+        elif services.has_published_versions(file_entry.manual):
+            message += '；也可重新上传制度文件建立草稿'
     return HttpResponse(
         json.dumps({'error': message, 'data': '', 'draft_recovery': hint},
                    ensure_ascii=False),
@@ -167,6 +169,32 @@ def _draft_or_error(file_entry):
     if not draft or not draft.file_path:
         return None, _draft_missing_response(file_entry)
     return draft, None
+
+
+LEGACY_REBUILD_ERROR = (
+    '不再支持从原稿重建草稿（即不再支持从历史上传文件重建草稿）：'
+    '请从当前生效版本恢复，或重新上传制度文件建立草稿')
+# 已下线的旧重建参数：出现即拒绝，绝不写入
+LEGACY_REBUILD_KEYS = ('original_id', 'rebuild', 'rebuild_from_original',
+                       'source_original_id', 'confirm', 'password')
+
+
+def _parse_legacy_rebuild_params(raw_body):
+    """解析草稿建立请求体，判定是否携带已下线的旧重建参数
+
+    Returns:
+        tuple: (是否携带旧重建参数, 参数错误消息或 None)——空 body 视为
+        合法的"按默认优先级恢复"，格式非法时明确拒绝，不静默执行恢复。
+    """
+    if not raw_body:
+        return False, None
+    try:
+        payload = json.loads(raw_body)
+    except (ValueError, TypeError):
+        return False, '请求参数格式错误'
+    if not isinstance(payload, dict):
+        return False, '请求参数格式错误'
+    return any(payload.get(key) for key in LEGACY_REBUILD_KEYS), None
 
 
 # ---------------------------------------------------------------------------
@@ -191,58 +219,31 @@ class FileDraftDetailView(View):
         data['file'] = serializers.to_manual_file_dict(
             file_entry, draft, _session_payload(file_entry, request),
             assignment=_assignment_payload(file_entry, request),
-            submission=services.file_submission_state(file_entry, draft))
+            submission=services.file_submission_state(
+                file_entry, draft, request.user,
+                can_publish=authorization_services.can_publish(
+                    request.user, manual)))
         data['active_session'] = _session_payload(file_entry, request)
         return json_response(data=data)
 
 
 class FileDraftCreateView(View):
-    """文件草稿建立/恢复入口（严格优先级，原稿不得成为默认恢复来源）
+    """文件草稿建立/恢复入口（已有草稿拒绝；只从当前生效版本快照恢复）
 
-    默认（不传 original_id）按以下优先级执行：
-    1. 当前文件已有草稿 -> 拒绝（请继续编辑或明确执行重建，不得无提示覆盖）
-    2. 无草稿且制度有当前生效版本 -> 从当前生效版本中该文件的
-       ManualVersionFile 快照恢复草稿（base_version=来源版本；当前版本
-       不含该文件时明确报错，绝不静默改用原稿补齐）
-    3. 无草稿且制度从未发布过版本 -> 从该文件最近一次原稿创建草稿
+    固定优先级：
+    1. 当前文件已有有效草稿 -> 拒绝（请继续编辑，不得无提示覆盖）；
+    2. 无草稿且制度有当前生效版本、且该版本含此文件的
+       ManualVersionFile 快照 -> `services.restore_draft_from_current_version`
+       从该快照恢复（base_version=来源版本、失效该文件会话、修订号新起；
+       服务在行锁内复核并发已建草稿即放弃）；
+    3. 无可用快照（从未发布 / 当前版本不含该文件 / 已废止无生效版本）
+       -> 明确业务错误 + draft_recovery（source=none、requires_reupload），
+       提示重新上传制度文件建立草稿；历史版本存在时可先在版本历史回退。
+       绝不回退到任何历史上传副本。
 
-    显式重建（传 original_id）：「从原始上传文件重建草稿」高级操作。
-    制度发布过版本（含已废止）时必须 confirm=true 二次确认；将丢弃当前
-    草稿内容时还需通过编辑密码校验（未配置密码的手册跳过密码项）；
-    存在活跃编辑会话时一律拒绝。操作记录含来源原稿 ID、重建前修订号、
-    当前发布版本号与操作账号；原稿记录与历史版本永不删除或改写。
+    曾用于旧版「从上传文件重建草稿」的载荷参数（original_id/rebuild 等）
+    已随本次改造移除：请求载荷携带这些旧重建参数一律明确拒绝且不写入。
     """
-
-    def _recover_missing_draft(self, manual, file_entry, user):
-        """无草稿时的默认恢复（严格优先级）：版本快照 > 废止拒绝 > 最近可用原稿
-
-        Returns:
-            tuple: (draft 或 None, action_kind 或 None, 错误响应或 None)
-        """
-        if manual.current_version:
-            draft, err = services.restore_draft_from_current_version(
-                file_entry, user)
-            if err:
-                return None, None, json_response(error=err)
-            return draft, services.ACTION_RESTORE_DRAFT, None
-        if services.has_published_versions(manual):
-            # 有历史版本但无生效版本（已废止）：基线缺失，不静默回原稿
-            return None, None, json_response(error=(
-                '制度已发布过版本但当前无生效版本，请在版本历史中回退，'
-                '或使用「从原始上传文件重建草稿」高级恢复操作'))
-        original = file_entry.originals.filter(
-            cleaned_at__isnull=True).order_by('-id').first()
-        if not original:
-            if file_entry.originals.exists():
-                return None, None, json_response(error=(
-                    '该文件的初始原稿已按保留策略清理（仅存来源元数据），'
-                    '不能创建草稿；请为该文件更换来源（上传新原稿）后重试'))
-            return None, None, json_response(error='请先上传原稿再创建草稿')
-        draft, err = services.create_draft_from_original(
-            file_entry, original, user)
-        if err:
-            return None, None, json_response(error=err)
-        return draft, services.ACTION_CREATE_DRAFT, None
 
     @manual_auth('institution.manual.draft_edit')
     def post(self, request, pk, fid):
@@ -252,79 +253,37 @@ class FileDraftCreateView(View):
         file_entry, resp = _file_from_request(request, manual, fid)
         if resp:
             return resp
-        # 草稿建立/重建/恢复属内容写路径：负责人独占编辑（编制授权 +
-        # 该文件负责人）
+        # 草稿建立/恢复属内容写路径：负责人独占编辑（编制授权 + 该文件负责人）
         if not authorization_services.can_edit_file(request.user, manual, file_entry):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能编辑')
-        form, error = JsonParser(
-            Argument('original_id', type=int, required=False, default=None),
-            Argument('confirm', type=bool, required=False, default=False),
-            Argument('password', type=str, required=False, default=None),
-        ).parse(request.body)
-        if error:
-            return json_response(error=error)
+        legacy_payload, body_error = _parse_legacy_rebuild_params(request.body)
+        if body_error:
+            return json_response(error=body_error)
+        if legacy_payload:
+            return json_response(error=LEGACY_REBUILD_ERROR)
         existing = ManualDraft.objects.filter(file=file_entry).first()
-        if form.original_id:
-            return self._rebuild_from_original(
-                request, manual, file_entry, existing, form)
         if existing and existing.file_path:
             return json_response(
                 error='当前文件已有草稿，请继续编辑或明确执行重建')
-        # 无草稿（含空草稿脏行）：按优先级恢复
-        draft, action_kind, err = self._recover_missing_draft(
-            manual, file_entry, request.user)
-        if err:
-            return err
-        record_audit_event(
-            request, 'update', services.AUDIT_TARGET_TYPE,
-            target_id=manual.id, target_name=manual.name,
-            detail={'action_kind': action_kind,
-                    'file_id': file_entry.id, 'revision': draft.revision,
-                    'module': 'institution'})
-        return json_response(data=serializers.to_draft_dict(draft))
-
-    def _rebuild_from_original(self, request, manual, file_entry, existing, form):
-        """明确的「从原始上传文件重建草稿」（original_id 已传）"""
-        original = ManualOriginal.objects.filter(
-            pk=form.original_id, manual=manual, file=file_entry).first()
-        if not original:
-            return json_response(error='原稿不存在或无权限访问')
-        if original.cleaned_at:
-            return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
-        if services.has_published_versions(manual):
-            if services.get_active_session_for_file(file_entry):
-                return json_response(error=(
-                    '该文件有进行中的编辑会话，不能重建草稿；请先退出会话再执行'))
-            if not form.confirm:
-                return json_response(error=(
-                    '该制度已发布过版本：从原始上传文件重建草稿会以原始文件'
-                    '替换当前草稿，属高风险操作，请携带二次确认（confirm）执行'))
-            if existing and existing.file_path and manual.password_hash:
-                if form.password is None:
-                    return json_response(error=(
-                        '从原始上传文件重建草稿会丢弃当前草稿内容，'
-                        '请输入编辑密码确认后执行'))
-                ok, err = services.verify_manual_password(manual, form.password)
-                if not ok:
-                    return json_response(error=err)
-        draft, err = services.create_draft_from_original(
-            file_entry, original, request.user, log_detail={
-                'rebuild_from_original': True,
-                'previous_revision': existing.revision if existing else None,
-                'current_version_no': (
-                    manual.current_version.version_no
-                    if manual.current_version else None),
-            })
+        # 无草稿（含空草稿脏行）：只从当前生效版本快照恢复
+        if not manual.current_version:
+            return _draft_missing_response(file_entry)
+        snapshot_exists = ManualVersionFile.objects.filter(
+            version=manual.current_version, manual_file=file_entry).exists()
+        if not snapshot_exists:
+            return _draft_missing_response(file_entry)
+        draft, err = services.restore_draft_from_current_version(
+            file_entry, request.user)
         if err:
             return json_response(error=err)
         record_audit_event(
             request, 'update', services.AUDIT_TARGET_TYPE,
             target_id=manual.id, target_name=manual.name,
-            detail={'action_kind': services.ACTION_CREATE_DRAFT,
+            detail={'action_kind': services.ACTION_RESTORE_DRAFT,
                     'file_id': file_entry.id, 'revision': draft.revision,
-                    'source_original_id': original.id, 'rebuild': True,
+                    'version_id': manual.current_version_id,
                     'module': 'institution'})
         return json_response(data=serializers.to_draft_dict(draft))
 
@@ -348,6 +307,8 @@ class FileDraftSessionView(View):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能编辑')
+        if services.file_is_frozen(file_entry):
+            return json_response(error=services.FROZEN_EDIT_ERROR)
         draft, err = _draft_or_error(file_entry)
         if err:
             return err
@@ -495,24 +456,6 @@ class FileDraftPreviewUrlView(View):
             return err
         data = _build_preview_url(
             request, manual, storage.FILE_KIND_DRAFT, draft)
-        if not data:
-            return json_response(error='Office文档预览服务未配置，请联系管理员')
-        return json_response(data=data)
-
-
-class OriginalPreviewUrlView(View):
-    @manual_auth('institution.manual.view')
-    def get(self, request, pk, oid):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        original = ManualOriginal.objects.filter(pk=oid, manual=manual).first()
-        if not original:
-            return json_response(error='原稿不存在或无权限访问')
-        if original.cleaned_at:
-            return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
-        data = _build_preview_url(
-            request, manual, storage.FILE_KIND_ORIGINAL, original)
         if not data:
             return json_response(error='Office文档预览服务未配置，请联系管理员')
         return json_response(data=data)
@@ -931,6 +874,8 @@ class FileEditorConfigView(View):
             return json_response(error='手册不存在或无权限访问')
         if manual.status != Manual.STATUS_ACTIVE:
             return json_response(error='手册已归档，不能编辑')
+        if services.file_is_frozen(file_entry):
+            return json_response(error=services.FROZEN_EDIT_ERROR)
         draft, err = _draft_or_error(file_entry)
         if err:
             return err
@@ -1060,14 +1005,9 @@ def _token_matches(token_data, expect_type, obj_id):
 def _resolve_preview_object(kind, obj_id, manual, user):
     """按文件类别取预览对象并做角色与归属校验；无权/不存在返回 None
 
-    draft/vfile 归属校验以对象自身的 file/version 链反查手册，防止
-    改文件 ID 后读取别的制度。
+    draft/vfile/submission 归属校验以对象自身的 file/version/manual 链
+    反查手册，防止改文件 ID 后读取别的制度。
     """
-    if kind == storage.FILE_KIND_ORIGINAL:
-        obj = ManualOriginal.objects.filter(pk=obj_id, manual=manual).first()
-        if obj and not authorization_services.can_view_manual(user, manual):
-            obj = None
-        return obj
     if kind == storage.FILE_KIND_VERSION:
         obj = ManualVersion.objects.filter(pk=obj_id, manual=manual).first()
         if obj and not authorization_services.can_view_published(user, manual):
@@ -1085,11 +1025,18 @@ def _resolve_preview_object(kind, obj_id, manual, user):
         if obj and not authorization_services.can_edit_manual_files(user, manual):
             obj = None
         return obj
+    if kind == storage.FILE_KIND_SUBMISSION:
+        obj = ManualSubmission.objects.filter(
+            pk=obj_id, file__manual=manual,
+            status=ManualSubmission.STATUS_PENDING).first()
+        if obj and not authorization_services.can_view_workspace(user, manual):
+            obj = None
+        return obj
     return None
 
 
 class ManualFilePreviewFileView(View):
-    """原稿/版本/版本快照/草稿文件流；kkFileView 回源与浏览器原生预览共用"""
+    """版本/版本快照/草稿文件流；kkFileView 回源与浏览器原生预览共用"""
 
     def get(self, request, pk, key):
         token = request.GET.get('preview_token', '')
@@ -1103,20 +1050,21 @@ class ManualFilePreviewFileView(View):
         if len(parts) != 2 or not parts[1].isdigit():
             return json_response(error='预览对象不存在')
         kind, obj_id = parts[0], int(parts[1])
-        if kind not in (storage.FILE_KIND_ORIGINAL, storage.FILE_KIND_VERSION,
+        if kind not in (storage.FILE_KIND_VERSION,
                         storage.FILE_KIND_DRAFT,
-                        storage.FILE_KIND_VERSION_FILE):
+                        storage.FILE_KIND_VERSION_FILE,
+                        storage.FILE_KIND_SUBMISSION):
             return json_response(error='预览对象不存在')
         if not _token_matches(token_data, kind, obj_id):
             return json_response(error='预览令牌与对象不匹配')
         obj = _resolve_preview_object(kind, obj_id, manual, request.user)
         if not obj:
             return json_response(error='预览对象不存在或无权限访问')
-        if kind == storage.FILE_KIND_ORIGINAL and obj.cleaned_at:
-            return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
         if (kind in (storage.FILE_KIND_VERSION, storage.FILE_KIND_VERSION_FILE)
                 and obj.cleaned_at):
             return json_response(error='该文件已按保留策略清理，仅存清单与哈希元数据')
+        if kind == storage.FILE_KIND_SUBMISSION and obj.cleaned_at:
+            return json_response(error='提交快照已被清理，仅存提交记录')
         try:
             abs_path = storage.resolve_absolute_path(obj.file_path)
         except ValueError:

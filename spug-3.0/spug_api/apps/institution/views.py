@@ -1,6 +1,6 @@
 # Copyright: (c) OpenSpug Organization. https://github.com/openspug/spug
 # Released under the AGPL-3.0 License.
-"""制度管理视图：类别、手册、密码、原稿、旧章节（只读）、操作记录
+"""制度管理视图：类别、手册、密码、旧章节（只读）、操作记录
 
 接口约定（nginx 对外前缀 /api/institution/）：
   GET    /categories/                        查看类别（institution.manual.view）
@@ -15,10 +15,6 @@
   PUT    /manuals/<pk>/password/             设置/重置编辑密码（手册所有者
                                              或平台超管；页面码不能覆盖）
   GET    /manuals/badge/                     提交编制待发布红点（institution.manual.publish）
-  GET    /manuals/<pk>/originals/            原稿列表
-  POST   /manuals/<pk>/originals/upload/     上传原稿（institution.manual.upload；所有者/超管）
-  GET    /manuals/<pk>/originals/<oid>/download/   下载原稿（institution.manual.download）
-  GET    /manuals/<pk>/originals/<oid>/preview-url/ 预览原稿
   GET    /manuals/<pk>/chapters/             旧章节分工清单（遗留只读，供人工核对）
   POST   /manuals/<pk>/chapters/create/      已关闭（章节分工改为文件分工，见文件级接口）
   PUT    /manuals/<pk>/chapters/<cid>/       已关闭
@@ -28,8 +24,8 @@
   POST   /manuals/<pk>/files/<fid>/submit/      提交编制（记录草稿修订号与时间）
   GET    /manuals/<pk>/operation-logs/       操作记录
 
-逐本账号授权与所有者管理端点见 views_authorization.py；草稿、会话、
-发布、版本与 preview-file 见 views_draft.py。
+逐本账号授权与所有者管理端点见 views_authorization.py；制度文件与草稿、
+会话、发布、版本与 preview-file 见 views_files.py / views_draft.py。
 """
 import logging
 import os
@@ -47,8 +43,7 @@ from libs.pagination import paginate
 
 from . import authorization_services, serializers, services, storage, \
     version_compare
-from .models import Manual, ManualAuthorization, ManualCategory, \
-    ManualFile, ManualOriginal
+from .models import Manual, ManualAuthorization, ManualCategory
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +106,7 @@ def _get_manage_manual(request, pk):
 
 
 def _check_owner_or_admin(manual, user):
-    """文件条目/原稿/分工等维护操作：手册所有者或平台超管"""
+    """文件条目/文件分工等维护操作：手册所有者或平台超管"""
     if (authorization_services.is_manual_owner(user, manual) or
             authorization_services.is_platform_admin(user)):
         return None
@@ -477,17 +472,22 @@ class ManualPasswordView(View):
 
 
 class InstitutionBadgeView(View):
-    """提交编制待发布红点统计（ExpiryBadgeStore 契约键，2026-10-31 第二轮）
+    """提交待发布核对红点统计（ExpiryBadgeStore 契约键，2026-10-31 第二轮）
 
-    统计口径：当前用户为所有者或持 can_publish 逐本授权的启用手册中，
-    未移除且提交编制有效的制度文件数（submission_revision 非空且等于
-    关联草稿修订号、草稿工作文件在库）。轻量提示计数：不做物理文件
-    stat，权威核对仍在 publish-preview/publish。归档手册不计。
+    统计口径（2026-11-03 固定快照改造，唯一实现
+    version_compare.count_handoff_badge）：当前用户为所有者或持
+    can_publish 逐本授权的启用手册中，满足全部条件的文件数——未移除；
+    有效负责人非空且非当前用户（本人负责的文件本人发布无需交接；owner
+    为空时按手册所有者）；草稿有效（file_path 非空）；存在有效待核对
+    提交（pending 且修订号与当前草稿一致）；该文件相对当前生效版本为
+    新增或内容变化（无 current_version 视为新增，哈希相同=未变化不计；
+    已随发布消费的提交自然不计）。轻量提示计数：不做物理文件 stat，权威
+    核对仍在 publish-preview/publish。归档手册不计。
     """
 
     @auth('institution.manual.publish')
     def get(self, request):
-        from django.db.models import F, Q
+        from django.db.models import Q
         user = request.user
         manual_ids = Manual.objects.filter(
             status=Manual.STATUS_ACTIVE,
@@ -496,83 +496,9 @@ class InstitutionBadgeView(View):
             Q(account_grants__account=user,
               account_grants__can_publish=True)
         ).values_list('id', flat=True).distinct()
-        count = ManualFile.objects.filter(
-            manual_id__in=manual_ids, is_removed=False,
-            submission_revision__isnull=False,
-            submission_revision=F('draft__revision'),
-        ).exclude(draft__file_path='').count()
+        count = version_compare.count_handoff_badge(manual_ids, user.id)
         return json_response(data={
             'count': count, 'expiring_count': 0, 'expired_count': 0})
-
-
-# ---------------------------------------------------------------------------
-# 原稿
-
-
-class OriginalListView(View):
-    """过渡期旧接口：委托唯一启用文件的原稿列表，多文件制度明确拒绝"""
-
-    @auth('institution.manual.view')
-    def get(self, request, pk):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        file_entry, err = services.get_single_active_file(manual)
-        if err:
-            return json_response(error=err)
-        originals = file_entry.originals.select_related('uploaded_by').all()
-        return json_response(data=[
-            serializers.to_original_dict(x) for x in originals])
-
-
-class OriginalUploadView(View):
-    """过渡期旧接口：上传原稿并绑定唯一启用文件，多文件制度明确拒绝"""
-
-    @manual_auth('institution.manual.upload')
-    def post(self, request, pk):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        deny = _check_owner_or_admin(manual, request.user)
-        if deny:
-            return deny
-        file_entry, err = services.get_single_active_file(manual)
-        if err:
-            return json_response(error=err)
-        upload = request.FILES.get('file')
-        if not upload:
-            return json_response(error='请选择要上传的文件')
-        ext = storage.extract_extension(upload.name)
-        if ext not in storage.ALLOWED_EXTENSIONS:
-            return json_response(error='仅支持 .doc / .docx 文件')
-        if upload.size > storage.MAX_FILE_SIZE:
-            return json_response(error='文件大小超过限制（100MB）')
-        stored_name = storage.build_stored_name(upload.name)
-        rel_path = storage.build_relative_path(
-            storage.FILE_KIND_ORIGINAL, manual.id, stored_name)
-        abs_path = storage.resolve_absolute_path(rel_path)
-        file_hash = storage.save_upload_file(upload, abs_path)
-        try:
-            with transaction.atomic():
-                original = ManualOriginal.objects.create(
-                    manual=manual, file=file_entry, file_path=rel_path,
-                    original_name=upload.name, ext=ext,
-                    file_size=upload.size, file_hash=file_hash,
-                    uploaded_by=request.user)
-                services.log_operation(
-                    manual, request.user, services.ACTION_UPLOAD_ORIGINAL,
-                    file=file_entry, file_id=file_entry.id,
-                    original_id=original.id, file_name=upload.name)
-                record_audit_event(
-                    request, 'create', services.AUDIT_TARGET_TYPE,
-                    target_id=manual.id, target_name=manual.name,
-                    detail={'action_kind': services.ACTION_UPLOAD_ORIGINAL,
-                            'file_id': file_entry.id, 'file_name': upload.name,
-                            'module': 'institution'})
-        except Exception:
-            storage.safe_delete_file(abs_path)
-            raise
-        return json_response(data=serializers.to_original_dict(original))
 
 
 def _download_response(request, abs_path, filename):
@@ -582,28 +508,6 @@ def _download_response(request, abs_path, filename):
     response = FileResponse(open(abs_path, 'rb'))
     response['Content-Disposition'] = f"attachment; filename*=UTF-8''{quote(filename)}"
     return response
-
-
-class OriginalDownloadView(View):
-    @auth('institution.manual.download')
-    def get(self, request, pk, oid):
-        manual, resp = _manual_from_request(request, pk)
-        if resp:
-            return resp
-        original = ManualOriginal.objects.filter(
-            pk=oid, manual=manual).first()
-        if not original:
-            return json_response(error='原稿不存在或无权限访问')
-        if original.cleaned_at:
-            return json_response(error=storage.ORIGINAL_CLEANED_ERROR)
-        services.log_operation(
-            manual, request.user, 'download',
-            file_name=original.original_name, file_kind='original')
-        try:
-            abs_path = storage.resolve_absolute_path(original.file_path)
-        except ValueError:
-            return json_response(error='文件路径非法')
-        return _download_response(request, abs_path, original.original_name)
 
 
 # ---------------------------------------------------------------------------

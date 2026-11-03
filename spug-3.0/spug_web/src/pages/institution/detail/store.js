@@ -4,6 +4,7 @@
  */
 import { observable, action } from 'mobx';
 import { http } from 'libs';
+import institutionBadge from '../../../layout/InstitutionBadgeStore';
 import { canViewWorkspace } from '../utils';
 
 class DetailStore {
@@ -39,7 +40,7 @@ class DetailStore {
   @observable isFetchingDraftStatus = false;
   @observable draftStatusError = '';
 
-  // 文件变更记录（按文件）：发布参与记录 + 该文件操作记录分页
+  // 文件历史弹窗（按文件）：发布参与记录 + 该文件操作记录分页
   @observable fileVersion = null;
   @observable isFetchingFileVersion = false;
   // 发布记录加载失败置位（拦截器已提示），不得以空列表冒充成功
@@ -57,13 +58,6 @@ class DetailStore {
   // 仅有 view 角色时条目的 draft/active_session 为 null（只看结构）
   @observable files = [];
   @observable isFetchingFiles = false;
-
-  // 初始来源聚合视图（"初始来源"页签）：一次请求返回全部制度文件行
-  // （最初原稿 + 完整原稿历史 + 首次发布版本 + 清理状态），避免文件较多时
-  // 为每一行单独发请求；失败置错误态可重试，不以空列表冒充成功
-  @observable originalsOverview = [];
-  @observable isFetchingOriginalsOverview = false;
-  @observable originalsOverviewError = '';
 
   @observable chapters = [];
   @observable isFetchingChapters = false;
@@ -90,16 +84,11 @@ class DetailStore {
   @observable ownerCandidates = [];
   @observable ownerCandidatesError = '';
 
-  // 文件清单行「变更记录」入口预选的制度文件 ID（FileChangeTab 经
-  // reaction 消费并清空——页签保持挂载时再次跳转同样生效；详情页由此
-  // 实现 文件行 -> 按文件变更记录 的直达跳转）
-  @observable fileChangeTarget = null;
-
   @action.bound
   fetchDetail(id) {
     // fetchSeq 是"手册上下文代数"：仅在切换手册时推进（卸载走 reset 统一作废）。
-    // 同手册刷新（如 OriginalsTab.refresh 连发 fetchOriginalsOverview+fetchDetail）若也
-    // 推进序号，先发的列表请求会在 finally 中拒绝复位 loading，spinner 永久残留。
+    // 同手册刷新（如 FileListTab.refresh 连发 fetchDetail+fetchCurrentFiles+fetchFiles）
+    // 若也推进序号，先发的列表请求会在 finally 中拒绝复位 loading，spinner 永久残留。
     const seq = (this.id !== id) ? ++this.fetchSeq : this.fetchSeq;
     this.id = id;
     this.isFetching = true;
@@ -229,27 +218,6 @@ class DetailStore {
   }
 
   @action.bound
-  fetchOriginalsOverview(id) {
-    const seq = this.fetchSeq;
-    this.isFetchingOriginalsOverview = true;
-    return http.get(`/api/institution/manuals/${id}/originals-overview/`)
-      .then(data => {
-        if (seq !== this.fetchSeq) return;
-        this.originalsOverview = (data && data.files) || [];
-        this.originalsOverviewError = '';
-      })
-      .catch(() => {
-        // 拦截器已提示；置错误态可重试，不以空列表冒充成功
-        if (seq !== this.fetchSeq) return;
-        this.originalsOverview = [];
-        this.originalsOverviewError = '初始来源加载失败，请重试';
-      })
-      .finally(() => {
-        if (seq === this.fetchSeq) this.isFetchingOriginalsOverview = false;
-      });
-  }
-
-  @action.bound
   fetchChapters(id) {
     const seq = this.fetchSeq;
     this.isFetchingChapters = true;
@@ -305,14 +273,61 @@ class DetailStore {
   }
 
   /**
-   * 提交编制（负责人完成编制后的交接标记：后端记录草稿修订号与时间；
-   * 草稿再次保存/重建后提交状态按修订号比对自动失效）。失败向上抛。
+   * 提交待发布核对（2026-11-03 固定快照交接）：后端在行锁内校验有效负责人
+   * 与编辑会话后创建**独立不可变内容快照**并冻结该文件内容（此后内容写路径
+   * 与结构写路径均拒绝，发布使用该快照）。成功返回该文件最新行（含
+   * submission/frozen）；失败向上抛，绝不乐观更新。
    */
   @action.bound
   submitCompile(fileId) {
     return http.post(
       `/api/institution/manuals/${this.id}/files/${fileId}/submit/`, {})
       .then(data => this.updateFileRow(fileId, data));
+  }
+
+  /**
+   * 撤回提交待发布核对（2026-11-03 固定快照交接，仅文件有效负责人本人）。
+   * 撤回后旧快照作废、内容解冻，可修改后重新提交（新行，旧行保留）。
+   * 只有服务端真实成功（HTTP 200 且无 error）才更新行并刷新菜单红点
+   * （待核对快照数属红点口径，事件驱动刷新、禁轮询）；失败向上抛，
+   * **绝不乐观更新**（冻结是否解除以服务端响应为准）。
+   */
+  @action.bound
+  withdrawSubmission(fileId) {
+    return http.post(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submit/withdraw/`, {})
+      .then(data => {
+        institutionBadge.fetch();
+        return this.updateFileRow(fileId, data);
+      });
+  }
+
+  /**
+   * 退回修改（2026-11-03 固定快照交接，持发布权且非该文件有效负责人）。
+   * reason 必填（后端同样校验，≤500）：退回后旧快照作废、内容解冻，负责人
+   * 修改后可重新提交。成功刷新红点并更新行；失败向上抛、不乐观更新。
+   */
+  @action.bound
+  returnSubmission(fileId, reason) {
+    return http.post(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submit/return/`,
+      {reason})
+      .then(data => {
+        institutionBadge.fetch();
+        return this.updateFileRow(fileId, data);
+      });
+  }
+
+  /**
+   * 待核对快照预览地址（submission/preview-url/）：返回短时效链接与
+   * 快照文件名/提交人/提交时间，供预览标题使用。**只有冻结文件的有效
+   * 快照才可访问**，与草稿预览（当前草稿）严格区分；失败向上抛
+   * （拦截器已提示），不产生任何成功语义。
+   */
+  @action.bound
+  fetchSubmissionPreviewUrl(fileId) {
+    return http.get(
+      `/api/institution/manuals/${this.id}/files/${fileId}/submission/preview-url/`);
   }
 
   /** 用接口返回的最新文件行就地更新清单（保持原有顺序，不整页重取） */
@@ -540,14 +555,11 @@ class DetailStore {
     this.isFetching = false;
     this.isFetchingFiles = false;
     this.isFetchingVersions = false;
-    this.isFetchingOriginalsOverview = false;
     this.isFetchingChapters = false;
     this.isFetchingLogs = false;
     this.error = '';
     this.files = [];
     this.versions = [];
-    this.originalsOverview = [];
-    this.originalsOverviewError = '';
     this.chapters = [];
     this.logs = [];
     this.versionsPage = 1;
@@ -568,7 +580,6 @@ class DetailStore {
     this.fileLogsTotal = 0;
     this.fileLogsPage = 1;
     this.isFetchingFileLogs = false;
-    this.fileChangeTarget = null;
     this.authorizations = null;
     this.isFetchingAuthorizations = false;
     this.authorizationsError = '';

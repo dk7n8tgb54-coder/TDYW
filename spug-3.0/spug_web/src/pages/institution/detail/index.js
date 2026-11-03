@@ -2,23 +2,26 @@
  * Copyright (c) OpenSpug Organization. https://github.com/openspug/spug
  * Released under the AGPL-3.0 License.
  *
- * 制度详情页（2026-10-30 修订状态交互优化）：
+ * 制度详情页（2026-11-01 文件历史简化）：
  * 页签按信息层级排列——
  * 1. 文件清单（默认）：制度以当前生效版本为主，一张清单承载 顺序/文件名/
  *    大小/负责人/状态/编制提交 与主要操作；修订号、工作副本来源与版本
- *    比较放草稿工作台与变更记录。修订进行中是显式状态（发布成功才结束），
+ *    比较放草稿工作台。修订进行中是显式状态（发布成功才结束），
  *    行操作按状态显示「开始修订」（真实状态动作）或「继续编辑」；
+ *    行内「文件历史」按 file_id 直接打开弹窗（发布记录/操作记录，
+ *    FileHistoryModal），不再切换顶层页签；
  * 2. 版本与发布：整套发布历史与回退/长期保留（发布主入口在头部整套
  *    待发布状态旁，发布者无需进入编辑工作台）；
- * 3. 文件变更记录：按具体文件回看发布参与与维护动作；
- * 4. 初始来源：原始上传文件（查阅/预览/下载与明确的高级恢复入口）；
- * 5. 操作记录 / 权限配置。
+ * 3. 操作记录（整本制度的完整时间线）/ 权限配置。
+ * 「文件历史」顶层页签（原「文件变更记录」）与「历史来源」入口已取消：
+ * 按文件回看发布参与与操作记录统一走文件清单行内弹窗；原稿历史
+ * （历史上传记录）与「从历史原稿重建草稿」不再在界面展示。
  * 文件分工（2026-10-29，替代旧「章节分工」）：分工单位是整份制度文件，
  * 负责人列直接点击修改分工（有权限者），支持勾选多份文件批量分工；
  * 独立的「章节分工」顶层页签已取消；旧章节记录在文件清单页签下方只读
  * 过渡展示，供人工核对。
  * 页签可见性与后端接口权限口径一致（utils.canViewPublished/canViewWorkspace，
- * 后端仍独立校验）；文案始终区分 初始来源/当前草稿/当前生效文件。
+ * 后端仍独立校验）；文案始终区分 当前草稿/当前生效文件。
  */
 import React from 'react';
 import { observer } from 'mobx-react';
@@ -34,8 +37,6 @@ import FileListTab from './FileListTab';
 import DraftStatusSummary from './DraftStatusSummary';
 import PublishButton from './PublishButton';
 import VersionsTab from './VersionsTab';
-import FileChangeTab from './FileChangeTab';
-import OriginalsTab from './OriginalsTab';
 import RecordsTab from './RecordsTab';
 import ConfigTab from './ConfigTab';
 
@@ -82,11 +83,6 @@ class InstitutionManualDetail extends React.Component {
           history.push('/institution');
         }),
     });
-  };
-
-  /** 文件清单行「变更记录」→ 切到文件变更记录页签（预选由 store 传递） */
-  handleOpenFileHistory = () => {
-    this.setState({activeKey: 'file-changes'});
   };
 
   renderHeader() {
@@ -164,19 +160,13 @@ class InstitutionManualDetail extends React.Component {
     return (
       <AuthDiv auth="institution.manual.view">
         {this.renderHeader()}
-        {/* 受控页签：文件清单行可直达「文件变更记录」并预选该文件 */}
+        {/* 受控页签：文件清单行「文件历史」在行内直接开弹窗（不切页签） */}
         <Tabs activeKey={activeKey} onChange={key => this.setState({activeKey: key})}>
           <Tabs.TabPane tab="文件清单" key="files">
-            <FileListTab onOpenFileHistory={this.handleOpenFileHistory}/>
+            <FileListTab/>
           </Tabs.TabPane>
           <Tabs.TabPane tab="版本与发布" key="versions">
             <VersionsTab/>
-          </Tabs.TabPane>
-          <Tabs.TabPane tab="文件变更记录" key="file-changes">
-            <FileChangeTab/>
-          </Tabs.TabPane>
-          <Tabs.TabPane tab="初始来源" key="originals">
-            <OriginalsTab/>
           </Tabs.TabPane>
           <Tabs.TabPane tab="操作记录" key="logs">
             <RecordsTab/>

@@ -17,8 +17,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 
 from apps.institution import storage
-from apps.institution.models import (Manual, ManualChapter, ManualOperationLog,
-                                     ManualOriginal)
+from apps.institution.models import Manual, ManualChapter, ManualOperationLog
 from apps.institution.tests.base import (
     ALL_PERMS, PERM_DRAFT, PERM_VIEW, delete_json, get_data, has_error,
     make_client, make_grant, make_user, post_json, put_json, setup_test_env,
@@ -125,6 +124,7 @@ class OperationLogTests(ChapterTestsBase):
             f'/institution/manuals/{self.manual.id}/files/create/',
             {'file': upload, 'owner_id': str(self.editor.id)})
         self.assertFalse(has_error(resp), resp.content)
+        file_id = get_data(resp)['id']
         put_json(self.manager_client,
                  f'/institution/manuals/{self.manual.id}/password/',
                  {'password': 'pass-1234'})
@@ -142,6 +142,10 @@ class OperationLogTests(ChapterTestsBase):
         delete_json(self.editor_client,
                     f'/institution/manuals/{self.manual.id}/draft/session/',
                     {'session_key': session['session_key']})
+        # 发布交接：文件负责人须提交编制后发布人才能整套发布
+        post_json(self.editor_client,
+                  f'/institution/manuals/{self.manual.id}/files/'
+                  f'{file_id}/submit/', {})
         publisher = make_user('pub', tenant_id='deptC',
                               perms=['institution.manual.publish'])
         make_grant(self.manual, publisher, can_publish=True)
@@ -159,8 +163,7 @@ class OperationLogTests(ChapterTestsBase):
         actions = [x['action'] for x in data['items']]
         # create 动作在 test_manual_crud.test_create_manual_with_roles 已钉死；
         # 本时间线覆盖由 API 触发的后续关键动作
-        for expected in ('upload_original', 'create_draft',
-                         'session_start', 'save_draft', 'publish'):
+        for expected in ('file_add', 'session_start', 'save_draft', 'publish'):
             self.assertIn(expected, actions, f'缺少动作 {expected}: {actions}')
         publish_log = next(x for x in data['items'] if x['action'] == 'publish')
         self.assertTrue(publish_log['user_name'])

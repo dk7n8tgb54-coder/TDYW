@@ -609,7 +609,9 @@ class PublishedVisibilityTests(_AuthEnvBase):
         self.manual = _manual(owner=self.owner)
         self.manual_id = self.manual.id
         file_entry = ManualFile.objects.create(
-            manual=self.manual, display_name='a.docx', sort_order=0)
+            manual=self.manual, display_name='a.docx', sort_order=0,
+            # 文件负责人=所有者：本人发布无需编制交接（发布交接规则）
+            owner=self.owner, owner_name=self.owner.username)
         ManualDraft.objects.create(
             manual=self.manual, file=file_entry,
             file_path='drafts/manual_x/202610/a.docx',
@@ -679,6 +681,9 @@ class PublishedVisibilityTests(_AuthEnvBase):
         no_perm_owner = make_user('no-perm-owner', tenant_id='deptA')
         self.manual.owner = no_perm_owner
         self.manual.save(update_fields=['owner'])
+        # 文件负责人随之交给新所有者（本人发布自己的文件无需编制交接）
+        ManualFile.objects.filter(manual=self.manual).update(
+            owner=no_perm_owner, owner_name=no_perm_owner.username)
         draft = ManualDraft.objects.get(manual=self.manual)
         abs_path = storage.resolve_absolute_path(draft.file_path)
         os.makedirs(os.path.dirname(abs_path), exist_ok=True)
@@ -799,7 +804,9 @@ class OwnerPagePermExemptionTests(TestCase):
         self.owner = make_user('bare-owner', tenant_id='deptA')
         self.manual = _manual(owner=self.owner, name='裸所有者手册')
         self.file_entry = ManualFile.objects.create(
-            manual=self.manual, display_name='a.docx', sort_order=0)
+            manual=self.manual, display_name='a.docx', sort_order=0,
+            # 文件负责人=所有者：本人发布无需编制交接（发布交接规则）
+            owner=self.owner, owner_name=self.owner.username)
         self.draft = ManualDraft.objects.create(
             manual=self.manual, file=self.file_entry,
             file_path='drafts/bare/202610/a.docx',
